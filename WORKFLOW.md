@@ -547,8 +547,8 @@ flowchart LR
         W5 --> W6["WorkerResult on sentinel"]
     end
 
-    M6 -.mp.Queue.-> W1
-    W6 -.mp.Queue.-> M7
+    M6 -. "mp.Queue" .-> W1
+    W6 -. "mp.Queue" .-> M7
 
     M8 --> M9["Filtered output .pcap<br/>(blocked flows removed)"]
     M8 --> M10["CLI report:<br/>Processing / App Breakdown /<br/>Domains / Blocked Flows"]
