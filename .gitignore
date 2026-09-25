@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# uv / venv
+.venv/
+
+# pytest
+.pytest_cache/
+
+# Generated test artifacts (output pcaps, rules files produced by manual runs)
+/output.pcap
+/*.local.pcap
+/rules_demo.json
+/*.local.json
+
+# Differential test suite: compiled C++ reference binary (build artifact,
+# rebuilt on demand via Docker -- see tests/differential/README.md)
+/tests/differential/bin/
+
+# OS
+.DS_Store
+Thumbs.db

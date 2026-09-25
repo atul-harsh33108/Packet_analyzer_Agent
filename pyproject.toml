@@ -1,0 +1,25 @@
+[project]
+name = "dpi-engine"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Atul Harsh", email = "atulsuper26@gmail.com" }
+]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "dpkt>=1.9.8",
+]
+
+[project.scripts]
+dpi-engine = "dpi_engine.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "scapy>=2.6.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"
