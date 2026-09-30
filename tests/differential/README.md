@@ -40,12 +40,42 @@ port" and "Differential testing findings" for full detail:
    never resolves the actual queried domain. The Python port resolves the query when
    possible and classifies by the specific app/domain, falling back to generic DNS
    only when resolution fails. This means DNS-related entries in `app_counts` and
-   `detected_domains` will differ in kind (Python: more specific) between the two.
+   `detected_domains` will differ in kind (Python: more specific) between the two,
+   and it means app- and domain-based rules drop **exactly one more packet** than the
+   original for a fixture whose DNS query names a blocked app. That +1 delta is
+   asserted exactly, not merely tolerated, in
+   `test_dns_resolution_is_a_documented_improvement_not_a_bug` and
+   `test_total_and_dropped_counts_differ_by_exactly_the_dns_scope_improvement`.
 4. Case-sensitivity/IP-validation/rules-file-parsing fixes (Task 6) are input-layer
    fixes that don't manifest in a basic pcap-processing run with well-formed CLI
    flags -- they only differ when a malformed rules file or mixed-case domain rule
    is used, which the crafted edge-case fixtures in this directory exercise
    specifically.
+5. **Domain-rule matching is anchored, not substring.** The reference binary
+   (`main_working.cpp:60-62`) does `sni.find(dom) != npos`, so
+   `--block-domain youtube` also blocks any domain merely *containing* "youtube".
+   The Python port follows `rule_manager.cpp` instead: an exact domain matches only
+   itself, and subdomains require the explicit `*.example.com` form. So a bare
+   domain rule blocks **less** in Python. Blocking less is the safe direction for a
+   blocking tool, and the intent is now explicit in the rule rather than implicit.
+   Pinned in both directions by
+   `test_bare_domain_rule_blocks_less_than_the_cpp_substring_match` and
+   `test_wildcard_domain_rule_matches_the_cpp_substring_result`.
+
+## Sweep tests
+
+Beyond the specific allowlist items, two tests assert *no other* difference crept in:
+
+- `test_python_resolves_exactly_the_cpp_names_plus_dns_query_names` — the Python port
+  must resolve every name the C++ binary resolves, and every *additional* name it
+  resolves must be a DNS query name (the one thing the C++ binary structurally cannot
+  see). The DNS name set is recomputed independently of the pipeline, so the assertion
+  cannot be satisfied by the code it is checking.
+- `test_total_and_dropped_counts_match_for_no_rules` — packet, byte, forward, drop and
+  active-flow counts must match exactly with no rules active.
+
+If either of these fails, the classification table or an extractor has drifted; re-verify
+this allowlist before adjusting anything.
 
 ## Files
 

@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from dpi_engine.packet_parser import parse_packet
 from dpi_engine.pcap_io import PcapReader
 from dpi_engine.sni_extractor import (

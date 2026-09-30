@@ -193,3 +193,130 @@ def test_dns_resolution_is_a_documented_improvement_not_a_bug(
         if app != AppType.DNS and app != AppType.UNKNOWN
     )
     assert resolved_specifically > 0
+
+
+# ---------------------------------------------------------------------------
+# Domain-rule semantics: an intentional, documented divergence
+# ---------------------------------------------------------------------------
+
+
+def test_bare_domain_rule_blocks_less_than_the_cpp_substring_match(
+    cpp_available, tmp_path: Path
+) -> None:
+    """`--block-domain youtube` blocks a lot more in the C++ original than here.
+
+    `main_working.cpp:60-62` matches a blocked domain with an unanchored
+    substring search (`sni.find(dom) != npos`), so "youtube" also blocks
+    "notyoutube.example.org" and any other domain merely *containing* the
+    text. This port follows `rule_manager.cpp`'s semantics instead: a bare
+    domain matches only itself, and subdomains require the explicit
+    `*.example.com` form (README.md item 5).
+
+    Blocking *less* is the safe direction for a blocking tool -- a rule that
+    silently over-blocks is worse than one that under-blocks and is visible in
+    the report -- so the divergence is intentional, and this test pins it so a
+    future change cannot quietly reintroduce substring matching.
+    """
+    cpp_result = run_cpp_reference(TEST_DPI_PCAP, ["--block-domain", "youtube"])
+
+    rules = RuleManager()
+    rules.block_domain("youtube")
+    py_result = run_pipeline(TEST_DPI_PCAP, tmp_path / "out.pcap", rules)
+
+    assert cpp_result.dropped_packets > 0, (
+        "precondition: the C++ substring match should have blocked something"
+    )
+    assert py_result.stats.dropped_packets == 0, (
+        "an exact-match rule for 'youtube' must not match 'www.youtube.com'"
+    )
+
+
+def test_wildcard_domain_rule_matches_the_cpp_substring_result(
+    cpp_available, tmp_path: Path
+) -> None:
+    """With the wildcard spelled the way both implementations mean it, the two
+    agree -- modulo the one documented DNS-resolution delta, exactly as with
+    `--block-app YouTube` above.
+
+    So the divergence in the previous test is about the *rule shape*, not about
+    a difference in what a wildcard is for.
+    """
+    cpp_result = run_cpp_reference(TEST_DPI_PCAP, ["--block-domain", "youtube"])
+
+    rules = RuleManager()
+    rules.block_domain("*.youtube.com")
+    py_result = run_pipeline(TEST_DPI_PCAP, tmp_path / "out.pcap", rules)
+
+    assert cpp_result.dropped_packets > 0
+    assert py_result.stats.dropped_packets == cpp_result.dropped_packets + 1, (
+        "Expected the same +1 delta as --block-app YouTube: the DNS query for "
+        "www.youtube.com, which only this port's DNS resolution can attribute "
+        "to a domain rule."
+    )
+
+
+def test_python_resolves_exactly_the_cpp_names_plus_dns_query_names(
+    cpp_available, tmp_path: Path
+) -> None:
+    """A final sweep for unintended classification drift.
+
+    Two invariants, both precise:
+
+    1. This port resolves every name the C++ binary resolves (nothing lost).
+    2. Every *additional* name is a DNS query name -- the one thing the C++
+       binary structurally cannot see, since it tags port-53 traffic as a flat
+       `DNS` app without ever resolving it (README.md item 3).
+
+    Note the extras are a strict subset of the DNS query names, not all of
+    them: most queried names in this fixture (www.google.com, www.youtube.com,
+    www.facebook.com) also appear in a TLS ClientHello, so the C++ binary finds
+    those independently. `api.twitter.com` is the one name the fixture carries
+    *only* in a DNS query, and it is therefore the only extra.
+
+    Anything else in the difference would mean the classification table or an
+    extractor drifted.
+    """
+    cpp_result = run_cpp_reference(TEST_DPI_PCAP)
+    py_result = run_pipeline(TEST_DPI_PCAP, tmp_path / "out.pcap")
+
+    dns_names = _dns_query_names_in(TEST_DPI_PCAP)
+    assert dns_names, "precondition: the fixture should contain DNS queries"
+
+    cpp_names = set(cpp_result.detected_domains)
+    py_names = set(py_result.detected_domains)
+
+    assert cpp_names <= py_names, (
+        "Python must resolve every name the C++ binary resolves; missing: "
+        f"{sorted(cpp_names - py_names)}"
+    )
+
+    extra = py_names - cpp_names
+    assert extra <= dns_names, (
+        "Python resolved names the C++ binary did not, beyond the DNS queries "
+        f"it cannot see. Unexpected: {sorted(extra - dns_names)}"
+    )
+    assert extra, "precondition: at least one DNS-only name should be extra"
+
+
+def _dns_query_names_in(pcap_path: Path) -> set[str]:
+    """The set of domain names carried in this capture's DNS queries.
+
+    Computed independently of the pipeline, so the assertion above cannot be
+    satisfied by the very code it is checking.
+    """
+    from dpi_engine.packet_parser import parse_packet
+    from dpi_engine.pcap_io import PcapReader
+    from dpi_engine.sni_extractor import extract_dns_query
+
+    names: set[str] = set()
+    with PcapReader(pcap_path) as reader:
+        for raw in reader:
+            parsed = parse_packet(raw)
+            if parsed is None or not parsed.has_udp:
+                continue
+            if parsed.dst_port != 53 and parsed.src_port != 53:
+                continue
+            name = extract_dns_query(parsed.payload)
+            if name:
+                names.add(name)
+    return names

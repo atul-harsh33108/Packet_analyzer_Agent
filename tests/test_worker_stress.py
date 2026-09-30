@@ -56,7 +56,7 @@ def build_large_interleaved_pcap(path: Path, num_flows: int, packets_per_flow: i
     existed). Returns the total packet count written."""
     total = 0
     with PcapWriter(path) as writer:
-        for round_ in range(packets_per_flow):
+        for _round in range(packets_per_flow):
             for flow_id in range(num_flows):
                 src_port = 20000 + flow_id
                 data = _build_tcp_packet(flow_id, src_port)

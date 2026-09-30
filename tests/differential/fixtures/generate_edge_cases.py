@@ -13,7 +13,6 @@ part of what's being verified -- see test_differential_edge_cases.py).
 from __future__ import annotations
 
 import socket
-import struct
 from pathlib import Path
 
 from dpi_engine.pcap_io import PcapWriter, RawPacket

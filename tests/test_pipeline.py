@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dpi_engine.pcap_io import PcapReader
+from dpi_engine.pcap_io import PcapError, PcapReader
 from dpi_engine.pipeline import run_pipeline
 from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType
@@ -109,7 +109,7 @@ def test_pipeline_refuses_to_overwrite_input(tmp_path: Path) -> None:
     src = tmp_path / "input.pcap"
     src.write_bytes(TEST_DPI_PCAP.read_bytes())
 
-    with pytest.raises(Exception):
+    with pytest.raises(PcapError, match="same path as the input file"):
         run_pipeline(src, src)
 
 

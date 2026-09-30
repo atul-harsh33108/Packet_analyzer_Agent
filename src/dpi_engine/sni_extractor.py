@@ -40,8 +40,6 @@ explicit limitation. See README "Known limitations".
 
 from __future__ import annotations
 
-from typing import Optional
-
 # --- TLS constants (matches OSC's SNIExtractor private constants) -----------------
 
 _CONTENT_TYPE_HANDSHAKE = 0x16
@@ -59,7 +57,7 @@ def _read_u16be(data: bytes, offset: int) -> int:
     return (data[offset] << 8) | data[offset + 1]
 
 
-def is_tls_client_hello(payload: bytes, length: Optional[int] = None) -> bool:
+def is_tls_client_hello(payload: bytes, length: int | None = None) -> bool:
     """Checks whether `payload` looks like the start of a TLS Client Hello.
 
     `length` defaults to len(payload) when omitted; accepting it explicitly
@@ -84,13 +82,11 @@ def is_tls_client_hello(payload: bytes, length: Optional[int] = None) -> bool:
     if record_length > length - 5:
         return False
 
-    if payload[5] != _HANDSHAKE_CLIENT_HELLO:
-        return False
-
-    return True
+    # Byte 5 is the handshake type; only a Client Hello is of interest.
+    return payload[5] == _HANDSHAKE_CLIENT_HELLO
 
 
-def extract_sni(payload: bytes, length: Optional[int] = None) -> Optional[str]:
+def extract_sni(payload: bytes, length: int | None = None) -> str | None:
     """Extracts the SNI hostname from a TLS Client Hello.
 
     Returns None for anything that isn't a well-formed-enough Client Hello
@@ -222,7 +218,7 @@ def is_http_request(payload: bytes) -> bool:
     return prefix in _HTTP_METHODS
 
 
-def extract_http_host(payload: bytes) -> Optional[str]:
+def extract_http_host(payload: bytes) -> str | None:
     """Extracts the value of the first "Host:" header from an HTTP request.
 
     Case-insensitive header name match, port suffix (":8080") stripped from
@@ -275,14 +271,11 @@ def is_dns_query(payload: bytes) -> bool:
     if flags & 0x80:  # QR bit set => response
         return False
 
-    qdcount = _read_u16be(payload, 4)
-    if qdcount == 0:
-        return False
-
-    return True
+    # A query with no question section has nothing to extract.
+    return _read_u16be(payload, 4) != 0
 
 
-def extract_dns_query(payload: bytes) -> Optional[str]:
+def extract_dns_query(payload: bytes) -> str | None:
     """Extracts the queried domain name from a DNS query packet.
 
     DNS name compression pointers (a label length byte with its top two

@@ -19,7 +19,6 @@ from dpi_engine.rule_manager import (
 )
 from dpi_engine.types import AppType
 
-
 # --- IP blocking ----------------------------------------------------------------
 
 

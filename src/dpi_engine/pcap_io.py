@@ -28,9 +28,10 @@ network calls. See DESIGN_DECISIONS.md "Safety constraints".
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Iterator
+from typing import BinaryIO
 
 import dpkt.pcap
 
@@ -113,7 +114,10 @@ class PcapReader:
 
     def _open(self) -> None:
         try:
-            self._file = open(self.path, "rb")
+            # Long-lived handle owned by this object and released in `close()`;
+            # PcapReader is itself a context manager, so the `with` form is the
+            # intended usage at every call site.
+            self._file = open(self.path, "rb")  # noqa: SIM115
         except OSError as exc:
             raise PcapError(f"Cannot open pcap file '{self.path}': {exc}") from exc
 
@@ -141,14 +145,15 @@ class PcapReader:
     @property
     def linktype(self) -> int:
         assert self._reader is not None
-        return self._reader.datalink()
+        # dpkt is untyped; these are documented to return int.
+        return int(self._reader.datalink())
 
     @property
     def snaplen(self) -> int:
         assert self._reader is not None
-        return self._reader.snaplen
+        return int(self._reader.snaplen)
 
-    def __enter__(self) -> "PcapReader":
+    def __enter__(self) -> PcapReader:
         return self
 
     def __exit__(self, *exc_info: object) -> None:
@@ -180,8 +185,11 @@ class PcapReader:
                 )
 
             self._packets_read += 1
+            # dpkt yields seconds as a float with a fractional part; pcap stores
+            # whole seconds plus microseconds, so split it here. `round` already
+            # returns an int for a single-argument call.
             ts_sec = int(ts)
-            ts_usec = int(round((ts - ts_sec) * 1_000_000))
+            ts_usec = round((ts - ts_sec) * 1_000_000)
             yield RawPacket(
                 ts_sec=ts_sec,
                 ts_usec=ts_usec,
@@ -225,7 +233,10 @@ class PcapWriter:
                     "path."
                 )
 
-        self._file: BinaryIO = open(self.path, "wb")
+        # Long-lived handle owned by this object and released in `close()`;
+        # PcapWriter is itself a context manager, so the `with` form is the
+        # intended usage at every call site.
+        self._file: BinaryIO = open(self.path, "wb")  # noqa: SIM115
         self._writer = dpkt.pcap.Writer(self._file, snaplen=snaplen, linktype=linktype)
         self._packets_written = 0
 
@@ -238,7 +249,7 @@ class PcapWriter:
     def packets_written(self) -> int:
         return self._packets_written
 
-    def __enter__(self) -> "PcapWriter":
+    def __enter__(self) -> PcapWriter:
         return self
 
     def __exit__(self, *exc_info: object) -> None:

@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import socket
 from dataclasses import dataclass, field
-from typing import Optional
 
 import dpkt
 import dpkt.ethernet
@@ -136,7 +135,7 @@ def _ip_bytes_to_int(ip_bytes: bytes) -> int:
     return int.from_bytes(ip_bytes, "big")
 
 
-def parse_packet(raw: RawPacket) -> Optional[ParsedPacket]:
+def parse_packet(raw: RawPacket) -> ParsedPacket | None:
     """Parses a single raw Ethernet frame.
 
     Returns None (rather than raising) for frames too short to contain even

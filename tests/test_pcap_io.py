@@ -15,6 +15,7 @@ import pytest
 
 from dpi_engine.pcap_io import (
     ETHERNET_LINKTYPE,
+    PcapError,
     PcapFormatError,
     PcapLimitExceededError,
     PcapLinktypeError,
@@ -170,7 +171,7 @@ def test_writer_refuses_to_overwrite_input(tmp_path: Path) -> None:
     src = tmp_path / "input.pcap"
     src.write_bytes(b"placeholder")
 
-    with pytest.raises(Exception):
+    with pytest.raises(PcapError, match="same path as the input file"):
         PcapWriter(src, source_path=src)
 
 

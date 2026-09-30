@@ -25,7 +25,7 @@ def test_python_version_is_313_or_compatible() -> None:
 
 
 def test_dpkt_imports() -> None:
-    import dpkt  # noqa: F401
+    import dpkt
 
     # Touch a couple of the specific symbols this project relies on to make
     # sure the pure-Python package is fully usable under 3.13, not just

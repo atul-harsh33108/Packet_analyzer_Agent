@@ -1,14 +1,24 @@
 [project]
 name = "dpi-engine"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Deep packet inspection over pcap files: classify by TLS/HTTP/DNS/QUIC, apply blocking rules, write a filtered capture."
 readme = "README.md"
 authors = [
     { name = "Atul Harsh", email = "atulsuper26@gmail.com" }
 ]
 requires-python = ">=3.13,<3.14"
+# Runtime stays deliberately tiny: pcap framing and header dissection only.
 dependencies = [
     "dpkt>=1.9.8",
+]
+
+[project.optional-dependencies]
+# QUIC Initial packets are encrypted with keys derived from the cleartext DCID,
+# so a passive observer can decrypt them -- but that needs real AES, and this
+# project will not hand-roll a block cipher. Detection and classification as
+# "QUIC" work without this; only SNI extraction is gated on it. See quic.py.
+quic = [
+    "cryptography>=42",
 ]
 
 [project.scripts]
@@ -18,8 +28,64 @@ dpi-engine = "dpi_engine.cli:main"
 dev = [
     "pytest>=8.0.0",
     "scapy>=2.6.1",
+    # In the dev group as well as the [quic] extra so the QUIC test suite
+    # actually runs in CI rather than silently skipping.
+    "cryptography>=42",
+    # Lint + typecheck. Both are configured in this file (see [tool.ruff] and
+    # [tool.mypy]) so `uv run ruff check` and `uv run mypy` are reproducible
+    # for anyone who clones the repo.
+    "ruff>=0.9",
+    "mypy>=1.14",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+# OSC/ is the preserved C++ original plus its own Python fixture generator. It
+# is reference material, not part of this port, and is held to its own
+# conventions.
+extend-exclude = ["OSC"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle. F: pyflakes. I: import sorting. UP: pyupgrade.
+# B: bugbear. SIM: simplifications. RUF: ruff-specific rules.
+# The default set is E4/E7/E9 + F; the rest are added deliberately.
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    # Line length is handled by the formatter, and several report/docstring
+    # lines are prose that reads worse when hard-wrapped.
+    "E501",
+    # `assert` in tests is the point; in library code, asserts are used only
+    # for narrowing and are documented as such.
+    "B011",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests intentionally construct malformed input and use asserts as assertions.
+"tests/**" = ["B015", "SIM117", "RUF012"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dpi_engine"]
+
+[tool.mypy]
+python_version = "3.13"
+packages = ["dpi_engine"]
+strict = true
+warn_unreachable = true
+# The multiprocessing entry points take `multiprocessing.Queue` objects, which
+# are typed as `Any` in typeshed; there is nothing useful to assert about them.
+[[tool.mypy.overrides]]
+module = ["dpkt.*", "scapy.*"]
+ignore_missing_imports = true
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# The package is fully annotated and ships a py.typed marker (PEP 561), so
+# downstream users get the types. Without listing it here the marker would be
+# excluded from the wheel.
+module-name = "dpi_engine"
+module-root = "src"

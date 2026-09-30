@@ -19,7 +19,6 @@ from dpi_engine.types import (
     sni_to_app_type,
 )
 
-
 # --- FiveTuple ----------------------------------------------------------------------
 
 
