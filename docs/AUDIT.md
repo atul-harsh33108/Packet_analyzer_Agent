@@ -155,6 +155,13 @@ These are **not** undiscovered bugs. Each is a conscious decision to preserve C+
 
 ## §2 — Defect register (`D-01`…`D-22`)
 
+> **Closure is tracked in [`TASK_TRACKER.md`](TASK_TRACKER.md) §6, not here.** This
+> section is the *description* of each finding and is its single home. A row below is
+> not updated when a defect is fixed — read the tracker's findings table for whether a
+> given `D-##` is still open. If this section and the tracker ever appear to disagree
+> about a fact rather than about status, the tracker is describing current state and
+> this section describes what was found.
+
 Seventeen live defects in the port (`D-01`…`D-16` plus `D-22`), ordered by intrinsic severity then product impact. `D-22` is grouped with `D-01` and is therefore not in numeric order. `D-17`…`D-21` are inherited C++ behaviour carried forward deliberately — see §2.1.
 
 Ordered by intrinsic severity, then product impact. All locations verified against the current tree.

@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T0-01
-next_action: Create .github/workflows/ci.yml (see TASK_RECORD T0-01)
+current_task: T0-05
+next_action: Wrap `open(self.path, "wb")` in try/except OSError -> PcapError in PcapWriter.__init__ (pcap_io.py ~239); add a PcapWriter + CLI regression test
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
-last_updated_by: unassigned
-session: ses_init
+last_updated_by: claude-opus-5[1m]
+session: ses_t0_04
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | 0 / 11 tasks done |
-| **Current task** | `T0-01` — CI, coverage, timeouts |
-| **Next action** | Create `.github/workflows/ci.yml` with three jobs (`lint`, `test`, `differential`); add `pytest-cov` + `pytest-timeout` to `[dependency-groups].dev`; add `[tool.coverage.*]` to `pyproject.toml`; set global `timeout = 60`; gitignore + `git rm --cached manual_test_output.pcap` |
-| **Blocked by** | nothing — `T0-01` is unblocked |
+| **Phase progress** | 1 / 11 tasks done |
+| **Current task** | `T0-05` - Guard `PcapWriter` open |
+| **Next action** | Wrap `open(self.path, "wb")` in `try/except OSError` raising `PcapError`, mirroring `PcapReader._open`; add a test that `PcapWriter("Z:/nonexistent-dir/out.pcap")` raises `PcapError` and that the CLI prints `error:` and exits 1 |
+| **Blocked by** | nothing - `T0-04` is unblocked |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_init` — tracker created, nothing implemented |
+| **Session** | `ses_t0_04` - `T0-04` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,7 +118,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
-| **0** | Harden | 11 | 0 | 0 | **1** | 10 | 0 | not met |
+| **0** | Harden | 11 | **1** | 0 | **1** | 9 | 0 | not met |
 | **0.5** | Real captures | 2 | 0 | 0 | **1** | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
@@ -144,11 +144,10 @@ Status vocabulary is closed (7 values) — see
 [§9](#9-status-vocabulary). Only these six values are valid.
 
 | ID | Task | Traces | Status | Gate | Effort |
-|---|---|---|---|---|---|
 | `T0-01` | CI, coverage, timeouts, gitignore artifact | `R-01` `R-02` `R-03` `R-09` | pending | — | 0.5 d |
 | `T0-02` | `conftest.py` + fixture de-duplication | `R-04` `M-07` | pending | — | 0.5 d |
 | `T0-03` | Memory reproduction test + benchmark baseline | `R-06` | pending | — | 0.5 d |
-| `T0-04` | Clamp `length` in TLS entry points | `D-05` | pending | — | 15 min |
+| `T0-04` | Clamp `length` in TLS entry points | `D-05` | done | - | 15 min |
 | `T0-05` | Guard `PcapWriter` open | `D-04` | pending | — | 15 min |
 | `T0-06` | Direct pcap record-header read | `D-06` `D-07` | pending | — | 0.5 d |
 | `T0-07` | Bound the HTTP `Host:` scan | `D-09` `D-10` | pending | — | 0.5 d |
@@ -219,7 +218,7 @@ or `dropped` and say why.
 
 ### `T0-02` — `conftest.py` + fixture de-duplication
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `tests/conftest.py` (new), 8 test modules, `tests/differential/README.md`
 - **Test added:** none needed; assert `pytest --collect-only` stays at 404
 - **How it was tackled:** —
@@ -230,7 +229,7 @@ or `dropped` and say why.
 
 ### `T0-03` — Memory reproduction test + benchmark baseline
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `tests/test_resource_bounds.py`, `tests/fixtures/`, `tests/benchmarks/`
 - **Test added:** a test that **demonstrates** `D-01` (peak `ProcessedPacket` accumulation grows with packet count) — expected to *fail* until `T0-11`; plus `pytest-benchmark` baselines for `parse_packet`, `extract_sni`, `sni_to_app_type`, end-to-end Mpps
 - **How it was tackled:** —
@@ -241,18 +240,18 @@ or `dropped` and say why.
 
 ### `T0-04` — Clamp `length` in TLS entry points
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** done - **Claimed by:** claude-opus-5[1m] - **Session:** ses_t0_04 - **Blocked by:** -
 - **Files:** `src/dpi_engine/sni_extractor.py`, `tests/test_sni_extractor.py`
-- **Test added:** `is_tls_client_hello(b"\x16\x03\x01", length=999) is False`; `extract_sni(b"\x16\x03\x01\x00\x05\x01", length=999) is None` — neither raises
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** `pytest tests/test_sni_extractor.py -q`
-- **Closed findings:** `D-05` · **Follow-ups:** —
-- **Notes:** update both docstrings to state the clamp, not just promise "never raises"
-
+- **Test added:** `tests/test_sni_extractor.py` - five tests. `test_oversized_length_does_not_make_a_short_buffer_look_like_a_client_hello` (a 6-byte buffer claimed as 999 bytes must not satisfy the `length >= 9` gate), `test_extract_sni_with_oversized_length_returns_none_instead_of_raising` (the direct IndexError repro), `test_extract_sni_never_raises_for_any_truncation_at_any_inflated_length` (exhaustive: every truncation offset x three inflated lengths), plus two guards - `test_length_argument_still_limits_parsing_when_smaller_than_payload` and `test_length_equal_to_payload_is_unchanged` - proving the clamp is an upper bound only and does not change any existing caller.
+- **How it was tackled:** Reproduced first, before touching source. `is_tls_client_hello(b"\x16\x03\x01\x00\x05\x01", 999)` returned `True` and `extract_sni` with the same arguments raised `IndexError` - and the `True` is the more interesting half: a 6-byte buffer satisfied the `length >= 9` Client Hello gate purely on the caller's *claimed* length. Root cause was one line in each of two functions: `if length is None: length = len(payload)` resolved the default but left an explicitly supplied `length` completely unchecked. Fix is `length = min(length, len(payload))` immediately after that branch, in both `is_tls_client_hello` and `extract_sni`. Both docstrings were rewritten to state the clamp and the reason, rather than continuing to promise only that the functions "never raise" - the original promise was true for the omitted-argument path and false for the explicit one, and the docstring did not distinguish them.
+- **Deviations:** The task brief said "one line each". Two lines were needed - `extract_sni` clamps independently rather than relying on its call to `is_tls_client_hello`, because `extract_sni` is a public entry point and must not depend on an internal call for its own safety. Both docstrings were also updated, which the brief mentioned but did not cost-justify.
+- **Verification:** `pytest tests/test_sni_extractor.py -k` on the new tests: **3 failed before the fix** (IndexError at `sni_extractor.py:78`), **5 passed after**. Full suite **397 passed, 12 skipped** - up from 392, i.e. +5 new tests and **zero regressions**. `ruff check .` clean. `mypy` clean on 13 files. Manual repro now returns `False` / `None`.
+- **Closed findings:** `D-05`
+- **Follow-ups:** none. This closes the only `D-##` item that property-based testing would also have caught, and the `T1-07` hypothesis strategies should include arbitrary `length` arguments so the class of bug cannot return.
+- **Notes:** The existing `test_truncated_client_hello_never_crashes_at_any_offset` gave false confidence - it is a good test, but it calls `extract_sni(truncated)` with **one** argument, so `length` always defaulted to `len(payload)` and the explicit-length path was never reached by any test in the suite. 93% line coverage counted those lines as covered; nothing exercised the bug. Worth remembering that coverage is not evidence of behaviour.
 ### `T0-05` — Guard `PcapWriter` open
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/pcap_io.py`, `tests/test_pcap_io.py`, `tests/test_cli_run.py`
 - **Test added:** `PcapWriter("Z:/nonexistent-dir-xyz/out.pcap")` raises `PcapError`; `dpi-engine run in.pcap Z:/nonexistent/out.pcap` prints `error:` and exits 1, not a traceback
 - **How it was tackled:** —
@@ -263,7 +262,7 @@ or `dropped` and say why.
 
 ### `T0-06` — Direct pcap record-header read
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/pcap_io.py`, `tests/test_pcap_io.py`
 - **Test added:** (a) `incl_len = 0xFFFFFFF0` rejected **without** attempting the read; (b) a snaplen-truncated record yields `len(data) == incl_len` and `orig_len > len(data)` — **and replace `tests/test_pcap_io.py:41`, which currently asserts the `D-06` bug**
 - **How it was tackled:** —
@@ -274,7 +273,7 @@ or `dropped` and say why.
 
 ### `T0-07` — Bound the HTTP `Host:` scan
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/sni_extractor.py`, `tests/test_sni_extractor.py`, differential allowlist
 - **Test added:** `GET /?u=http://Host:x HTTP/1.1\r\n\r\n` → `None` (was `"x HTTP/1.1"`); POST body `Host: evil.com` after the header block → `None`; `Host: [2001:db8::1]:8080` → `[2001:db8::1]`; legitimate `Host: example.com` still works
 - **How it was tackled:** —
@@ -285,7 +284,7 @@ or `dropped` and say why.
 
 ### `T0-08` — Per-packet QUIC `undecryptable` accounting
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/quic.py`, `src/dpi_engine/worker.py`, `tests/test_quic.py`
 - **Test added:** a flow whose first Initial is undecryptable and whose second decrypts cleanly reports `undecryptable == 1`, not `2` — against a constructed fixture, not a timing accident
 - **How it was tackled:** —
@@ -296,7 +295,7 @@ or `dropped` and say why.
 
 ### `T0-09` — Make `--live-rules` honest
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/cli.py`, `src/dpi_engine/pipeline.py`, `tests/test_cli_run.py`
 - **Test added:** the chosen documented behaviour — control channel works under `--load-balancers`, **or** the flag combination is rejected at parse time
 - **How it was tackled:** —
@@ -307,7 +306,7 @@ or `dropped` and say why.
 
 ### `T0-10` — Teardown in `finally`, stale docstrings, dead code
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/pipeline.py`, `worker.py`, `quic.py`, `load_balancer.py`, `types.py`, `tests/test_safety_constraints.py`
 - **Test added:** inject a `_collect` failure and assert no child processes survive; an AST check asserting no shipped docstring references a symbol absent from the module
 - **How it was tackled:** —
@@ -329,7 +328,7 @@ or `dropped` and say why.
 
 ### `T05-01` — VLAN / 802.1Q and QinQ
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/packet_parser.py`, `tests/test_packet_parser.py`
 - **Test added:** single-tagged, double-tagged and untagged frames over identical inner packets yield identical `FiveTuple` and classification; a bounded nesting-depth guard
 - **How it was tackled:** —
@@ -357,7 +356,7 @@ or `dropped` and say why.
 
 ### `T1-02` — `CapSource` abstraction
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/cap_source.py` (new), `src/dpi_engine/pcap_io.py`
 - **Test added:** `WatchSource` over a temp directory picks up files as they appear; `StreamSource` round-trips byte-for-byte against `FileSource`
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q`
@@ -375,7 +374,7 @@ or `dropped` and say why.
 
 ### `T1-04` — Rule DSL with provenance
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/rule_manager.py`, new `rules/` subpackage
 - **Test added:** JSON round-trip preserves provenance; a rule without provenance cannot be auto-applied
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q`
@@ -393,7 +392,7 @@ or `dropped` and say why.
 
 ### `T1-06` — `simulate_ruleset` counterfactual engine
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** new `rules/simulator.py`, `src/dpi_engine/pipeline.py`
 - **Test added:** simulating a ruleset that would block 100% of flows is reported as such; a no-op change yields zero delta
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q`
@@ -411,7 +410,7 @@ or `dropped` and say why.
 
 ### `T1-08` — Benchmark suite
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `tests/benchmarks/`
 - **Test added:** publish the baseline recorded in `T0-03`
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest tests/benchmarks -q`
@@ -420,7 +419,7 @@ or `dropped` and say why.
 
 ### `T1-09` — SNI / DNS parser correctness
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `src/dpi_engine/sni_extractor.py`
 - **Test added:** an SNI extension whose first name entry is not `host_name` but which contains a valid `server_name` later is now found; a 65535-byte claimed hostname is rejected; a compression-pointer loop terminates
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest tests/test_sni_extractor.py -q`
@@ -429,7 +428,7 @@ or `dropped` and say why.
 
 ### `DOC-01` — root `README.md` corrections
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `../README.md` (repository root — this file's own directory holds the docs)
 - **Change:** test count `377 + 14` → `390 + 14 = 404`; add pcapng, CIDR, dst-IP and HTTP-host limitations; **add an explicit note that the port is likely slower per packet than the C++ original**
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual read-through
@@ -446,7 +445,7 @@ or `dropped` and say why.
 - **Closed findings:** `M-02` (a-f all) · **Follow-ups:** `M-02e`/`M-02f` were code docstrings and were fixed here rather than deferred to `T0-10`: `sni_extractor.py's module docstring claimed QUIC was "intentionally NOT implemented" while citing a resolved section, and `types.py:257` cited DESIGN_DECISIONS item 14 (dead-report cleanup) where items 7 and 11 were meant.
 - **Notes:** The document now opens with a status banner pointing at `AUDIT.md`, and states that the audit supersedes it on any disagreement.
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `DESIGN_DECISIONS.md`
 - **Change:** strike bug-list item 1's QUIC clause (contradicts item 16); fix the stale efficiency note; correct the "output left on disk" claim (MP variants leave an **empty** pcap, not a partial one); rewrite §Testing strategy as done-not-planned; add `quic.py`/`report.py` to the inventory
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual read-through
@@ -480,7 +479,7 @@ or `dropped` and say why.
 - **Closed findings:** `M-04` · **Follow-ups:** §1 and §2.1 are state snapshots and will go stale again - they should be re-derived from `AUDIT.md` rather than edited, per the one-home-per-fact rule
 - **Notes:** The document now opens with a dated correction banner naming the root cause (`AUDIT.md` §6: two sessions 2h15m apart with a refactor between them) and stating which parts were corrected and which were kept.
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `AGENTIC_ARCHITECTURE.md`
 - **Change:** rewrite §1–§3 from the stale-claim table in `AUDIT.md` §4.2; resequence §8 per `AUDIT.md` §4.6; **keep §4–§7 and §9 essentially verbatim**
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual
@@ -488,7 +487,7 @@ or `dropped` and say why.
 
 ### `DOC-05` — `OSC/` banners + CMake correction
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `OSC/README.md`, `OSC/WINDOWS_SETUP.md`
 - **Change:** superseded banner pointing at the root `README.md`; correct the claim that `CMakeLists.txt` builds DPI binaries (it builds only `packet_analyzer` from three files, no `-pthread`)
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual
@@ -516,7 +515,7 @@ or `dropped` and say why.
 
 ### `DOC-08` — Gitignore / delete session transcripts
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** `.gitignore`
 - **Change:** `session-ses_*.md` are 453 KB of untracked transcript noise in the repo root — gitignore or delete
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `git status --short` clean of them
@@ -532,7 +531,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation, not a defect | — | — |
-| `D-##` defects | 22 | 0 | 19 | 3 |
+| `D-##` defects | 22 | **1** (`D-05`) | 18 | 3 |
 | `R-##` rails | 10 | 0 | 10 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **3** (`M-02` `M-03` `M-04`) | 3 (`M-01` `M-05` `M-06`) + `M-07` (paired with `T0-02`) | 0 |
@@ -558,6 +557,8 @@ A deviation is not a failure — it is the plan being corrected by evidence.
 
 | Date | Task | Planned | Actual | Reason | Plan updated? |
 |---|---|---|---|---|---|
+| 2026-10-03 | `T0-04` | `T0-01` (CI) first, then `T0-04` | started at `T0-04` | Requested explicitly: close a defect immediately rather than spend half a day on CI first. `T0-04` is ungated, 15 min, and exercises the whole claim/fix/verify/record loop end to end. | no - task order only, scope unchanged |
+| 2026-10-03 | `T0-01` | add coverage floor at 85% | floor verified achievable: **measured 93%** | Ran the measurement instead of leaving the floor as a guess. Per-module: cli 89 · sni_extractor 87 · quic 91 · worker 91 · pipeline 92 · report 95 · rule_manager 95 · packet_parser 95 · pcap_io 97 · connection_tracker 98 · types 98 · load_balancer 100. An 85% gate will not fail on day one. | no - confirms the plan |
 | 2026-10-03 | `DOC-02` | fix the six `M-02` items | also added a new-decisions table and a known-issues section | The document would otherwise imply the port is defect-free, and a reader has no other signal. Also fixed two *code* docstrings (`sni_extractor.py`, `types.py:257`) that were nominally assigned to `T0-10`. | yes — `T0-10` narrowed |
 | 2026-10-03 | `DOC-03` | deferred until after Phase 1 | rewritten now, before Phase 1 | Phase 1 has not started, and a document describing a deleted module (`demo_classify.py`) is actively misleading. Must be re-verified after `T1-01` and `T1-03`. | yes — see `DOC-03` Follow-ups |
 | — | — | — | — | — | — |
@@ -575,6 +576,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_t0_04` | claude-opus-5[1m] | `T0-04` | 1 task completed - `D-05` closed | `T0-05` |
 | 2026-10-03 | `ses_2026-10-03` | ses_2026-10-03 | `DOC-02` `DOC-03` `DOC-04` | 3 tasks completed | `T0-01` |
 | 2026-10-03 | `ses_init` | — | — | Audit, implementation plan and tracker created. Nothing implemented | `T0-01` |
 
@@ -627,7 +629,7 @@ Copy into §5 when adding a task. Keep field order.
 ```markdown
 ### `T<n>-<nn>` — <title>
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_04 · **Blocked by:** -
 - **Files:** <paths>
 - **Test added:** <the specific test, or "none needed">
 - **How it was tackled:** <what actually happened>

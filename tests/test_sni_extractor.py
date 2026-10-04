@@ -178,6 +178,79 @@ def test_client_hello_with_oversized_declared_lengths_does_not_crash() -> None:
     assert extract_sni(malicious) is None
 
 
+# --- explicit `length` argument (D-05) ------------------------------------------------
+#
+# Every other test in this file calls the extractors with a single argument, so
+# `length` always defaults to `len(payload)` and the "caller passes a buffer
+# larger than the logical packet" path -- the reason `length` is a parameter at
+# all, mirroring the original's (payload, length) signature -- is never
+# exercised. It was also never clamped, so a caller that passed an inflated
+# `length` got an out-of-bounds read or an IndexError out of a function whose
+# contract is "never raises on malformed/truncated/adversarial input".
+
+INFLATED_LENGTHS = [999, 0xFFFF, 1 << 20]
+
+
+def test_oversized_length_does_not_make_a_short_buffer_look_like_a_client_hello() -> None:
+    """A 6-byte payload told it is 999 bytes long must NOT satisfy the
+    `length >= 9` Client Hello gate. Before the clamp this returned True,
+    because the gate compared the caller's claimed length rather than the bytes
+    actually available."""
+    too_short = bytes([0x16]) + _u16be(0x0303) + _u16be(5) + bytes([0x01])
+    assert len(too_short) == 6
+
+    for length in INFLATED_LENGTHS:
+        assert is_tls_client_hello(too_short, length) is False, (
+            f"a {len(too_short)}-byte buffer claimed as {length} bytes was "
+            f"accepted as a Client Hello"
+        )
+
+
+def test_extract_sni_with_oversized_length_returns_none_instead_of_raising() -> None:
+    """The direct IndexError repro: `extract_sni` read past the end of the
+    buffer and raised, violating its documented no-raise contract."""
+    minimal = bytes([0x16]) + _u16be(0x0301) + _u16be(5) + bytes([0x01])
+
+    for length in INFLATED_LENGTHS:
+        result = extract_sni(minimal, length)
+        assert result is None, f"expected None for a truncated buffer, got {result!r}"
+
+
+def test_extract_sni_never_raises_for_any_truncation_at_any_inflated_length() -> None:
+    """Exhaustive: truncate a valid Client Hello at every byte offset, then
+    call with several inflated lengths. Neither function may raise, and the
+    result must always be a hostname or None."""
+    full_record = build_client_hello(sni_hostname=b"inflated-length.example")
+
+    for cut in range(0, len(full_record) + 1):
+        truncated = full_record[:cut]
+        for length in INFLATED_LENGTHS:
+            result = extract_sni(truncated, length)
+            assert result is None or isinstance(result, str)
+            assert isinstance(is_tls_client_hello(truncated, length), bool)
+
+
+def test_length_argument_still_limits_parsing_when_smaller_than_payload() -> None:
+    """The clamp is an upper bound only. A caller passing a length *shorter*
+    than the buffer must still get a truncated-parse result, not the full name
+    -- otherwise the clamp would silently ignore the parameter."""
+    full_record = build_client_hello(sni_hostname=b"bounded.example")
+    assert extract_sni(full_record, len(full_record)) == "bounded.example"
+
+    # Cut the length just past the record header: enough to pass the Client
+    # Hello gate, not enough to reach the SNI extension.
+    assert extract_sni(full_record, 8) is None
+    assert is_tls_client_hello(full_record, 8) is False
+
+
+def test_length_equal_to_payload_is_unchanged() -> None:
+    """Passing length == len(payload) explicitly must behave identically to
+    omitting it, so the fix changes no existing caller."""
+    full_record = build_client_hello(sni_hostname=b"unchanged.example")
+    assert extract_sni(full_record, len(full_record)) == extract_sni(full_record)
+    assert is_tls_client_hello(full_record, len(full_record)) is is_tls_client_hello(full_record)
+
+
 # --- HTTP Host header ----------------------------------------------------------------
 
 

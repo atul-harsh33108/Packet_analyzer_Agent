@@ -67,9 +67,16 @@ def is_tls_client_hello(payload: bytes, length: int | None = None) -> bool:
     `length` defaults to len(payload) when omitted; accepting it explicitly
     mirrors the original's (payload, length) signature for callers that pass
     a buffer larger than the logical packet.
+
+    `length` is clamped to the bytes actually present. Without the clamp a
+    caller that claimed a length larger than its buffer got two wrong answers:
+    the `length >= 9` gate below was satisfied by bytes that did not exist, and
+    the fixed-offset reads ran past the end of the buffer. This function
+    promises a bool for any input, so it must never raise -- see `extract_sni`.
     """
     if length is None:
         length = len(payload)
+    length = min(length, len(payload))
 
     # Minimum TLS record: 5 bytes header + 4 bytes handshake header.
     if length < 9:
@@ -96,10 +103,13 @@ def extract_sni(payload: bytes, length: int | None = None) -> str | None:
     Returns None for anything that isn't a well-formed-enough Client Hello
     to safely parse, or that doesn't contain an SNI extension. Never raises
     on malformed/truncated/adversarial input -- every offset advance is
-    bounds-checked first.
+    bounds-checked first, and `length` is clamped to the bytes actually
+    present so a caller that claims more than it holds cannot drive a read
+    past the end of the buffer.
     """
     if length is None:
         length = len(payload)
+    length = min(length, len(payload))
 
     if not is_tls_client_hello(payload, length):
         return None

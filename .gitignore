@@ -22,3 +22,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+
