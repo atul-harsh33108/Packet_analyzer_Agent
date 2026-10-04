@@ -18,26 +18,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
+from conftest import DIFFERENTIAL_FIXTURES as FIXTURES
 from dpi_engine.pipeline import run_pipeline
 
-from .cpp_reference import CppReferenceUnavailable, run_cpp_reference
-
-FIXTURES = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture(scope="module")
-def cpp_available():
-    """See test_differential.py's identical fixture docstring for why this
-    also does a real run_cpp_reference() call, not just build_reference_binary()."""
-    from .cpp_reference import build_reference_binary
-
-    try:
-        build_reference_binary()
-        run_cpp_reference(FIXTURES / "control_normal_capture.pcap")
-    except CppReferenceUnavailable as exc:
-        pytest.skip(f"C++ reference toolchain unavailable: {exc}")
+from .cpp_reference import run_cpp_reference
 
 
 def test_control_fixture_extracts_sni_identically(cpp_available, tmp_path: Path) -> None:

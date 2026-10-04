@@ -2,7 +2,7 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T0-02
+current_task: T0-03
 next_action: Add tests/conftest.py holding the single FIXTURES path and the cpp_available fixture; update the 8 test files and fix the conftest.py reference in tests/differential/README.md
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | 4 / 11 tasks done |
-| **Current task** | `T0-02` - `conftest.py` + fixture de-duplication (unblocks `DOC-06`) |
-| **Next action** | Create `tests/conftest.py` with the single `FIXTURES` path constant and the `cpp_available` fixture; import both in the 8 affected test files instead of duplicating; correct the `conftest.py` reference in `tests/differential/README.md` |
+| **Phase progress** | 5 / 11 tasks done |
+| **Current task** | `T0-03` - `D-01` reproduction test + benchmark baseline |
+| **Next action** | Add a test that demonstrates `D-01` (peak `ProcessedPacket` accumulation grows with packet count) and is expected to FAIL until `T0-11` lands; record `pytest-benchmark` baselines for `parse_packet`, `extract_sni`, `sni_to_app_type` and end-to-end Mpps, which is the number `P-15` leaves open |
 | **Blocked by** | nothing - `T0-04` is unblocked |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t0_01` - `T0-01` closed |
+| **Session** | `ses_t0_02` - `T0-02` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,7 +118,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
-| **0** | Harden | 11 | **4** | 0 | **1** | 5 | 0 | not met |
+| **0** | Harden | 11 | **5** | 0 | **1** | 4 | 0 | not met |
 | **0.5** | Real captures | 2 | 0 | 0 | **1** | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
@@ -145,8 +145,8 @@ Status vocabulary is closed (7 values) — see
 
 | ID | Task | Traces | Status | Gate | Effort |
 | `T0-01` | CI, coverage, timeouts, gitignore artifacts | `R-01` `R-02` `R-03` `R-09` | done | - | 0.5 d |
-| `T0-02` | `conftest.py` + fixture de-duplication | `R-04` `M-07` | pending | - | 0.5 d |
-| `T0-03` | Memory reproduction test + benchmark baseline | `R-06` | pending | — | 0.5 d |
+| `T0-02` | `conftest.py` + fixture de-duplication | `R-04` `M-07` | done | - | 0.5 d |
+| `T0-03` | Memory reproduction test + benchmark baseline | `R-06` | pending | - | 0.5 d |
 | `T0-04` | Clamp `length` in TLS entry points | `D-05` | done | - | 15 min |
 | `T0-05` | Guard `PcapWriter` open | `D-04` | done | - | 15 min |
 | `T0-06` | Direct pcap record-header read | `D-06` `D-07` | done | - | 0.5 d |
@@ -214,15 +214,15 @@ or `dropped` and say why.
 - **Notes:** The `differential` job's guard exists because of a concrete observation from `T0-06`: on this machine `tests/differential` skips 12 of 14 tests and the suite still reports success. A green CI run must not be able to mean "the parity proof never executed".
 ### `T0-02` — `conftest.py` + fixture de-duplication
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
-- **Files:** `tests/conftest.py` (new), 8 test modules, `tests/differential/README.md`
-- **Test added:** none needed; assert `pytest --collect-only` stays at 404
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** `rg -c "FIXTURES = Path" tests/` returns one hit
-- **Closed findings:** — · **Follow-ups:** `DOC-06`
-- **Notes:** pure de-duplication; do not change test semantics
-
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_02 — **Blocked by:** -
+- **Files:** `tests/conftest.py` (new), `tests/differential/conftest.py` (new), 12 test modules rewritten, `tests/test_environment.py`, `tests/differential/README.md`
+- **Test added:** three structural guards in `test_environment.py`, each proven to bite by deliberately re-introducing the violation and watching it fail: `test_no_test_module_redeclares_fixture_paths` (AST-scans every test module for a `FIXTURES`/`DIFF_FIXTURES`/`SHARED_FIXTURES`/`TEST_DPI_PCAP` assignment), `test_cpp_available_fixture_is_defined_exactly_once`, and `test_fixture_paths_point_at_real_directories` (asserts the two directories exist and are *distinct*).
+- **How it was tackled:** Surveyed before editing, and the survey changed the design. The brief said "the `FIXTURES` path is duplicated verbatim across 8 test files" $EM actually **nine** modules used three different expressions for **two** directories, and the name was ambiguous: `FIXTURES` resolved to `tests/fixtures` in `test_differential.py` but to `tests/differential/fixtures` in `test_differential_edge_cases.py`. Same name, different target, one `parents[1]` hop apart. That is not repetition, it is a trap, so the fix was a rename with unambiguous names (`SHARED_FIXTURES` vs `DIFFERENTIAL_FIXTURES`) rather than merely hoisting the old name. Two conftests rather than one: `tests/conftest.py` holds the repo-wide paths, while `cpp_available` went to `tests/differential/conftest.py` because only that package needs it, it is the correct home for a fixture, and the relative import to `cpp_reference` works there. The two old `cpp_available` copies had drifted $EM both `scope="module"` but each probed Docker with a *different* capture (shared `test_dpi.pcap` vs local `control_normal_capture.pcap`); the unified version is `scope="session"` and probes once. Afterwards ruff auto-fixed 35 findings, almost all imports the removal had orphaned.
+- **Deviations:** two. **(a)** Added the three structural guards, which the brief did not ask for. Without them this refactor is a one-time cleanup that the next contributor quietly reverses, and the repo already has precedent for exactly that rot (`WORKFLOW.md` citing a deleted module). **(b)** Replaced `FIXTURES`/`DIFF_FIXTURES`/`SHARED_FIXTURES` with explicit names rather than preserving the old aliases wholesale, because the ambiguity *was* the names. `FIXTURES` is retained as a local alias in the modules that used it so no test body had to change.
+- **Verification:** **423 passed, 12 skipped** $EM up from 420, +3 guards, **zero regressions**. `ruff` clean, `mypy` clean on 13 files. Zero remaining `FIXTURES = Path(__file__)` declarations and zero `def cpp_available` in test modules; 12 modules import from the single source. Cross-variant byte-identity tests re-run specifically, since a fixture-path mix-up would break them: 11 passed. Coverage unchanged at 91%. All three guards were proven to fail on a deliberately re-introduced violation and pass again after restore.
+- **Closed findings:** `R-04`, `M-07`
+- **Follow-ups:** `R-08` (the `scapy` promise) is still open and still the largest documentation-vs-implementation gap $EM `test_scapy_imports` in `test_environment.py` still only asserts scapy *imports*, with a comment claiming it is "used to cross-check hand-rolled TLS parsing in the differential test suite", which nothing does. `DEC-03` decides it.
+- **Notes:** Two of my own mistakes during this task, both caught by writing the guard before trusting it. The `cpp_available` guard was initially broken because my module helper globbed `test_*.py` and therefore never saw `conftest.py` $EM it reported zero definitions and failed. And my first version of that assertion embedded a hardcoded line number inside a convoluted expression, which would have broken the moment anyone edited the conftest. Both fixed before the task was called done.
 ### `T0-03` — Memory reproduction test + benchmark baseline
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -528,9 +528,9 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation, not a defect | — | — |
 | `D-##` defects | 22 | **4** (`D-04`, `D-05`, `D-06`, `D-07`) | 15 | 3 |
-| `R-##` rails | 10 | **3** (`R-01`, `R-02`, `R-03`) | 7 | 0 |
+| `R-##` rails | 10 | **4** (`R-01`, `R-02`, `R-03`, `R-04`) | 6 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
-| `M-##` documentation | 7 | **3** (`M-02` `M-03` `M-04`) | 3 (`M-01` `M-05` `M-06`) + `M-07` (paired with `T0-02`) | 0 |
+| `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
 
 **Rules:**
@@ -576,6 +576,8 @@ two documents diverge silently.
 sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
+|---|---|---|---|---|---|
+| 2026-10-03 | `ses_t0_02` | claude-opus-5[1m] | `T0-02` `DOC-06` | 1 task completed — `R-04` + `M-07` closed | `T0-03` |
 |---|---|---|---|---|---|
 | 2026-10-03 | `ses_t0_01` | claude-opus-5[1m] | `T0-01` | 1 task completed — `R-01`/`R-02`/`R-03` closed | `T0-02` |
 |---|---|---|---|---|---|

@@ -12,12 +12,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import DIFFERENTIAL_FIXTURES as DIFF_FIXTURES
+from conftest import TEST_DPI_PCAP
 from dpi_engine.pcap_io import PcapReader
 from dpi_engine.pipeline import run_pipeline, run_pipeline_multiprocess
-
-DIFF_FIXTURES = Path(__file__).parent / "fixtures"
-SHARED_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-TEST_DPI_PCAP = SHARED_FIXTURES / "test_dpi.pcap"
 
 EDGE_CASE_FIXTURES = [
     "control_normal_capture.pcap",

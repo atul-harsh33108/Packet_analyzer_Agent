@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.connection_tracker import ConnectionTracker
 from dpi_engine.packet_parser import ParsedPacket
 from dpi_engine.pcap_io import PcapReader, RawPacket
@@ -35,9 +36,6 @@ from dpi_engine.pipeline import (
 from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType, FiveTuple
 from dpi_engine.worker import FixedRuleSource, FlowProcessor, WorkItem
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 STAGED_SHAPES = [(1, 1), (1, 3), (2, 1), (2, 2), (3, 2)]
 

@@ -80,7 +80,9 @@ this allowlist before adjusting anything.
 ## Files
 
 - `bin/dpi_simple` -- the compiled OSC reference binary (gitignored, rebuilt on demand
-  by `build_reference_binary()` in `conftest.py`/`cpp_reference.py`).
+  by `build_reference_binary()` in `cpp_reference.py`).
+- `conftest.py` -- the single `cpp_available` fixture: confirms the binary is built *and*
+  that Docker is actually reachable right now, skipping cleanly if not.
 - `cpp_reference.py` -- helpers to build (if needed) and run the C++ binary via Docker,
   and parse its stdout report into a structure comparable to `PipelineResult`.
 - `fixtures/` -- edge-case pcaps crafted for this test suite specifically (truncated

@@ -8,11 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.cli import main
 from dpi_engine.pcap_io import PcapReader
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 
 def test_run_produces_filtered_output_and_report(tmp_path: Path, capsys) -> None:

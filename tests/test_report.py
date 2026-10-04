@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.connection_tracker import (
     GlobalStats,
     TrackerStats,
@@ -33,9 +34,6 @@ from dpi_engine.report import (
 )
 from dpi_engine.rule_manager import RuleStats
 from dpi_engine.types import AppType, ConnectionState, DPIStats, FiveTuple
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 
 @pytest.fixture(scope="module")

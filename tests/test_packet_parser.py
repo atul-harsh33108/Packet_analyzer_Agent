@@ -8,15 +8,12 @@ frames returning safe partial results instead of crashing.
 from __future__ import annotations
 
 import socket
-from pathlib import Path
 
 import dpkt
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.packet_parser import ParsedPacket, five_tuple_of, parse_packet
 from dpi_engine.pcap_io import PcapReader, RawPacket
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 
 def _load_all_parsed() -> list[ParsedPacket]:

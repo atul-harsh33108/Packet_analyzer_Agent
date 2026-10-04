@@ -11,13 +11,11 @@ from pathlib import Path
 
 import pytest
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.pcap_io import PcapError, PcapReader
 from dpi_engine.pipeline import run_pipeline
 from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 
 def test_pipeline_with_no_rules_forwards_everything(tmp_path: Path) -> None:

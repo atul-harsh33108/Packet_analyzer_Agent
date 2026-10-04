@@ -10,8 +10,7 @@ version+random skip).
 
 from __future__ import annotations
 
-from pathlib import Path
-
+from conftest import TEST_DPI_PCAP
 from dpi_engine.packet_parser import parse_packet
 from dpi_engine.pcap_io import PcapReader
 from dpi_engine.sni_extractor import (
@@ -22,9 +21,6 @@ from dpi_engine.sni_extractor import (
     is_http_request,
     is_tls_client_hello,
 )
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 
 def _u16be(n: int) -> bytes:

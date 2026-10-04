@@ -14,16 +14,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
+from conftest import TEST_DPI_PCAP
 from dpi_engine.pipeline import run_pipeline
 from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType
 
-from .cpp_reference import CppReferenceUnavailable, run_cpp_reference
-
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
+from .cpp_reference import run_cpp_reference
 
 # Domains where the original C++ binary is KNOWN to misclassify due to the
 # "x.com"/"t.co" substring bugs (Task 4) -- see README.md item 1. The
@@ -33,23 +29,6 @@ _KNOWN_MISCLASSIFIED_BY_CPP = {
     "www.netflix.com": ("Netflix", "Twitter/X"),
     "www.microsoft.com": ("Microsoft", "Twitter/X"),
 }
-
-@pytest.fixture(scope="module")
-def cpp_available():
-    """Confirms the reference binary is built AND Docker is actually
-    reachable right now -- build_reference_binary() alone isn't enough,
-    since it returns early (without touching Docker) if the binary is
-    already cached on disk from an earlier session, which would let a
-    test proceed to call run_cpp_reference() only to fail there instead
-    of skipping cleanly if the Docker daemon isn't currently running."""
-    from .cpp_reference import build_reference_binary
-
-    try:
-        build_reference_binary()
-        run_cpp_reference(TEST_DPI_PCAP)  # cheap connectivity probe
-    except CppReferenceUnavailable as exc:
-        pytest.skip(f"C++ reference toolchain unavailable: {exc}")
-
 
 def test_total_and_dropped_counts_match_for_no_rules(cpp_available, tmp_path: Path) -> None:
     cpp_result = run_cpp_reference(TEST_DPI_PCAP)

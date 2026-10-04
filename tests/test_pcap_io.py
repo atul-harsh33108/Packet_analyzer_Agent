@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.pcap_io import (
     ETHERNET_LINKTYPE,
     PcapError,
@@ -23,10 +24,6 @@ from dpi_engine.pcap_io import (
     PcapWriter,
     RawPacket,
 )
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
-
 
 # --- Reading the real OSC sample -------------------------------------------------
 

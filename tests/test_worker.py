@@ -14,13 +14,11 @@ from pathlib import Path
 
 import pytest
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.pcap_io import PcapReader
 from dpi_engine.pipeline import run_pipeline, run_pipeline_multiprocess
 from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 
 def test_multiprocess_matches_single_process_with_no_rules(tmp_path: Path) -> None:

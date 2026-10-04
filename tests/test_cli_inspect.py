@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
+from conftest import TEST_DPI_PCAP
 from dpi_engine.cli import main
-
-FIXTURES = Path(__file__).parent / "fixtures"
-TEST_DPI_PCAP = FIXTURES / "test_dpi.pcap"
 
 
 def test_inspect_reports_known_packet_count_and_bytes(capsys) -> None:
