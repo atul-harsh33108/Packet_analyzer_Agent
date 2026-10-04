@@ -36,6 +36,13 @@ dev = [
     # for anyone who clones the repo.
     "ruff>=0.9",
     "mypy>=1.14",
+    # Coverage gate and a per-test timeout. The timeout is not cosmetic: a
+    # regression into a known hang path (a worker that never receives its
+    # shutdown sentinel, an LB that dies leaving its fast-paths blocked) would
+    # otherwise hang the suite forever instead of failing it. See
+    # [tool.pytest.ini_options] below.
+    "pytest-cov>=6.0",
+    "pytest-timeout>=2.3",
 ]
 
 [tool.ruff]
@@ -78,6 +85,40 @@ warn_unreachable = true
 [[tool.mypy.overrides]]
 module = ["dpkt.*", "scapy.*"]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Every test gets a wall-clock ceiling. The slowest test at the time of writing
+# runs in ~1.6s, so 30s is roughly 19x headroom -- generous enough for a loaded
+# CI machine, tight enough that a hang is reported as a failure within half a
+# minute instead of stalling the run indefinitely.
+timeout = 30
+# Deliberately left at pytest-timeout's default (signal where available, thread
+# otherwise) rather than pinned. Pinning to `thread` for consistency would make
+# a Linux CI timeout kill the whole pytest process instead of failing the one
+# test, which is worse behaviour precisely where it matters most.
+markers = [
+    "slow: multiprocessing stress tests; given a longer timeout via the marker",
+]
+
+[tool.coverage.run]
+source = ["dpi_engine"]
+branch = true
+# The differential suite shells out to Docker to build the C++ reference
+# binary; coverage of the containerised build is not meaningful and not ours.
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+# Measured 93% before this gate existed (see TASK_TRACKER T0-01). 85 leaves
+# headroom for genuinely unreachable defensive branches while still failing if
+# a change quietly deletes tested code.
+fail_under = 85
+show_missing = true
+# These are one-line re-export/summary helpers; the indirect coverage they get
+# is more honest than an exclusion nobody reviews.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]

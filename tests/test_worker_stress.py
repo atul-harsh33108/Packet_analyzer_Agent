@@ -17,8 +17,18 @@ import socket
 import time
 from pathlib import Path
 
+import pytest
+
 from dpi_engine.pcap_io import PcapReader, PcapWriter, RawPacket
 from dpi_engine.pipeline import run_pipeline_multiprocess
+
+# These tests spawn real worker processes and deliberately slow them down to
+# maximise the chance of catching a shutdown race. They take longer than the
+# rest of the suite and get a correspondingly larger ceiling than the 30s global
+# default -- the point of the timeout is to catch a *hang*, not to police
+# duration, and these are the tests most likely to trip a false positive on a
+# loaded CI machine.
+pytestmark = [pytest.mark.slow, pytest.mark.timeout(120)]
 
 
 def _build_tcp_packet(seq_id: int, src_port: int, dst_port: int = 443) -> bytes:

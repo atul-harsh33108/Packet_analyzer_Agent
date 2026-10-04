@@ -1,0 +1,163 @@
+name: CI
+
+# Two rules this workflow exists to enforce:
+#
+#   1. Nothing lands without `ruff check`, `mypy --strict` and the full test
+#      suite passing. Before this file existed, "the tests pass" was a claim a
+#      human made from memory.
+#   2. The C++ differential suite must actually RUN, not skip. It is the only
+#      proof that the Python port still behaves like the original, and it skips
+#      silently when the reference binary cannot be built -- which is exactly
+#      what happens on a machine without Docker. So `differential` is a separate
+#      required job rather than being folded into `test`.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    name: lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: ruff check
+        run: uv run ruff check . --output-format concise
+
+      # Not enforced repo-wide yet: 22 files predate this gate and reformatting
+      # them would bury the functional change in noise. Tracked as T0-01
+      # follow-up; flip to an enforcing step once `ruff format` has been run
+      # and the result committed.
+      - name: ruff format (report only)
+        run: uv run ruff format --check . || echo "::warning::ruff format is not yet enforced"
+
+      - name: mypy --strict
+        run: uv run mypy
+
+  test:
+    name: unit + integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Run the suite with coverage and a per-test timeout
+        run: >-
+          uv run pytest
+          --ignore=tests/differential
+          --cov
+          --cov-report=term-missing
+          --cov-report=xml
+          --timeout=30
+          --durations=10
+
+      - name: Enforce the coverage floor
+        # Kept as a separate step so the failure message says "coverage dropped"
+        # rather than surfacing as an opaque non-zero exit from pytest. The floor
+        # itself is configured in pyproject.toml ([tool.coverage.report]).
+        run: uv run coverage report --fail-under=85
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  differential:
+    name: differential vs C++ reference
+    runs-on: ubuntu-latest
+    # Docker is preinstalled on GitHub-hosted runners, which is what
+    # tests/differential/cpp_reference.py shells out to in order to compile
+    # OSC/src/main_working.cpp with gcc:13.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Confirm Docker is usable
+        run: docker run --rm gcc:13 g++ --version
+
+      # -rs makes any skip visible in the log. This suite is the project's main
+      # parity asset; a green run in which it silently skipped would be worse
+      # than a red one.
+      - name: Run the differential suite
+        run: |
+          set -o pipefail
+          uv run pytest tests/differential -v -rs --timeout=600 | tee differential.log
+
+      # pytest exits 0 when every test is skipped, so a green run proves
+      # nothing on its own. Assert that tests actually *passed*: the reference
+      # binary was built and executed, not merely attempted.
+      - name: Fail if the parity check did not actually run
+        run: |
+          if ! grep -qE '[0-9]+ passed' differential.log; then
+            echo "::error::the differential suite did not report any passing tests -- the C++ parity check did not run"
+            grep -E 'SKIPPED|skipped|error|Error' differential.log || true
+            exit 1
+          fi
+          if grep -qE '[0-9]+ skipped' differential.log; then
+            echo "::error::the differential suite skipped tests; parity is unproven"
+            exit 1
+          fi
+
+  build:
+    name: package builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build the wheel and sdist
+        run: uv build
+
+      - name: Confirm py.typed ships in the wheel
+        # The package is fully annotated and depends on PEP 561; a wheel without
+        # the marker silently strips types for every downstream consumer.
+        run: |
+          uv run python - <<'PY'
+          import glob, sys, zipfile
+          wheels = glob.glob("dist/*.whl")
+          if not wheels:
+              print("::error::no wheel produced"); sys.exit(1)
+          with zipfile.ZipFile(wheels[0]) as z:
+              names = z.namelist()
+          if not any(n.endswith("dpi_engine/py.typed") for n in names):
+              print("::error::py.typed missing from wheel:"); print("\n".join(names)); sys.exit(1)
+          print("py.typed present in", wheels[0])
+          PY

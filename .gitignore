@@ -26,5 +26,6 @@ Thumbs.db
 # coverage artifacts
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
 
