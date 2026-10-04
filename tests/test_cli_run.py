@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -204,3 +205,40 @@ def test_run_refuses_to_overwrite_input(capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "error:" in captured.err
+
+
+def test_run_reports_unwritable_output_path_as_an_error_not_a_traceback(
+    tmp_path: Path, capsys
+) -> None:
+    """D-04. When the output path cannot be opened, the CLI must exit 1 with an
+    `error: ...` line on stderr.
+
+    Before the fix, `PcapWriter.__init__` called `open()` unguarded, so the bare
+    `FileNotFoundError` escaped `main()` entirely -- no exit code, no message,
+    and a raw traceback in the user's terminal."""
+    unwritable = tmp_path / "no-such-dir" / "out.pcap"
+
+    try:
+        exit_code = main(["run", str(TEST_DPI_PCAP), str(unwritable)])
+    except OSError as exc:
+        pytest.fail(
+            f"an unwritable output path escaped main() as {type(exc).__name__}: {exc}"
+        )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1, f"expected exit code 1, got {exit_code}"
+    assert "error:" in captured.err, f"expected an error on stderr, got {captured.err!r}"
+    assert "Traceback" not in captured.err, f"a traceback leaked to the user: {captured.err!r}"
+
+
+def test_run_unwritable_output_path_creates_nothing(tmp_path: Path) -> None:
+    """A failed run must not leave a truncated file that a later run could
+    mistake for real output. Asserted regardless of which exception the CLI
+    raises, so this checks the filesystem state rather than the error path."""
+    unwritable = tmp_path / "no-such-dir" / "out.pcap"
+
+    with contextlib.suppress(OSError):
+        main(["run", str(TEST_DPI_PCAP), str(unwritable)])
+
+    assert not unwritable.exists()
+    assert not unwritable.parent.exists()

@@ -182,3 +182,117 @@ def test_writer_allows_distinct_output_path(tmp_path: Path) -> None:
     writer = PcapWriter(out, source_path=src)
     writer.close()
     assert out.exists()
+
+
+# --- D-04: PcapWriter open failure must raise PcapError, like PcapReader does ------
+#
+# `PcapReader._open` wraps `open()` in try/except OSError. `PcapWriter.__init__`
+# did not, so every filesystem failure escaped as a bare OSError subclass. That
+# contradicts the module's own error contract, and because `cli.py` catches only
+# `(PcapError, ValueError)` the user got a raw traceback instead of the intended
+# `error: ...` message and exit code 1.
+#
+# The asymmetry is the tell: the four failure modes below are all handled
+# correctly by PcapReader and all leaked by PcapWriter.
+
+
+def _unopenable_paths(tmp_path: Path) -> dict[str, Path]:
+    """Four distinct ways an output path can be unwritable, so the fix is
+    proven against the whole OSError family rather than one lucky errno."""
+    regular_file = tmp_path / "regular-file"
+    regular_file.write_bytes(b"i am a file, not a directory")
+
+    return {
+        "missing-parent-directory": tmp_path / "no-such-dir" / "out.pcap",
+        "deep-missing-path": tmp_path / "a" / "b" / "c" / "out.pcap",
+        "parent-is-a-regular-file": regular_file / "out.pcap",
+        "target-is-a-directory": tmp_path,
+    }
+
+
+def test_writer_open_failure_raises_pcaperror_not_oserror(tmp_path: Path) -> None:
+    """Every unopenable output path must surface as PcapError."""
+    for case, path in _unopenable_paths(tmp_path).items():
+        with pytest.raises(PcapError) as excinfo:
+            PcapWriter(path)
+        assert "out.pcap" in str(excinfo.value) or str(path) in str(excinfo.value), (
+            f"{case}: message should name the offending path, got {excinfo.value!s}"
+        )
+
+
+def test_reader_and_writer_raise_the_same_exception_type(tmp_path: Path) -> None:
+    """Reader/Writer symmetry. PcapReader already did this correctly for all
+    four cases, so any divergence is a bug in the writer."""
+    for case, path in _unopenable_paths(tmp_path).items():
+        reader_exc = writer_exc = None
+        try:
+            PcapReader(path).close()
+        except BaseException as exc:
+            reader_exc = exc
+        try:
+            PcapWriter(path).close()
+        except BaseException as exc:
+            writer_exc = exc
+
+        assert reader_exc is not None, f"{case}: reader unexpectedly succeeded"
+        assert writer_exc is not None, f"{case}: writer unexpectedly succeeded"
+        assert type(writer_exc) is type(reader_exc), (
+            f"{case}: writer raised {type(writer_exc).__name__} but reader "
+            f"raised {type(reader_exc).__name__}"
+        )
+
+
+def test_writer_open_failure_preserves_the_oserror_as_cause(tmp_path: Path) -> None:
+    """The original OSError must survive as `__cause__`. Wrapping without
+    `from exc` would discard the errno and the real path, which is the
+    information a user needs to act on the failure."""
+    path = _unopenable_paths(tmp_path)["missing-parent-directory"]
+
+    with pytest.raises(PcapError) as excinfo:
+        PcapWriter(path)
+
+    assert isinstance(excinfo.value.__cause__, OSError), (
+        "PcapError must chain the underlying OSError via `from exc`"
+    )
+    assert excinfo.value.__cause__.errno is not None
+
+
+def test_writer_open_failure_leaves_no_file_behind(tmp_path: Path) -> None:
+    """A failed open must not leave a truncated or empty artifact that a later
+    run could mistake for real output."""
+    path = tmp_path / "no-such-dir" / "out.pcap"
+
+    with pytest.raises(PcapError):
+        PcapWriter(path)
+
+    assert not path.exists()
+    assert not path.parent.exists()
+
+
+def test_writer_open_failure_message_is_actionable(tmp_path: Path) -> None:
+    """The message should say what failed and where, so the CLI's
+    `error: ...` line is useful rather than decorative."""
+    path = _unopenable_paths(tmp_path)["deep-missing-path"]
+
+    with pytest.raises(PcapError) as excinfo:
+        PcapWriter(path)
+
+    message = str(excinfo.value).lower()
+    assert "open" in message or "cannot" in message
+    assert "output" in message, f"message should identify this as an output failure: {message}"
+    assert str(path).lower() in message or "out.pcap" in message
+
+
+def test_writer_still_opens_valid_paths(tmp_path: Path) -> None:
+    """Guard: the fix must not disturb the happy path, including reopening an
+    existing file for truncation."""
+    out = tmp_path / "out.pcap"
+
+    writer = PcapWriter(out)
+    writer.write(RawPacket(ts_sec=1, ts_usec=0, data=b"\x00" * 20, orig_len=20))
+    writer.close()
+    assert out.stat().st_size > 0
+
+    reopened = PcapWriter(out)
+    reopened.close()
+    assert out.stat().st_size == 24  # global header only after truncation

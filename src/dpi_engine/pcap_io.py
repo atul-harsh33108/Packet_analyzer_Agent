@@ -236,7 +236,20 @@ class PcapWriter:
         # Long-lived handle owned by this object and released in `close()`;
         # PcapWriter is itself a context manager, so the `with` form is the
         # intended usage at every call site.
-        self._file: BinaryIO = open(self.path, "wb")  # noqa: SIM115
+        #
+        # `open()` is wrapped for the same reason it is in `PcapReader._open`:
+        # every filesystem failure arrives here as a bare OSError subclass
+        # (FileNotFoundError, PermissionError, NotADirectoryError, ...), and
+        # `cli.py` catches only `(PcapError, ValueError)`. Unwrapped, a bad
+        # output path escaped `main()` as a raw traceback instead of the
+        # intended `error: ...` line and exit code 1 -- contradicting this
+        # module's error contract and `PcapReader`'s own behaviour on the
+        # identical failure.
+        try:
+            self._file = open(self.path, "wb")  # noqa: SIM115
+        except OSError as exc:
+            raise PcapError(f"Cannot open output pcap file '{self.path}': {exc}") from exc
+
         self._writer = dpkt.pcap.Writer(self._file, snaplen=snaplen, linktype=linktype)
         self._packets_written = 0
 
