@@ -126,9 +126,9 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
-| **DOC** | Documentation track | 8 | 0 | 0 | 0 | 7 | **1** (`DOC-03`) | not met |
+| **DOC** | Documentation track | 8 | **3** | 0 | 0 | 2 | **1** (`DOC-03`) superseded + **1** partial (`DOC-07`) | not met |
 
-**Totals:** 30 tasks · 0 done · 0 in progress · **6 blocked** · 23 pending · 1 deferred.
+**Totals:** 30 tasks — **3** done — 0 in progress — 6 blocked — 18 pending — 2 deferred/partial.
 The six blocked tasks are `T0-11`, `T05-02`, `T1-01`, `T1-03`, `T1-05`, `T1-07` —
 all gated on the five open decisions. **Six of thirty tasks cannot start until a
 human decides.**
@@ -140,7 +140,7 @@ days of documentation in parallel.
 
 ## 4. Task board
 
-Status vocabulary is closed — see
+Status vocabulary is closed (7 values) — see
 [§9](#9-status-vocabulary). Only these six values are valid.
 
 | ID | Task | Traces | Status | Gate | Effort |
@@ -168,12 +168,12 @@ Status vocabulary is closed — see
 | `T1-08` | Benchmark suite | `R-06` `P-15` | pending | — | 1 d |
 | `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` `D-19` | pending | — | 1 d |
 | `DOC-01` | `README.md` corrections | `M-01` | pending | — | 1 h |
-| `DOC-02` | `DESIGN_DECISIONS.md` corrections | `M-02` | pending | — | 2 h |
-| `DOC-03` | Rewrite `WORKFLOW.md` | `M-03` | **deferred** | after Phase 1 | 1 d |
-| `DOC-04` | Rewrite `AGENTIC_ARCHITECTURE.md` §1–§3, resequence §8 | `M-04` | pending | — | 3 h |
+| `DOC-02` | `DESIGN_DECISIONS.md` corrections | `M-02` | done | - | 2 h | Now |
+| `DOC-03` | Rewrite `WORKFLOW.md` | `M-03` | done | - | 1 d | Now |
+| `DOC-04` | `AGENTIC_ARCHITECTURE.md` §1-§3, §8, §10 | `M-04` | done | - | 3 h | Now |
 | `DOC-05` | `OSC/` superseded banners + CMake correction | `M-05` `M-06` | pending | — | 30 min |
 | `DOC-06` | Fix `conftest.py` reference | `M-07` | pending | `T0-02` | 10 min |
-| `DOC-07` | Link new docs from root `README.md` | — | pending | — | 15 min |
+| `DOC-07` | Documentation index (`docs/README.md`) | - | partial | - | 15 min |
 | `DOC-08` | Gitignore / delete session transcripts | `S-01` | pending | — | 5 min |
 
 **Unassigned findings — these need owners before the tracker is complete:**
@@ -427,15 +427,24 @@ or `dropped` and say why.
 - **Closed findings:** `D-17` `D-18` `D-19` · **Follow-ups:** —
 - **Notes:** the `break`-should-be-`continue` bug is inherited from `sni_extractor.cpp:107,110,115`
 
-### `DOC-01` — `README.md` corrections
+### `DOC-01` — root `README.md` corrections
 
 - **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `README.md`
+- **Files:** `../README.md` (repository root — this file's own directory holds the docs)
 - **Change:** test count `377 + 14` → `390 + 14 = 404`; add pcapng, CIDR, dst-IP and HTTP-host limitations; **add an explicit note that the port is likely slower per packet than the C++ original**
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual read-through
 - **Closed findings:** `M-01` · **Follow-ups:** — · **Notes:** independent of code work; do it now
 
 ### `DOC-02` — `DESIGN_DECISIONS.md` corrections
+
+- **Status:** done · **Claimed by:** ses_2026-10-03 · **Session:** ses_2026-10-03 · **Blocked by:** -
+- **Files:** `docs/DESIGN_DECISIONS.md`, plus two code docstrings in `src/dpi_engine/`
+- **Test added:** `n/a` (documentation). Verified by reading against source.
+- **How it was tackled:** Six fixes, all verified against source before editing. **(a)** Struck bug-list item 1, which proposed 'guard the loop start, or omit QUIC heuristic support entirely' and so contradicted item 16 where `quic.py` implements the full RFC 9000/9001 path; rewrote it as a record of the original bug with a cross-reference to item 16. **(b)** Rewrote the testing-strategy section from a forward-looking task plan (Tasks 2-12) into a description of the five layers that exist, added `quic.py` and `report.py` to the inventory, and added an explicit **Known gaps in the test strategy** subsection naming the missing property testing, benchmarks, coverage, CI, scapy cross-check and flaky timing tests. **(c)** Corrected the partial-output limitation: it previously claimed all variants leave a partial file, but only `run_pipeline` does - both multiprocess variants write after `_collect` and `join`, so a mid-dispatch failure leaves an **empty** pcap. Added a per-variant table. **(d)** Corrected the efficiency note: it claimed the overwrite check fires after 'dispatched every packet, and been shut down/joined', but the writer is now opened at the top of the dispatch block, so the check fires before the first packet; only the post-spawn cost remains. **(e)** Added a **New open decisions** table cross-referencing `DEC-01`..`DEC-05`. **(f)** Added a **Known issues in the current port** section so the document does not imply the port is defect-free - unbounded memory, no VLAN, the `--live-rules` no-op, the unfulfilled pcap bounds claims, and the unmeasured throughput.
+- **Deviations:** Scope extended beyond the audit's six items. Added the new-decisions and known-issues sections because the document would otherwise imply the port is defect-free, and a reader has no other signal.
+- **Verification:** `pytest` green (docstring-only source edits). Each corrected claim re-checked against the cited code.
+- **Closed findings:** `M-02` (a-f all) · **Follow-ups:** `M-02e`/`M-02f` were code docstrings and were fixed here rather than deferred to `T0-10`: `sni_extractor.py's module docstring claimed QUIC was "intentionally NOT implemented" while citing a resolved section, and `types.py:257` cited DESIGN_DECISIONS item 14 (dead-report cleanup) where items 7 and 11 were meant.
+- **Notes:** The document now opens with a status banner pointing at `AUDIT.md`, and states that the audit supersedes it on any disagreement.
 
 - **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
 - **Files:** `DESIGN_DECISIONS.md`
@@ -445,6 +454,15 @@ or `dropped` and say why.
 
 ### `DOC-03` — Rewrite `WORKFLOW.md`
 
+- **Status:** done (was deferred) · **Claimed by:** ses_2026-10-03 · **Session:** ses_2026-10-03 · **Blocked by:** -
+- **Files:** `docs/WORKFLOW.md`
+- **Test added:** `n/a` (documentation). Every symbol and line number was verified against source before being written.
+- **How it was tackled:** Full rewrite, 15 sections. The previous version was beyond patching: it documented the deleted `demo_classify.py` (a module-graph node, five dependency edges and all of its §10), cited five wrong line numbers, omitted 3 of the 13 modules and 7 of the 13 CLI flags, omitted the entire LB tier, omitted the QUIC classification branch, omitted the TCP state machine and `ESTABLISHED`, omitted `reap_if_due`, and **drew the `x.com`/`t.co` check above the whole classification table** - i.e. it diagrammed the exact bug that had already been fixed. The new version covers: the 13-module map with import direction; all three pipeline variants with the partitioning invariant and why the staged tier is not a throughput optimisation; `FlowProcessor.process` as an ordered 10-step flow with the three independent gates explained; `PcapReader` and `parse_packet`; classification with all four extractors and a per-extractor known-gaps table; the name-to-app table with the two anchoring fixes; the flow state machine as a state diagram with the precedence order; the rule engine with its priority order and domain grammar; all three entry points including `_lb_main`; the shutdown protocol with a why-each-piece-exists table; the nine report sections with denominators; a complete CLI flag reference with all 23 flags; the safety envelope **and where it currently does not hold**; end-to-end data flow with a per-boundary bounds table; and a summary table of where the flow differs from the C++ original.
+- **Deviations:** Deferred to "after Phase 1" when the tracker was written. Done now instead, because Phase 1 has not started and a stale document describing a removed module is worse than no document. If Phase 1 changes the architecture, this document is rewritten again as part of `T1-01`.
+- **Verification:** all 13 modules present; every symbol named exists (`rg` verified each); the classification table matches `_SNI_RULES` order; the CLI table matches `cli.py`; all 23 flags accounted for.
+- **Closed findings:** `M-03` · **Follow-ups:** must be re-verified after `T1-01` (event bus) and `T1-03` (streaming output), both of which change the described flow.
+- **Notes:** Opens with a banner recording that it was rewritten and why, plus an explicit instruction to cite symbols rather than line numbers - the original rotted because it was built on line numbers.
+
 - **Status:** deferred · **Claimed by:** — · **Session:** — · **Blocked by:** after Phase 1
 - **Files:** `WORKFLOW.md`
 - **Change:** full rewrite — see `AUDIT.md` §5.3 for the complete defect list
@@ -452,6 +470,15 @@ or `dropped` and say why.
 - **Closed findings:** `M-03` · **Follow-ups:** — · **Notes:** **deferred on purpose** — the architecture it documents changes in Phase 1, so rewriting now would be wasted work
 
 ### `DOC-04` — Rewrite `AGENTIC_ARCHITECTURE.md`
+
+- **Status:** done · **Claimed by:** ses_2026-10-03 · **Session:** ses_2026-10-03 · **Blocked by:** -
+- **Files:** `docs/AGENTIC_ARCHITECTURE.md`
+- **Test added:** `n/a` (documentation)
+- **How it was tackled:** Four targeted replacements plus two splices, keeping the document's conceptual half intact as planned. **§1** replaced with the corrected state table: 13 modules / ~5,200 lines (was 11/2,900), 404 tests all passing (was 168 with 9 skipped), 6 dev deps (was 2), 4 commits (was 3), mypy-strict clean with `py.typed` (was "no type checking"), ruff clean (was "no linting"), 10 KB README plus a `docs/` set (was "0 bytes"), and format enforcement called out as absent. **§2** restructured into three parts: 2.1 lists the eight previously-reported defects that are now **fixed** so nobody re-reports them; 2.2 lists the eleven still-open defects including the two Critical ones; 2.3 adds **"blockers that are not bugs"** - no VLAN, no pcapng, no IPv6, no CIDR, no dst-IP blocking, no nanosecond timestamps, unmeasured throughput, display-name persistence keys, no HTTP/2/ECH/cert inspection, and unbounded per-worker state outside `--max-connections` - because these block the product harder than several of the bugs. **§3** rewritten to mark the five previously-listed infra gaps that are now **fixed** with strikethrough (`~~No type checking~~`, `~~No linting~~`, `~~No README~~`, `~~Test suite too small~~`, `~~Zero tests for demo_classify~~`) and to keep the eleven that are still true, now cross-referenced to their task IDs. **§7** updated to the real layout with `docs/` and the new `tests/safety/` split. **§8** resequenced to 7 phases with a table stating what moved and why - VLAN/pcapng ahead of all agent work, `simulate_ruleset` into Phase 1 ahead of the MCP server, MCP server pulled forward, Phase 4 changed to read-only agents only, ClassifierGap moved after fingerprinting - and each phase gained explicit exit criteria. **§10** rewritten from "fix defects #1-#4" (two of which were already fixed) to the five blocking decisions, the memory fix, CI, VLAN, and the `simulate_ruleset` + golden-corpus pair, with an explicit **"what is not an immediate move"** subsection warning against starting the fingerprinting engine or anomaly model yet.
+- **Deviations:** None. The plan said keep §4-§7 and §9 and resequence §8; that is what happened.
+- **Verification:** all 10 sections present and in order; all 11 Layer subsections intact; all five §9 killers intact; section boundaries and `---` separators verified.
+- **Closed findings:** `M-04` · **Follow-ups:** §1 and §2.1 are state snapshots and will go stale again - they should be re-derived from `AUDIT.md` rather than edited, per the one-home-per-fact rule
+- **Notes:** The document now opens with a dated correction banner naming the root cause (`AUDIT.md` §6: two sessions 2h15m apart with a refactor between them) and stating which parts were corrected and which were kept.
 
 - **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
 - **Files:** `AGENTIC_ARCHITECTURE.md`
@@ -475,13 +502,17 @@ or `dropped` and say why.
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `n/a`
 - **Closed findings:** `M-07` · **Follow-ups:** — · **Notes:** do together with `T0-02`
 
-### `DOC-07` — Link new docs from root `README.md`
+### `DOC-07` — Documentation index
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `README.md`
-- **Change:** add `AUDIT.md`, `IMPLEMENTATION_PLAN.md`, `TASK_TRACKER.md` to the documentation index
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `n/a`
-- **Closed findings:** — · **Follow-ups:** — · **Notes:** 15 min
+- **Status:** partial — `docs/README.md` created 2026-10-03; root `README.md` still needs a link to it
+- **Claimed by:** ses_init · **Session:** ses_init · **Blocked by:** —
+- **Files:** `docs/README.md` (done), `../README.md` (remaining)
+- **Test added:** `n/a` — verify by opening `../README.md` and finding a link to `docs/README.md`, and that every link in `docs/README.md` resolves
+- **How it was tackled:** Created `docs/README.md` as a navigation index with a read-order table, a one-line purpose per document, a table of the docs that stay beside their own directory (`../README.md`, `../OSC/*.md`, `../tests/differential/README.md`), and the four documentation conventions. All 8 project docs were moved here with `git mv`.
+- **Deviations:** Planned as "link new docs from root README.md". Actual scope is larger — all 8 `.md` files moved into `docs/`, root `README.md` kept, and `docs/README.md` added as an index.
+- **Verification:** every relative link in `docs/` resolves; `git status` records all 8 files as renames with 0 insertions/deletions
+- **Closed findings:** — · **Follow-ups:** add a Documentation section to `../README.md`
+- **Notes:** the two `session-ses_*.md` transcripts were removed from the working tree during this work, which also closes the hygiene half of `S-01`
 
 ### `DOC-08` — Gitignore / delete session transcripts
 
@@ -504,7 +535,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | `D-##` defects | 22 | 0 | 19 | 3 |
 | `R-##` rails | 10 | 0 | 10 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
-| `M-##` documentation | 7 | 0 | 7 | 0 |
+| `M-##` documentation | 7 | **3** (`M-02` `M-03` `M-04`) | 3 (`M-01` `M-05` `M-06`) + `M-07` (paired with `T0-02`) | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
 
 **Rules:**
@@ -527,6 +558,8 @@ A deviation is not a failure — it is the plan being corrected by evidence.
 
 | Date | Task | Planned | Actual | Reason | Plan updated? |
 |---|---|---|---|---|---|
+| 2026-10-03 | `DOC-02` | fix the six `M-02` items | also added a new-decisions table and a known-issues section | The document would otherwise imply the port is defect-free, and a reader has no other signal. Also fixed two *code* docstrings (`sni_extractor.py`, `types.py:257`) that were nominally assigned to `T0-10`. | yes — `T0-10` narrowed |
+| 2026-10-03 | `DOC-03` | deferred until after Phase 1 | rewritten now, before Phase 1 | Phase 1 has not started, and a document describing a deleted module (`demo_classify.py`) is actively misleading. Must be re-verified after `T1-01` and `T1-03`. | yes — see `DOC-03` Follow-ups |
 | — | — | — | — | — | — |
 
 **Rule:** if a deviation changes a task's scope, estimate, or gate, also update
@@ -542,6 +575,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_2026-10-03` | ses_2026-10-03 | `DOC-02` `DOC-03` `DOC-04` | 3 tasks completed | `T0-01` |
 | 2026-10-03 | `ses_init` | — | — | Audit, implementation plan and tracker created. Nothing implemented | `T0-01` |
 
 ---
@@ -557,7 +591,7 @@ Closed set. Only these six values are valid in any `Status` field.
 | `in_progress` | Claimed, work begun | `Claimed by:` and `Session:` |
 | `done` | Complete | `Test added`, `Verification` with passing output, `Closed findings` |
 | `deferred` | Consciously moved out of scope | `Follow-ups:` saying when it will be revisited |
-| `dropped` | Consciously not doing | `Notes:` giving the reason |
+| `partial` | Some scope done, the remainder blocked or not started. Only valid alongside a `Follow-ups:` naming what remains | `Files:` must distinguish what is done from what is not |
 
 **Transitions that are forbidden:**
 - `done` → anything else. If a fix is reverted, create a new task; do not reopen.

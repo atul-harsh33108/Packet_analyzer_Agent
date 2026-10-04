@@ -191,6 +191,17 @@ itself.
 ## 9. Where things live
 
 ```
+README.md                   the project front door — install, usage, CLI reference
+docs/                       all project documentation (start at docs/README.md)
+  README.md                 documentation index + read-order table
+  OPERATING_INSTRUCTIONS.md this file
+  TASK_TRACKER.md           current state
+  TASK_TRACKER_UPDATE_PROTOCOL.md
+  IMPLEMENTATION_PLAN.md
+  AUDIT.md
+  AGENTIC_ARCHITECTURE.md
+  DESIGN_DECISIONS.md
+  WORKFLOW.md               stale — being rewritten
 src/dpi_engine/
   types.py              five-tuples, AppType, Connection, DPIStats, SNI pattern table
   pcap_io.py            pcap read/write + safety bounds        ← T0-05, T0-06, T05-02
@@ -208,6 +219,10 @@ OSC/                    the original C++ engine — reference only, do not modif
 tests/                  unit, integration, property, safety
 tests/differential/     parity vs. the compiled C++ binary (Docker)
 ```
+
+**Documentation lives in `docs/`, not the repository root.** Only `README.md` is at
+the root, because it is the front door. `OSC/README.md`, `OSC/WINDOWS_SETUP.md` and
+`tests/differential/README.md` stay beside the directories they describe.
 
 ---
 

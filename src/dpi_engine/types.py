@@ -252,11 +252,14 @@ class ConnectionState(Enum):
     """Flow lifecycle state. Mirrors OSC's ConnectionState (types.h).
 
     The original's five values are preserved. Note that OSC's own code paths
-    never guarded the transitions between them consistently (a CLOSED flow
-    could still be re-classified and re-blocked by a later packet, see
-    DESIGN_DECISIONS.md "Bugs fixed during the port" item 14), so the
-    *reachable* set of states here is enforced by ConnectionTracker, not by
-    this enum.
+    never guarded the transitions between them consistently: a flow locked by
+    any classification -- including a bare port-443 guess -- could never be
+    upgraded by a later, more accurate SNI result (DESIGN_DECISIONS.md "Bugs
+    fixed during the port" item 7), and a CLOSED flow could still be
+    re-classified and re-blocked by a later packet. Neither enum governs
+    transitions, so the *reachable* set of states is enforced by
+    ConnectionTracker, not here; see `is_terminal` below for the invariant that
+    replaced OSC's unguarded behaviour.
     """
 
     NEW = auto()

@@ -1,7 +1,21 @@
 # DPI Engine Python Port — Design & Decisions
 
-Reference document for the Python port of the C++ DPI engine (original preserved under /OSC).
-Read this before touching code — it records *why*, not just *what*.
+Reference document for the Python port of the C++ DPI engine (original preserved under
+[`../OSC/`](../OSC/)). Read this before touching code — it records *why*, not just *what*.
+
+> **Current status (2026-10-03):** the port is functionally complete against the original
+> and clean under `ruff` and `mypy --strict`, with 404 passing tests. A full engineering
+> audit found 22 open defects, 10 missing engineering rails, and 3 stale
+> documentation cross-references. **Read [`AUDIT.md`](AUDIT.md) alongside this file** —
+> it supersedes this document wherever the two disagree.
+>
+> | Document | Role |
+> |---|---|
+> | [`AUDIT.md`](AUDIT.md) | The verified findings. Wins on any disagreement. |
+> | [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | How the findings get fixed (30 tasks) |
+> | [`TASK_TRACKER.md`](TASK_TRACKER.md) | Current state |
+> | this file | *Why* the port is built this way |
+> | [`WORKFLOW.md`](WORKFLOW.md) | Architecture diagrams (rewritten 2026-10-03) |
 
 ## Scope
 Full feature parity with the original: PCAP read/write, Ethernet/IP/TCP/UDP parsing,
@@ -71,9 +85,14 @@ produce byte-identical output pcaps.
 ## Bugs fixed during the port (intentional behavioral differences from OSC)
 These are expected differential-test deltas — document them there too so tests don't fight
 the fix:
-1. QUIC SNI extractor: `payload + i - 5` with no `i >= 5` guard caused an out-of-bounds read
-   before the buffer start. Fixed by guarding the loop start, or omitting QUIC heuristic
-   support entirely (decide during Task 5; default to omitting with a documented TODO).
+1. ~~QUIC SNI extractor: `payload + i - 5` with no `i >= 5` guard caused an out-of-bounds read
+   before the buffer start.~~ **Superseded — see "Gap analysis" item 16.** This entry was
+   written when the intended fix was "guard the loop start, or omit QUIC heuristic support
+   entirely". Neither happened: the original extractor was not ported at all, and `quic.py`
+   implements the full RFC 9000/9001 path instead. `QUICSNIExtractor::extract` is memory-unsafe
+   *and* a functional no-op (it is never called by any OSC engine path, and even if it were,
+   `payload[i-5]` is almost never `0x16` so `isTLSClientHello` would always reject). Kept here
+   as the record of the original bug; the fix is item 16, not this item.
 2. TLS ClientHello parser: missing bounds check after skipping version+random (fixed offset
    43) before reading session ID length — could over-read on a short ClientHello.
 3. `createPacketJob`-equivalent: TCP data-offset byte read without checking the full 20-byte
@@ -114,14 +133,47 @@ class as #5 above -- unanchored substring matching on short, generic-looking pat
   task's implementation.
 
 ## Testing strategy
-- Unit tests per module with hand-crafted byte fixtures (Tasks 2-7).
-- Integration test for the single-process pipeline before multiprocessing is introduced
-  (Task 8) — isolates "pipeline logic" bugs from "multiprocessing" bugs.
-- Differential test suite against the original OSC binary (Task 9), with an explicit,
-  documented allowlist of intentional differences (the bug-fix list above).
-- Multiprocessing output re-validated against the single-process output (Task 10), proving
-  partitioning didn't change behavior, independent of the C++ comparison.
-- Manual testing pass with real/sample captures as the final human acceptance gate (Task 12).
+
+All five layers below are implemented and green. This section records what each one is for;
+for the current counts and status see [`TASK_TRACKER.md`](TASK_TRACKER.md).
+
+- **Unit tests per module** with hand-crafted byte fixtures. Covers every module including
+  `quic.py` (39 tests, including the RFC 9001 Appendix A.1 key-derivation vectors) and
+  `report.py` (28 tests).
+- **Integration tests for the single-process pipeline** were written *before* multiprocessing
+  was introduced, so "pipeline logic" bugs were never conflated with "multiprocessing" bugs.
+  `tests/test_integration.py` builds real Ethernet/IP/UDP frames byte by byte and runs the
+  whole pipeline over them — necessary because per-module unit tests cannot catch a feature
+  that is fully implemented and still unreachable from the packet path. That is exactly how
+  item 18's two QUIC defects were found.
+- **Differential test suite** against the original OSC binary, compiled with `gcc:13` in a
+  Docker container (the host's MinGW g++ 6.3.0 predates C++17 `<optional>`). Carries an
+  explicit allowlist of intentional differences — the bug-fix list above plus the divergences
+  recorded under item 17. Skips rather than fails when Docker is unavailable, since it is a
+  supplementary cross-check.
+- **Cross-variant equivalence**: all three pipeline entry points are asserted to produce
+  byte-identical output pcaps, and a regression test
+  (`test_every_flow_lands_on_exactly_one_fast_path`) pins the partitioning invariant that makes
+  this possible.
+- **Safety-constraint tests** (`tests/test_safety_constraints.py`) AST-scan the shipped
+  source for forbidden constructs — raw sockets, `subprocess`, `eval`/`exec`, `urllib`, and
+  more — and self-check that the scan is not passing vacuously.
+
+### Known gaps in the test strategy
+
+Honest list, tracked as `R-##` in [`AUDIT.md`](AUDIT.md) §3:
+
+- **No property-based or fuzz testing.** For a codebase that exists because of byte-level
+  parsing bugs, this is the wrong place to skip it. `hypothesis` is planned (`T1-07`).
+- **No benchmark suite.** Three ad-hoc wall-clock assertions with large slack factors instead.
+  The port's per-packet throughput is therefore **unmeasured** — see `P-15`.
+- **No coverage measurement and no CI.** Not one command has ever run automatically.
+- **`scapy`'s stated purpose is unimplemented.** It is declared here as a cross-check of the
+  hand-rolled TLS parsing; no test performs that cross-check. Tracked as `R-08`; the decision
+  is `DEC-03`.
+- **Three flaky-by-construction tests** assert on wall-clock with large slack, and no
+  `pytest-timeout` is installed — so a regression into the known hang path would hang the
+  suite rather than fail it.
 
 ## Differential testing findings (Task 9)
 
@@ -406,32 +458,48 @@ on fixed-width box drawing that breaks as soon as a value exceeds its column.
   `DELE` and `OPTIONS` via `OPTI`. A classification-accuracy nit, not a safety
   issue. Kept for behavioural parity; see the README's known limitations.
 
-## Known limitation found during Task 11 manual testing
-If `run_pipeline`/`run_pipeline_multiprocess` fails partway through processing
-(e.g. `max_total_packets` exceeded after some packets were already forwarded),
-the output file is left on disk containing whatever packets were successfully
-written before the failure, rather than being deleted. This is a valid,
-non-corrupt pcap (bounded, no partial/garbage bytes), and the failure is still
-reported clearly with a non-zero exit code -- so this does not violate any
-safety constraint (no crash, no hang, no unbounded resource use, no silent
-success). It is called out here because a caller re-running after fixing the
-underlying issue (e.g. raising the limit) should be aware the previous partial
-output will be overwritten, not appended to. Deleting partial output
-automatically on failure was considered but not implemented, since it would
-discard partially-successful work with no explicit request to prioritize
-"clean failure" over "preserve partial progress" -- a genuine design tradeoff,
-not a clear-cut bug.
+## Known limitation: output file left on disk after a mid-run failure
 
-## Minor efficiency note (not a safety issue) found during Task 11 manual testing
-In `run_pipeline_multiprocess`, the output-path-equals-input-path check only fires
-when `PcapWriter` is constructed, which happens *after* all worker processes have
-been spawned, dispatched every packet, and been shut down/joined. This means a
-run doomed to fail the overwrite check still pays the full cost of spawning
-processes and processing every packet before reporting the error -- wasteful, but
-not unsafe (confirmed: no hang, no crash, clean error, ~0.5s for the sample
-fixture). A future optimization could validate the output path before spawning
-workers; not done here since it's a performance nicety, not a correctness or
-safety requirement.
+**The behaviour differs by pipeline variant. An earlier revision of this section described only
+the single-process case.**
+
+| Variant | Written when? | On mid-run failure the output file is… |
+|---|---|---|
+| `run_pipeline` | streamed in the read loop | **partial** — contains every packet forwarded before the failure |
+| `run_pipeline_multiprocess` | after `_collect` and `join` | **empty** — created (truncated) at dispatch start, but no packet is written until every worker has joined |
+| `run_pipeline_staged` | after `_collect` and `join` | **empty** — same |
+
+Reason: the two multiprocess variants buffer forward/drop decisions and only write once all
+workers have finished (`pipeline.py:587`), so a failure partway through dispatch — the
+`max_total_packets` case — leaves a valid but empty 24-byte-header pcap. `run_pipeline` writes
+as it goes (`pipeline.py:412`), so it genuinely contains partial progress.
+
+In every case the file is a **valid, bounded, non-corrupt** pcap and the failure is still
+reported with a non-zero exit code, so no safety constraint is violated (no crash, no hang, no
+unbounded resource use, no silent success). It is recorded here because a caller re-running
+after raising a limit should know the previous output will be **overwritten, not appended**.
+
+Deleting partial output on failure was considered and not implemented: it would discard
+partially-successful work with no explicit request to prefer "clean failure" over "preserve
+partial progress". That trade-off is still open.
+
+## Minor efficiency note: output-path validation happens after worker spawn
+
+The output-path-equals-input-path check fires when the first `PcapWriter` is constructed, which
+in `run_pipeline_multiprocess` happens **after** all worker processes are spawned
+(`pipeline.py:526` then `:535`). A run doomed to fail the overwrite check therefore still pays
+the cost of spawning N worker processes before reporting the error.
+
+**Corrected from an earlier revision of this note**, which claimed the check also happened after
+"dispatched every packet, and been shut down/joined". That is no longer true: the writer is
+opened at the top of the dispatch block, so the check fires **before the first packet is
+dispatched**. The remaining cost is process startup only.
+
+Still only a performance nicety — not a correctness or safety requirement (confirmed: no hang,
+no crash, clean error, ~0.5 s for the sample fixture). Note that on Windows' `spawn` start
+method, process startup is tens of milliseconds per worker, so this is not negligible at high
+`--workers`. Validating the path before spawning is tracked as `T0-11` adjacent cleanup; it was
+not done here because it is a performance nicety.
 
 ## Open decisions deferred to implementation time
 - ~~Whether to implement QUIC SNI heuristic at all (default: omit, documented
@@ -441,7 +509,21 @@ safety requirement.
   (pick conservative defaults in Task 2/7, make configurable via CLI flags).~~ **Resolved**:
   65535 / 100_000 per process / 10_000_000, all overridable via CLI flags
   (`--max-packet-size`, `--max-connections`, `--max-total-packets`), plus
-  `--flow-timeout` for idle reaping.
+  `--flow-timeout` for idle reaping and `--reap-interval` for reaper cadence.
+
+### New open decisions (2026-10-03)
+
+Raised by the audit. Each is blocking one or more planned tasks and **requires a human** —
+they are deliberately not resolved in this document. Full detail in
+[`TASK_TRACKER.md`](TASK_TRACKER.md) §2.
+
+| ID | Question | Blocks |
+|---|---|---|
+| `DEC-01` | Output-ordering guarantee under streaming. Fixing the unbounded-memory defect removes the global sort that currently makes output deterministic, so a choice is forced. | `T0-11`, `T1-01`, `T1-03` |
+| `DEC-02` | pcapng: full reader, or a precise "not supported, here's how to convert" diagnostic? | `T05-02` |
+| `DEC-03` | scapy: implement the cross-check this document already claims, or delete the dependency and the claim? | `T1-07` |
+| `DEC-04` | Rule-file persistence key: migrate display names to stable `AppType.name` keys? | `T1-05` |
+| `DEC-05` | Bidirectional flow folding: default on, or on only in streaming mode? | `T1-03` |
 
 ## Open trade-offs, deliberately not resolved
 
@@ -450,12 +532,48 @@ safety requirement.
   feature that silently needs more setup. Chosen: optional extra + reported degradation.
 - **Two-phase commit for live rule updates** was considered and rejected. A worker dying
   mid-run loses the update; the parent reports the failure. Versioned acknowledgement and
-  rollback would add real complexity for what is, in the end, a batch tool.
+  rollback would add real complexity for what is, in an offline file-processing tool, a
+  batch-shaped problem.
 - **Partial-output cleanup on failure** — see "Known limitation" above. Still undecided;
-  both "preserve partial progress" and "fail clean" are defensible.
-- **Validating the output path before spawning workers** in
-  `run_pipeline_multiprocess` — still a performance nicety, not correctness. Recorded in
-  "Minor efficiency note" above.
+  both "preserve partial progress" and "fail clean" are defensible. Note the two
+  multiprocess variants already produce an *empty* file rather than a partial one, so the
+  question is currently live only for `run_pipeline`.
+- **Validating the output path before spawning workers** — still a performance nicety, not
+  correctness. Recorded in "Minor efficiency note" above.
 - **Direction-folding of flows** (one table entry per bidirectional connection instead of
-  two) would be more correct, but changes blocking scope, so it is preserved as-is from
-  the original rather than changed under cover of a bug fix.
+  two) would be more correct, but changes blocking scope, so it is preserved as-is from the
+  original rather than changed under cover of a bug fix. Now tracked as `DEC-05`.
+- **No backpressure on the packet queues.** All `multiprocessing.Queue`s are unbounded, which
+  guarantees the parent's dispatch loop cannot deadlock — bought at the cost of memory being
+  the only backpressure, and therefore the source of the unbounded-memory defect `D-01`.
+  Bounded queues are the fix; see `T0-11`.
+
+## Known issues in the current port
+
+Recorded here so this document does not imply the port is defect-free. Full detail,
+severity and remediation in [`AUDIT.md`](AUDIT.md) §2.
+
+The most serious, in order:
+
+- **`D-01` / `D-02` / `D-22` — unbounded memory.** Workers accumulate every packet's full
+  `RawPacket` for the entire run and return it as one pickled `WorkerResult`; the packet
+  queues have no `maxsize`, so the dispatch loop cannot apply backpressure. At the documented
+  defaults this can reach hundreds of gigabytes. **This defeats every other resource bound in
+  the codebase**, including the ones asserted above. It is a regression against the original,
+  whose bounded `ThreadSafeQueue` provided real backpressure.
+- **`D-14` — no VLAN/802.1Q unwrapping.** 100% of VLAN-tagged traffic is silently discarded.
+  Correct as documented, but enterprise captures are commonly tagged.
+- **`D-03` — `--live-rules` is silently ignored with `--load-balancers`.** `run_pipeline_staged`
+  has no `live_rules` parameter and creates no control queues, and the CLI never warns. The
+  flag's help text promises a control channel unconditionally. Item 15 below describes the
+  mutation channel as working; that is true only for the single-tier variant.
+- **`D-06` / `D-07` — pcap bounds claims are not fully implemented.** `orig_len` is
+  `len(buf)` rather than the on-wire `origlen`, so byte counters under-report on truncated
+  captures; and `max_packet_size` is checked *after* dpkt has already read `caplen` bytes, so
+  the stated threat model (an adversarial `caplen` triggering an unbounded allocation) is not
+  actually prevented.
+- **`P-15` — per-packet throughput is unmeasured and likely worse than the C++ original.**
+  Pickling a `WorkItem` per packet across a process boundary, a pure-Python hash mix per
+  packet, Python-level dissection, and a full accumulate→pickle→sort return path. The CLI
+  defaults to `--workers 1`, so the path that exists to scale is not the default and has never
+  been benchmarked.

@@ -219,6 +219,24 @@ supplementary cross-check; the rest of the suite has no external dependency.
 
 ## Design notes
 
-DESIGN_DECISIONS.md records *why*, not just *what*: every bug fixed relative to
+Full project documentation lives in [`docs/`](docs/README.md) — start with the
+[documentation index](docs/README.md).
+
+| Document | What it covers |
+|---|---|
+| [`docs/OPERATING_INSTRUCTIONS.md`](docs/OPERATING_INSTRUCTIONS.md) | How to work in this repo: read order, the five non-negotiable rules, boundaries needing a human decision |
+| [`docs/TASK_TRACKER.md`](docs/TASK_TRACKER.md) | Current state — task statuses, decisions, what to do next |
+| [`docs/TASK_TRACKER_UPDATE_PROTOCOL.md`](docs/TASK_TRACKER_UPDATE_PROTOCOL.md) | How to keep that tracker consistent across sessions and agents |
+| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | How the known defects get fixed: 30 tasks, dependency graph, risk register |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | The findings — port-vs-C++ verdict, 22 defects, 10 missing engineering rails |
+| [`docs/AGENTIC_ARCHITECTURE.md`](docs/AGENTIC_ARCHITECTURE.md) | The agentic product vision and roadmap |
+| [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md) | *Why* the port is built this way: every bug fixed relative to the original, safety constraints, trade-offs left open |
+| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Architecture diagrams — ⚠️ stale, scheduled for rewrite |
+
+`DESIGN_DECISIONS.md` records *why*, not just *what*: every bug fixed relative to
 the original, every intentional behavioural difference, the concurrency
 rationale, and the trade-offs deliberately left open.
+
+> **Starting work on this project?** Read
+> [`docs/TASK_TRACKER.md`](docs/TASK_TRACKER.md) §1 — it is 40 lines and tells
+> you exactly what to do next.

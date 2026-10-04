@@ -26,16 +26,20 @@ the length *prefix* itself was readable. Concretely:
   many bytes actually existed. This port validates the full skip region
   (`offset + skip_len <= length`) before advancing, every time.
 
-QUIC SNI extraction is intentionally NOT implemented (see
-DESIGN_DECISIONS.md "Open decisions": default is to omit it). The original's
-QUICSNIExtractor::extract computed `payload + i - 5` inside a loop starting
-at `i = 0`, which is an out-of-bounds read whenever `i < 5` -- the original
-itself described this implementation as "simplified" and a placeholder, not
-a real QUIC parser (QUIC Initial packets carry the Client Hello inside
-encrypted CRYPTO frames, which cannot be scanned for byte patterns at all
-without first performing QUIC's Initial-packet header protection removal).
-Rather than port a fundamentally broken heuristic, this is a documented,
-explicit limitation. See README "Known limitations".
+QUIC SNI extraction is NOT handled here. The original's QUICSNIExtractor::extract
+computed `payload + i - 5` inside a loop starting at `i = 0`, which is an
+out-of-bounds read whenever `i < 5` -- and the original itself described that
+implementation as "simplified" and a placeholder, not a real QUIC parser (QUIC
+Initial packets carry the Client Hello inside *encrypted* CRYPTO frames, which
+cannot be scanned for byte patterns at all without first performing QUIC's
+header-protection removal). Porting that heuristic was the wrong move.
+
+QUIC is therefore implemented properly and separately, in `dpi_engine.quic`:
+the full RFC 9000/9001 path (Initial decryption, header-protection removal,
+packet-number reconstruction, AES-128-GCM, CRYPTO-frame reassembly). See
+DESIGN_DECISIONS.md "Gap analysis" item 16. `quic.py` is the only place QUIC
+SNI extraction happens; this module stays free of it so the TLS/HTTP/DNS
+parsers keep their own self-contained bounds guarantees.
 """
 
 from __future__ import annotations
