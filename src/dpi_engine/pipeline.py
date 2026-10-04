@@ -284,7 +284,10 @@ def _iter_inspectable(
     """
     for sequence_index, raw in enumerate(reader):
         stats.total_packets += 1
-        stats.total_bytes += raw.orig_len
+        # `len(data)`, not `raw.orig_len` -- see the note in
+        # `worker.FlowProcessor.process`. Byte totals report what was read from
+        # the capture, matching the C++ original's `raw.data.size()`.
+        stats.total_bytes += len(raw.data)
 
         parsed = parse_packet(raw)
         if parsed is None or not parsed.has_ip or not (parsed.has_tcp or parsed.has_udp):

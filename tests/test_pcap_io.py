@@ -39,7 +39,12 @@ def test_reads_real_sample_capture() -> None:
     assert reader.packets_read == len(packets)
     for pkt in packets:
         assert isinstance(pkt, RawPacket)
-        assert len(pkt.data) == pkt.orig_len
+        # `orig_len` is the record header's on-wire length (D-06). It is
+        # >= len(data) always, and strictly greater when the capture was
+        # truncated. This previously asserted equality, which was only true
+        # because `orig_len` was assigned `len(buf)` -- i.e. the test locked the
+        # bug in place.
+        assert pkt.orig_len >= len(pkt.data)
         assert pkt.orig_len > 0
 
 
@@ -296,3 +301,312 @@ def test_writer_still_opens_valid_paths(tmp_path: Path) -> None:
     reopened = PcapWriter(out)
     reopened.close()
     assert out.stat().st_size == 24  # global header only after truncation
+
+
+# --- D-06 / D-07: record header read directly ------------------------------------
+#
+# dpkt's Reader.__iter__ does `buf = self.__f.read(hdr.caplen)` internally and
+# then yields only `(ts, buf)` -- discarding `hdr.len`. Delegating to it meant
+# (D-07) the payload was allocated before max_packet_size could be checked, and
+# (D-06) orig_len had to be faked as len(buf).
+#
+# Note the original did neither: pcap_reader.cpp:88-93 checked
+# `incl_len > snaplen || incl_len > 65535` *before* `resize()` on line 96. Both
+# were regressions introduced by the move to dpkt, not inherited defects.
+
+def _write_raw_pcap(
+    path: Path,
+    records: list[tuple[int, int, int, int, bytes]],
+    *,
+    endian: str = "<",
+) -> Path:
+    """Build a pcap byte-for-byte, bypassing PcapWriter.
+
+    PcapWriter cannot express incl_len != orig_len (dpkt's writepkt_time packs
+    `n, n`), so a truncated capture has to be assembled by hand to test D-06 at
+    all. This is exactly the limitation `test_writer_cannot_preserve_a_truncated_orig_len`
+    pins.
+    """
+    magic = 0xA1B2C3D4
+    out = bytearray(
+        struct.pack(f"{endian}IHHiIII", magic, 2, 4, 0, 0, 65535, ETHERNET_LINKTYPE)
+    )
+    for ts_sec, ts_usec, incl_len, orig_len, data in records:
+        out += struct.pack(f"{endian}IIII", ts_sec, ts_usec, incl_len, orig_len)
+        out += data
+    path.write_bytes(bytes(out))
+    return path
+
+
+# --- D-06: orig_len must come from the record header, not len(data) --------------
+
+
+def test_orig_len_is_the_on_wire_length_not_the_captured_length(tmp_path: Path) -> None:
+    """A snaplen-truncated packet: 60 bytes on the wire, 20 captured.
+
+    Before the fix `orig_len` was assigned `len(buf)`, so this reported 20 and
+    every byte counter in the engine under-reported on truncated captures."""
+    path = _write_raw_pcap(
+        tmp_path / "truncated.pcap",
+        [(1_700_000_000, 500_000, 20, 60, b"\xaa" * 20)],
+    )
+
+    with PcapReader(path) as reader:
+        packets = list(reader)
+
+    assert len(packets) == 1
+    assert len(packets[0].data) == 20
+    assert packets[0].orig_len == 60, (
+        "orig_len must be the record header's on-wire length; "
+        f"got {packets[0].orig_len}, expected 60"
+    )
+    assert packets[0].orig_len > len(packets[0].data)
+
+
+def test_orig_len_is_preserved_for_untruncated_packets_too(tmp_path: Path) -> None:
+    """Guard: the common case must be unaffected -- incl_len == orig_len."""
+    path = _write_raw_pcap(
+        tmp_path / "full.pcap",
+        [(1_700_000_000, 0, 32, 32, b"\xbb" * 32)],
+    )
+
+    with PcapReader(path) as reader:
+        packets = list(reader)
+
+    assert packets[0].orig_len == 32
+    assert packets[0].orig_len == len(packets[0].data)
+
+
+def test_writer_cannot_preserve_a_truncated_orig_len(tmp_path: Path) -> None:
+    """Pins a real limitation rather than leaving it implicit.
+
+    dpkt's writer packs caplen and origlen as the same `n`, so writing a
+    truncated packet back out records it as complete. This is why fixing D-06
+    does not also fix the write side, and why the byte counters in a filtered
+    output pcap reflect what was captured, not what was on the wire.
+    """
+    source = _write_raw_pcap(
+        tmp_path / "in.pcap",
+        [(1_700_000_000, 0, 20, 60, b"\xcc" * 20)],
+    )
+    dest = tmp_path / "out.pcap"
+
+    with PcapReader(source) as reader:
+        packets = list(reader)
+    assert packets[0].orig_len == 60
+
+    writer = PcapWriter(dest)
+    for pkt in packets:
+        writer.write(pkt)
+    writer.close()
+
+    with PcapReader(dest) as reader:
+        rewritten = list(reader)
+
+    assert rewritten[0].orig_len == 20, (
+        "documented dpkt limitation: the writer cannot express "
+        "incl_len < orig_len, so truncation is lost on write"
+    )
+
+
+def test_timestamps_are_unaffected_by_the_record_header_change(tmp_path: Path) -> None:
+    """The rewrite reads ts_sec/ts_usec directly instead of dpkt's normalized
+    float, so the arithmetic must reproduce dpkt's exactly -- including how it
+    carried an out-of-range fraction into the seconds field."""
+    path = _write_raw_pcap(
+        tmp_path / "ts.pcap",
+        [
+            (1_700_000_000, 500_000, 4, 4, b"\x01\x02\x03\x04"),
+            (1_700_000_001, 0, 4, 4, b"\x05\x06\x07\x08"),
+            # out-of-range fraction: 4294967295 usec == 4294.967295 s
+            (5, 4_294_967_295, 4, 4, b"\x09\x0a\x0b\x0c"),
+        ],
+    )
+
+    with PcapReader(path) as reader:
+        packets = list(reader)
+
+    assert (packets[0].ts_sec, packets[0].ts_usec) == (1_700_000_000, 500_000)
+    assert (packets[1].ts_sec, packets[1].ts_usec) == (1_700_000_001, 0)
+    assert (packets[2].ts_sec, packets[2].ts_usec) == (5 + 4294, 967_295)
+
+
+def test_little_and_big_endian_captures_agree(tmp_path: Path) -> None:
+    """Byte order now drives our own struct unpacking, so both orders must be
+    read correctly -- the real fixture is little-endian, so a wrong endianness
+    would otherwise pass silently everywhere else."""
+    payload = b"\x11\x22\x33\x44"
+    le = _write_raw_pcap(tmp_path / "le.pcap", [(100, 250_000, 4, 4, payload)], endian="<")
+    be = _write_raw_pcap(tmp_path / "be.pcap", [(100, 250_000, 4, 4, payload)], endian=">")
+
+    with PcapReader(le) as r:
+        little = list(r)
+    with PcapReader(be) as r:
+        big = list(r)
+
+    for packets in (little, big):
+        assert len(packets) == 1
+        assert packets[0].data == payload
+        assert packets[0].ts_sec == 100
+        assert packets[0].ts_usec == 250_000
+        assert packets[0].orig_len == 4
+
+
+# --- D-07: incl_len must be validated before the payload is read ----------------
+
+
+def test_oversized_incl_len_is_rejected_without_reading_the_payload(
+    tmp_path: Path,
+) -> None:
+    """A record header declaring incl_len = 0xFFFFFFF0 must be rejected on the
+    declared length alone.
+
+    Before the fix dpkt performed the multi-gigabyte read inside its own
+    iterator, so by the time max_packet_size was consulted the allocation had
+    already been attempted. The file below is 16 bytes long, so a correct
+    implementation never touches the missing payload at all."""
+    path = _write_raw_pcap(
+        tmp_path / "hostile.pcap",
+        [(1, 0, 0xFFFFFFF0, 0xFFFFFFF0, b"")],
+    )
+    assert path.stat().st_size == 24 + 16  # global header + record header only
+
+    with PcapReader(path, max_packet_size=65535) as reader, pytest.raises(
+        PcapLimitExceededError
+    ) as excinfo:
+        list(reader)
+
+    assert "incl_len" in str(excinfo.value)
+    assert "max_packet_size" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("declared", [65536, 1 << 20, 0xFFFFFFF0])
+def test_any_incl_len_above_the_bound_is_rejected(
+    tmp_path: Path, declared: int
+) -> None:
+    path = _write_raw_pcap(tmp_path / f"big-{declared}.pcap", [(1, 0, declared, declared, b"")])
+
+    with PcapReader(path, max_packet_size=65535) as reader, pytest.raises(
+        PcapLimitExceededError
+    ):
+        list(reader)
+
+
+def test_incl_len_exactly_at_the_bound_is_accepted(tmp_path: Path) -> None:
+    """The bound is inclusive, matching the original's `incl_len > 65535`."""
+    path = _write_raw_pcap(
+        tmp_path / "exact.pcap",
+        [(1, 0, 65535, 65535, b"\x00" * 65535)],
+    )
+
+    with PcapReader(path, max_packet_size=65535) as reader:
+        packets = list(reader)
+
+    assert len(packets[0].data) == 65535
+
+
+def test_bound_is_reported_against_the_declared_length_not_the_bytes_present(
+    tmp_path: Path,
+) -> None:
+    """The error must name incl_len, not len(data). On a hostile record those
+    differ by gigabytes and only the former explains the rejection."""
+    path = _write_raw_pcap(tmp_path / "lie.pcap", [(7, 0, 999_999, 999_999, b"\x00" * 10)])
+
+    with PcapReader(path, max_packet_size=100) as reader, pytest.raises(
+        PcapLimitExceededError
+    ) as excinfo:
+        list(reader)
+
+    message = str(excinfo.value)
+    assert "999999" in message
+    assert "Packet #0" in message
+
+
+# --- truncated payloads -------------------------------------------------------------
+
+
+def test_capture_cut_mid_packet_ends_iteration_cleanly(tmp_path: Path) -> None:
+    """A capture truncated mid-payload is normal, not corrupt. Iteration must
+    stop without raising and without emitting a phantom short packet --
+    matching `readNextPacket`'s `if (!file_.good()) return false`, and stricter
+    than dpkt, which yields a zero-byte packet the pipeline would process."""
+    path = _write_raw_pcap(
+        tmp_path / "cut.pcap",
+        [
+            (1, 0, 4, 4, b"\x01\x02\x03\x04"),
+            (2, 0, 100, 100, b"\x05\x06"),  # only 2 of 100 bytes present
+            (3, 0, 4, 4, b"\x07\x08\x09\x0a"),  # unreachable
+        ],
+    )
+
+    with PcapReader(path) as reader:
+        packets = list(reader)
+
+    assert len(packets) == 1
+    assert packets[0].data == b"\x01\x02\x03\x04"
+    assert reader.packets_read == 1
+
+
+def test_truncated_record_header_ends_iteration_cleanly(tmp_path: Path) -> None:
+    """A capture ending mid-header (1-15 bytes) must stop cleanly rather than
+    raise or unpack garbage."""
+    complete = _write_raw_pcap(tmp_path / "full.pcap", [(1, 0, 4, 4, b"\x01\x02\x03\x04")])
+    raw = bytearray(complete.read_bytes())
+    raw += b"\x00" * 9  # partial record header
+    cut = tmp_path / "cut-header.pcap"
+    cut.write_bytes(bytes(raw))
+
+    with PcapReader(cut) as reader:
+        packets = list(reader)
+
+    assert len(packets) == 1
+
+
+def test_incl_len_zero_is_a_valid_empty_packet(tmp_path: Path) -> None:
+    """A zero-length capture is legal and is used by the test suite itself."""
+    path = _write_raw_pcap(tmp_path / "empty-pkt.pcap", [(1, 0, 0, 0, b"")])
+
+    with PcapReader(path) as reader:
+        packets = list(reader)
+
+    assert len(packets) == 1
+    assert packets[0].data == b""
+    assert packets[0].orig_len == 0
+
+
+def test_byte_counters_report_bytes_read_not_on_wire_length(tmp_path: Path) -> None:
+    """Pins a deliberate decision that is easy to "fix" in the wrong direction.
+
+    `RawPacket.orig_len` is now the true on-wire length (D-06), so on a
+    snaplen-truncated capture it exceeds `len(data)`. Byte counters must still
+    use the captured length, because:
+      - the CLI labels the figure "Total bytes read";
+      - the C++ original does `flow.bytes += raw.data.size()`
+        (main_working.cpp:184), and parity with it is what the differential
+        suite exists to prove.
+
+    Using `orig_len` here would silently change every byte total relative to
+    the reference on any truncated capture."""
+    import struct as _struct
+
+    from dpi_engine.pipeline import run_pipeline
+
+    source = tmp_path / "trunc.pcap"
+    frame = b"\x45" + b"\x00" * 19 + b"\x06\x00" + b"\x00" * 14 + b"payload"
+    out = bytearray(
+        _struct.pack(
+            "<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, ETHERNET_LINKTYPE
+        )
+    )
+    # incl_len 54 captured, orig_len 9000 on the wire.
+    out += _struct.pack("<IIII", 1_700_000_000, 0, len(frame), 9000)
+    out += frame
+    source.write_bytes(bytes(out))
+
+    dest = tmp_path / "out.pcap"
+    result = run_pipeline(source, dest)
+
+    assert result.stats.total_bytes == len(frame), (
+        "byte counters must report captured bytes (incl_len), matching the "
+        f"C++ original; got {result.stats.total_bytes}, expected {len(frame)}"
+    )

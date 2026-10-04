@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T0-06
-next_action: Read the 16-byte pcap per-packet record header directly in pcap_io; validate incl_len against max_packet_size BEFORE reading; populate true orig_len from the record field; replace the test that asserts the D-06 bug
+current_task: T0-02
+next_action: Add tests/conftest.py holding the single FIXTURES path and the cpp_available fixture; update the 8 test files and fix the conftest.py reference in tests/differential/README.md
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t0_05
+session: ses_t0_06
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | 2 / 11 tasks done |
-| **Current task** | `T0-06` - Direct pcap record-header read (closes `D-06` + `D-07`) |
-| **Next action** | Replace dpkt-delegating iteration with a direct read of the 16-byte record header; validate `incl_len` against `max_packet_size` **before** reading payload bytes; set `RawPacket.orig_len` from the record's `orig_len` field; replace `tests/test_pcap_io.py:41`, which asserts the `D-06` bug |
+| **Phase progress** | 3 / 11 tasks done |
+| **Current task** | `T0-02` - `conftest.py` + fixture de-duplication (unblocks `DOC-06`) |
+| **Next action** | Create `tests/conftest.py` with the single `FIXTURES` path constant and the `cpp_available` fixture; import both in the 8 affected test files instead of duplicating; correct the `conftest.py` reference in `tests/differential/README.md` |
 | **Blocked by** | nothing - `T0-04` is unblocked |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t0_05` - `T0-05` closed |
+| **Session** | `ses_t0_06` - `T0-06` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,7 +118,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
-| **0** | Harden | 11 | **2** | 0 | **1** | 8 | 0 | not met |
+| **0** | Harden | 11 | **3** | 0 | **1** | 6 | 0 | not met |
 | **0.5** | Real captures | 2 | 0 | 0 | **1** | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
@@ -145,11 +145,11 @@ Status vocabulary is closed (7 values) — see
 
 | ID | Task | Traces | Status | Gate | Effort |
 | `T0-01` | CI, coverage, timeouts, gitignore artifact | `R-01` `R-02` `R-03` `R-09` | pending | — | 0.5 d |
-| `T0-02` | `conftest.py` + fixture de-duplication | `R-04` `M-07` | pending | — | 0.5 d |
+| `T0-02` | `conftest.py` + fixture de-duplication | `R-04` `M-07` | pending | - | 0.5 d |
 | `T0-03` | Memory reproduction test + benchmark baseline | `R-06` | pending | — | 0.5 d |
 | `T0-04` | Clamp `length` in TLS entry points | `D-05` | done | - | 15 min |
 | `T0-05` | Guard `PcapWriter` open | `D-04` | done | - | 15 min |
-| `T0-06` | Direct pcap record-header read | `D-06` `D-07` | pending | — | 0.5 d |
+| `T0-06` | Direct pcap record-header read | `D-06` `D-07` | done | - | 0.5 d |
 | `T0-07` | Bound the HTTP `Host:` scan | `D-09` `D-10` | pending | — | 0.5 d |
 | `T0-08` | Per-packet QUIC `undecryptable` accounting | `D-08` | pending | — | 0.5 d |
 | `T0-09` | Make `--live-rules` honest | `D-03` | pending | — | 0.5–1 d |
@@ -262,15 +262,15 @@ or `dropped` and say why.
 - **Notes:** One extra failure mode found during reproduction was *not* a defect: `PcapWriter("NUL")` succeeds on Windows because `NUL` is a reserved device. That is correct OS behaviour, not a bug, and is excluded from the matrix.
 ### `T0-06` — Direct pcap record-header read
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
-- **Files:** `src/dpi_engine/pcap_io.py`, `tests/test_pcap_io.py`
-- **Test added:** (a) `incl_len = 0xFFFFFFF0` rejected **without** attempting the read; (b) a snaplen-truncated record yields `len(data) == incl_len` and `orig_len > len(data)` — **and replace `tests/test_pcap_io.py:41`, which currently asserts the `D-06` bug**
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** `pytest tests/test_pcap_io.py tests/test_resource_bounds.py -q`; benchmark delta vs. the `T0-03` baseline
-- **Closed findings:** `D-06` `D-07` · **Follow-ups:** —
-- **Notes:** highest-leverage task in Phase 0 — one change, two defects. Medium risk: replaces the I/O hot path. If throughput regresses vs dpkt, record the delta in Deviations; do not revert silently
-
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_06 — **Blocked by:** -
+- **Files:** `src/dpi_engine/pcap_io.py` (the fix), `src/dpi_engine/worker.py` + `pipeline.py` (byte-counter semantics), `tests/test_pcap_io.py` (14 tests)
+- **Test added:** fourteen. Six are D-06/D-07 regression tests: true `orig_len` on a truncated record (60 on the wire, 20 captured); `orig_len` unchanged for untruncated packets; `incl_len` validated *before* any payload read, asserted on a 40-byte file declaring `incl_len=0xFFFFFFF0`; three parametrisations across the bound; the bound is inclusive and matches the original's `incl_len > 65535`; the error names the declared length, not the bytes present. Four are guards: LE **and** BE captures agree; timestamps reproduce dpkt's arithmetic exactly including an out-of-range fraction carrying into seconds; `incl_len` exactly at the bound is accepted; zero-length records are legal. Three pin deliberate decisions: a truncated payload ends iteration cleanly (no phantom packet); a capture cut mid-header does the same; byte counters report captured bytes, not on-wire. One documents a limitation: `PcapWriter` cannot express `incl_len < orig_len` because dpkt packs `n, n`.
+- **How it was tackled:** Root cause for both defects was a single design choice. `dpkt.pcap.Reader.__iter__` does `buf = self.__f.read(hdr.caplen)` internally and yields only `(ts, buf)` $EM discarding `hdr.len`. So delegating record iteration to dpkt both allocated before the size bound could be checked (D-07) and forced `orig_len = len(buf)` (D-06). dpkt still validates the global header, so format checking is untouched; only the per-record loop was replaced with a direct `struct` unpack of the 16-byte header. **Key discovery: neither defect was inherited.** `pcap_reader.cpp:88-93` checks `incl_len > snaplen || incl_len > 65535` *before* `resize()` on line 96, and `main_working.cpp:269-270` shows the original also writes `incl_len = orig_len = data.size()`. Both were regressions introduced by the move to dpkt, which changes how they should be described in `AUDIT.md`. Byte order and timestamp precision are derived from the four spec-defined magic byte sequences rather than by reusing dpkt's own host-endianness-dependent check.
+- **Deviations:** three, all material. **(a)** Caught a parity regression I was about to introduce: making `orig_len` truthful meant the byte counters $EM which read `raw.orig_len` $EM silently switched from captured length to on-wire length. The C++ original uses `raw.data.size()` (`main_working.cpp:184`) and the CLI label is "Total bytes **read**", so both `worker.py` and `pipeline.py` were reverted to `len(raw.data)` and a test pins it, because it is exactly the kind of change that looks like a fix. **(b)** Two of my own first-draft decisions were wrong and were corrected against the original: a truncated payload and a truncated record header initially raised `PcapFormatError`, when OSC stops cleanly in both cases; and endianness detection initially compared magic bytes against dpkt's *integer* constants, which only worked by coincidence on a little-endian host. **(c)** Scope grew from 2 defects to include the byte-counter audit above, which was not in the brief but was a direct consequence of it.
+- **Verification:** new tests: **8 of 14 fail against the previous implementation** (confirmed by `git stash`ing the source and re-running), 14 pass after. Full suite **420 passed, 12 skipped** $EM up from 405, +15 net, **zero regressions**. `ruff` clean, `mypy` clean on 13 files. **Behavioural equivalence proven by differential snapshot**: full JSON report and output-pcap SHA256 captured across `run_pipeline`, `run_pipeline_multiprocess` and `run_pipeline_staged`, before vs after $EM **byte-identical in all three**.
+- **Closed findings:** `D-06`, `D-07`
+- **Follow-ups:** **(1) C++ parity is UNVERIFIED for this change.** `tests/differential` skips 12 of 14 tests because the Docker daemon is absent on this host, so the C++ reference binary cannot be built or run. The before/after Python snapshot is strong evidence but is not the same proof. Re-run `uv run pytest tests/differential` once Docker is available. **(2)** `AUDIT.md` `D-06` should be reframed: its claim that byte counters "under-report" is wrong. Reporting captured bytes is correct and matches C++; the actual defect was that `orig_len`'s docstring described behaviour the code did not implement, with a test locking it in. **(3)** `pcap_io.py's module docstring still says the max_packet_size bound exists so an adversarial caplen "cannot trigger an unbounded read or allocation" $EM that statement was previously aspirational and is now true; worth re-reading to confirm it matches.
+- **Notes:** Two of my own mistakes were caught only because the tests were written before the fix was trusted $EM the endianness test failed against my own new code, and the BE fixture was malformed because I had confused a magic *value* with magic *bytes*. Neither would have been caught by the existing suite. Cost of this task: roughly 3x the 0.5 day estimate, almost entirely on verification.
 ### `T0-07` — Bound the HTTP `Host:` scan
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -531,7 +531,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation, not a defect | — | — |
-| `D-##` defects | 22 | **2** (`D-04`, `D-05`) | 17 | 3 |
+| `D-##` defects | 22 | **4** (`D-04`, `D-05`, `D-06`, `D-07`) | 15 | 3 |
 | `R-##` rails | 10 | 0 | 10 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **3** (`M-02` `M-03` `M-04`) | 3 (`M-01` `M-05` `M-06`) + `M-07` (paired with `T0-02`) | 0 |
@@ -557,6 +557,8 @@ A deviation is not a failure — it is the plan being corrected by evidence.
 
 | Date | Task | Planned | Actual | Reason | Plan updated? |
 |---|---|---|---|---|---|
+| 2026-10-03 | `T0-06` | parity assumed from the passing differential suite | parity suite could not run: Docker daemon absent | Docker Desktop is not installed on this host and no engine pipe exists, so `tests/differential` skips 12 of 14 tests. Compensated by diffing full JSON report + output-pcap SHA256 across all three pipeline variants, before vs after the change: **byte-identical**. Real parity against the C++ binary remains **unverified** $EM must be run once Docker is available. | no $EM follow-up recorded |
+|---|---|---|---|---|---|
 | 2026-10-03 | `T0-04` | `T0-01` (CI) first, then `T0-04` | started at `T0-04` | Requested explicitly: close a defect immediately rather than spend half a day on CI first. `T0-04` is ungated, 15 min, and exercises the whole claim/fix/verify/record loop end to end. | no - task order only, scope unchanged |
 | 2026-10-03 | `T0-01` | add coverage floor at 85% | floor verified achievable: **measured 93%** | Ran the measurement instead of leaving the floor as a guess. Per-module: cli 89 · sni_extractor 87 · quic 91 · worker 91 · pipeline 92 · report 95 · rule_manager 95 · packet_parser 95 · pcap_io 97 · connection_tracker 98 · types 98 · load_balancer 100. An 85% gate will not fail on day one. | no - confirms the plan |
 | 2026-10-03 | `DOC-02` | fix the six `M-02` items | also added a new-decisions table and a known-issues section | The document would otherwise imply the port is defect-free, and a reader has no other signal. Also fixed two *code* docstrings (`sni_extractor.py`, `types.py:257`) that were nominally assigned to `T0-10`. | yes — `T0-10` narrowed |
@@ -575,6 +577,8 @@ two documents diverge silently.
 sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
+|---|---|---|---|---|---|
+| 2026-10-03 | `ses_t0_06` | claude-opus-5[1m] | `T0-06` | 1 task completed — `D-06` + `D-07` closed (14 tests added) | `T0-02` |
 |---|---|---|---|---|---|
 | 2026-10-03 | `ses_t0_05` | claude-opus-5[1m] | `T0-05` | 1 task completed — `D-04` closed | `T0-06` |
 |---|---|---|---|---|---|

@@ -28,6 +28,7 @@ network calls. See DESIGN_DECISIONS.md "Safety constraints".
 from __future__ import annotations
 
 import os
+import struct
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,30 @@ DEFAULT_MAX_PACKET_SIZE = 65535
 DEFAULT_MAX_TOTAL_PACKETS = 10_000_000
 
 ETHERNET_LINKTYPE = dpkt.pcap.DLT_EN10MB  # 1
+
+# Per-packet record header: ts_sec, ts_frac, incl_len (caplen), orig_len.
+_RECORD_HEADER_LEN = 16
+
+# Which on-disk byte patterns mean "this capture is little-endian".
+#
+# Per the pcap spec the byte order is determined by the first four bytes
+# directly, which is host-independent -- unlike dpkt's own check, which reads
+# the magic as a *native* uint32 and therefore depends on the host's byte order.
+#
+#   a1 b2 c3 d4  big-endian, microsecond
+#   d4 c3 b2 a1  little-endian, microsecond
+#   a1 b2 3c 4d  big-endian, nanosecond
+#   4d 3c b2 a1  little-endian, nanosecond
+_LITTLE_ENDIAN_MAGIC_BYTES = frozenset(
+    {bytes.fromhex("d4c3b2a1"), bytes.fromhex("4d3cb2a1")}
+)
+_BIG_ENDIAN_MAGIC_BYTES = frozenset(
+    {bytes.fromhex("a1b2c3d4"), bytes.fromhex("a1b23c4d")}
+)
+_NANOSECOND_MAGIC_BYTES = frozenset(
+    {bytes.fromhex("a1b23c4d"), bytes.fromhex("4d3cb2a1")}
+)
+_KNOWN_MAGIC_BYTES = _LITTLE_ENDIAN_MAGIC_BYTES | _BIG_ENDIAN_MAGIC_BYTES
 
 
 class PcapError(Exception):
@@ -69,9 +94,14 @@ class RawPacket:
     """A single packet as read from a pcap file, before any protocol parsing.
 
     Mirrors OSC's RawPacket (pcap_reader.h): a timestamp plus the captured
-    bytes. `orig_len` preserves the original on-wire length even when the
-    capture is truncated (caplen < origlen), matching the original's
-    incl_len/orig_len distinction.
+    bytes. `orig_len` is the record header's on-wire length, so it is preserved
+    even when the capture was truncated (`len(data) < orig_len`), matching the
+    original's incl_len/orig_len distinction.
+
+    Note that `PcapWriter` cannot represent that distinction: dpkt's writer
+    emits caplen == origlen for every packet, so a truncated packet written back
+    out is recorded as complete. That is a dpkt limitation, not a silent fix --
+    see `test_writer_cannot_preserve_a_truncated_orig_len`.
     """
 
     ts_sec: int
@@ -109,6 +139,9 @@ class PcapReader:
         self._file: BinaryIO | None = None
         self._reader: dpkt.pcap.Reader | None = None
         self._packets_read = 0
+        self._endian = "<"
+        self._ts_divisor = 1_000_000
+        self._ts_scale = 1
 
         self._open()
 
@@ -120,6 +153,24 @@ class PcapReader:
             self._file = open(self.path, "rb")  # noqa: SIM115
         except OSError as exc:
             raise PcapError(f"Cannot open pcap file '{self.path}': {exc}") from exc
+
+        # Byte order and timestamp precision come from the magic, read before
+        # dpkt consumes the global header. `__iter__` unpacks the 16-byte
+        # per-packet record header itself rather than iterating dpkt, because
+        # dpkt's iterator performs `read(hdr.caplen)` internally and then
+        # discards `hdr.len` -- so delegating to it both allocates before the
+        # size bound can be checked and throws away the on-wire length. dpkt
+        # still validates the global header here, so format checking is
+        # unchanged.
+        magic = self._file.read(4)
+        self._file.seek(0)
+        if magic in _LITTLE_ENDIAN_MAGIC_BYTES:
+            self._endian = "<"
+        elif magic in _BIG_ENDIAN_MAGIC_BYTES:
+            self._endian = ">"
+        if magic in _NANOSECOND_MAGIC_BYTES:
+            self._ts_divisor = 1_000_000_000
+            self._ts_scale = 1_000
 
         try:
             self._reader = dpkt.pcap.Reader(self._file)
@@ -166,35 +217,71 @@ class PcapReader:
             self._reader = None
 
     def __iter__(self) -> Iterator[RawPacket]:
-        if self._reader is None:
+        if self._file is None:
             raise PcapError("PcapReader is closed")
 
-        for ts, buf in self._reader:
+        unpack_record = struct.Struct(f"{self._endian}IIII").unpack
+        divisor = self._ts_divisor
+        scale = self._ts_scale
+        path = self.path
+
+        while True:
+            header = self._file.read(_RECORD_HEADER_LEN)
+            if not header:
+                break
+            if len(header) != _RECORD_HEADER_LEN:
+                # The capture ends mid-record. Same phenomenon as a capture cut
+                # mid-payload below, and handled the same way: stop cleanly.
+                # Matches `readNextPacket`, which returns false when the 16-byte
+                # header read does not leave the stream good
+                # (pcap_reader.cpp:74-78). Strictly better than dpkt, which
+                # would hand a short buffer to `PktHdr` and raise struct.error.
+                break
+
+            raw_sec, raw_frac, incl_len, orig_len = unpack_record(header)
+
             if self._packets_read >= self.max_total_packets:
                 raise PcapLimitExceededError(
-                    f"'{self.path}' exceeds max_total_packets="
+                    f"'{path}' exceeds max_total_packets="
                     f"{self.max_total_packets}; refusing to read further "
                     "packets to bound memory/time on adversarial input."
                 )
 
-            if len(buf) > self.max_packet_size:
+            # Checked against the declared length BEFORE any payload bytes are
+            # read, so a corrupted caplen cannot trigger the allocation this
+            # bound exists to prevent.
+            if incl_len > self.max_packet_size:
                 raise PcapLimitExceededError(
-                    f"Packet #{self._packets_read} in '{self.path}' is "
-                    f"{len(buf)} bytes, exceeding max_packet_size="
+                    f"Packet #{self._packets_read} in '{path}' declares "
+                    f"incl_len={incl_len}, exceeding max_packet_size="
                     f"{self.max_packet_size}."
                 )
 
+            data = self._file.read(incl_len)
+            if len(data) != incl_len:
+                # A capture cut mid-packet is normal, not corrupt, so this stops
+                # iteration rather than raising. That matches the original's
+                # `readNextPacket`, which did `resize(incl_len)`, read, then
+                # `if (!file_.good()) return false` (pcap_reader.cpp:96-101) --
+                # end of capture, no partial packet emitted. It is also stricter
+                # than dpkt, which yields a zero-byte packet the pipeline would
+                # then process as if it were real.
+                break
+
+            # Reproduces dpkt's `ts_sec + ts_frac/divisor` arithmetic exactly,
+            # including how it silently carried an out-of-range fraction into
+            # the seconds field, so no timestamp shifts.
+            ts_sec = raw_sec
+            if raw_frac >= divisor:
+                carry, raw_frac = divmod(raw_frac, divisor)
+                ts_sec += carry
+
             self._packets_read += 1
-            # dpkt yields seconds as a float with a fractional part; pcap stores
-            # whole seconds plus microseconds, so split it here. `round` already
-            # returns an int for a single-argument call.
-            ts_sec = int(ts)
-            ts_usec = round((ts - ts_sec) * 1_000_000)
             yield RawPacket(
                 ts_sec=ts_sec,
-                ts_usec=ts_usec,
-                data=buf,
-                orig_len=len(buf),
+                ts_usec=raw_frac // scale,
+                data=data,
+                orig_len=orig_len,
             )
 
     @property

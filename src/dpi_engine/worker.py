@@ -344,7 +344,14 @@ class FlowProcessor:
             self.stats.udp_packets += 1
 
         conn = tracker.get_or_create_connection(tuple_)
-        tracker.update_connection(conn, item.raw.orig_len, is_outbound=True)
+        # `len(data)`, not `raw.orig_len`. Byte counters report what was *read*
+        # from the capture, which is the captured length (incl_len). The C++
+        # original does the same -- `flow.bytes += raw.data.size()`
+        # (main_working.cpp:184) -- and parity with it is enforced by the
+        # differential suite. `orig_len` is the on-wire length and is larger on
+        # a snaplen-truncated capture, so using it here would silently change
+        # every byte total relative to the reference.
+        tracker.update_connection(conn, len(item.raw.data), is_outbound=True)
 
         if parsed.has_tcp:
             tracker.update_tcp_state(conn, parsed.tcp_flags)
