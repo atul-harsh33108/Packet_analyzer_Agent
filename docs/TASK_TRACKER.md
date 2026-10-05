@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T0-09
+current_task: T0-10
 next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t0_08
+session: ses_t0_09
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | 8 / 11 tasks done |
-| **Current task** | `T0-09` - Make `--live-rules` honest |
+| **Phase progress** | 9 / 11 tasks done |
+| **Current task** | `T0-10` - Teardown in `finally`, stale docstrings, dead code |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | nothing - `T0-09` is unblocked |
+| **Blocked by** | nothing - `T0-10` is unblocked |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t0_08` - `T0-08` closed |
+| **Session** | `ses_t0_09` - `T0-09` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,7 +118,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
-| **0** | Harden | 11 | **8** | 0 | **1** | 1 | 0 | not met |
+| **0** | Harden | 11 | **9** | 0 | **1** | 1 | 0 | not met |
 | **0.5** | Real captures | 2 | 0 | 0 | **1** | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
@@ -152,7 +152,7 @@ Status vocabulary is closed (7 values) — see
 | `T0-06` | Direct pcap record-header read | `D-06` `D-07` | done | - | 0.5 d |
 | `T0-07` | Bound the HTTP `Host:` scan | `D-09` `D-10` | done | - | 0.5 d |
 | `T0-08` | Per-packet QUIC `undecryptable` accounting | `D-08` | done | — | 0.5 d |
-| `T0-09` | Make `--live-rules` honest | `D-03` | pending | — | 0.5–1 d |
+| `T0-09` | Make `--live-rules` honest | `D-03` | done | — | 0.5–1 d |
 | `T0-10` | Teardown in `finally`; stale docstrings; dead code | `D-12` `S-03` | pending | — | 0.5 d |
 | `T0-11` | **Bound worker memory** | `D-01` `D-02` `D-22` | blocked | **`DEC-01`** | 2–3 d |
 | `T05-01` | VLAN / 802.1Q and QinQ | `D-14` | pending | — | 0.5 d |
@@ -291,16 +291,14 @@ or `dropped` and say why.
 - **Notes:** this was a *reporting* defect, not a parsing one — the SNI was always extracted correctly and `quic_extractions` was always right. Only `quic_undecryptable` lied, and it lied in the direction that made QUIC support look worse than it is: on a long-lived flow with a single early failure it would report ~100% undecryptable. Worth keeping `feed_counted` as the spelling callers reach for, since the cumulative trap is not obvious from the field name alone.
 
 ### `T0-09` — Make `--live-rules` honest
-
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
-- **Files:** `src/dpi_engine/cli.py`, `src/dpi_engine/pipeline.py`, `tests/test_cli_run.py`
-- **Test added:** the chosen documented behaviour — control channel works under `--load-balancers`, **or** the flag combination is rejected at parse time
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** `pytest tests/test_cli_run.py tests/test_staged_pipeline.py -q`
-- **Closed findings:** `D-03` · **Follow-ups:** —
-- **Notes:** pick (a) thread `live_rules` through `run_pipeline_staged` (1 d, matches the documented promise) or (b) reject the combination (0.5 d, honest). **The current silent no-op is not an option.**
-
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_09 — **Blocked by:** -
+- **Files:** `src/dpi_engine/pipeline.py`, `src/dpi_engine/cli.py`, `tests/test_staged_pipeline.py`, `tests/test_cli_run.py`
+- **Test added:** six, all failing before the fix. Four in `test_staged_pipeline.py` (staged `live_rules=True` still matches single-process; the parameter exists and defaults to off; exactly one control queue per fast path for 3x2 = 6; and `live_rules=True` changes no decision when the rules never change) plus two in `test_cli_run.py` (the flag actually reaches `run_pipeline_staged`, asserted by spying on the call, and `run --help` states the single-process limitation).
+- **How it was tackled:** chose the plan's option (a) — thread it through — over option (b) reject the combination, because `RuleBroadcaster.register()` is already generic and the flag works in the single-tier variant, so rejecting it under `--load-balancers` would have removed a working feature for no reason. `run_pipeline_staged` gained a `live_rules` parameter, creates one control queue per **fast path** (not per load balancer — the LB tier never reads a `RuleSnapshot`), registers them all with one broadcaster the parent polls during dispatch, and passes each FP its queue via the existing `control_queue` kwarg. Control queues added to both the `_terminate` and `_close_quietly` lists so the failure path does not leak them. `cli._execute` now passes `live_rules` to staged as well as multiprocess, and the flag's help text is qualified.
+- **Deviations:** two of my own mistakes, both caught by running the suite. First, I put `live_rules` into the shared `common` kwargs dict, which broke 8 unrelated CLI tests: `run_pipeline` has no such parameter *by design* (a one-shot single-process run owns its RuleManager, nothing can mutate it mid-run, so the channel would be pure cost), so the value has to be passed explicitly to the two multiprocess variants only. Reverted to explicit per-variant passing, which is also the smaller diff. Second, my earlier edit of the `run_pipeline_staged` signature and docstring used the wrong indentation width and left the file unparseable; caught by compiling before running the suite. Also worth recording: two false alarms where I reported tracker/AUDIT corruption that did not exist — one from a scanner that did not track code fences, one from a cp1252 console rendering em-dashes as `?`.
+- **Verification:** **451 passed, 12 skipped, 2 xfailed** (up from 445). `ruff check .` and `mypy` (strict, 13 files) clean. Coverage 91.36%, above the 85 floor. The `test_multiprocess_with_live_rules_still_matches_single_process` twin still passes, so the single-tier path is unregressed.
+- **Closed findings:** `D-03` · **Follow-ups:** none specific.
+- **Notes:** worth being precise about the severity here, because it is lower than the register's `High`/`High` suggests. Nothing was *wrong* — no packet was misclassified, no counter wrong. The defect was that a documented capability was absent while every observable output looked correct, which is the worst kind: it cannot be detected by running the tool. The register's rating is defensible on the basis that a user relying on `--live-rules` under `--load-balancers` would silently get stale rules, but the fix is small and the honest reading is `Medium`/`Medium`.
 ### `T0-10` — Teardown in `finally`, stale docstrings, dead code
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -528,7 +526,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **7** (`D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`) | 15 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
+| `D-##` defects | 26 | **8** (`D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`) | 14 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
 | `R-##` rails | 10 | **5** (`R-01`, `R-02`, `R-03`, `R-04`, `R-06`) | 5 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
@@ -577,6 +575,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_t0_09` | claude-opus-5[1m] | `T0-09` | 1 task completed — `D-03` closed | `T0-10` |
 | 2026-10-03 | `ses_t0_08` | claude-opus-5[1m] | `T0-08` | 1 task completed — `D-08` closed | `T0-09` |
 | 2026-10-03 | `ses_t0_07` | claude-opus-5[1m] | `T0-07` | 1 task completed - `D-09` + `D-10` closed, `extract_http_host` 4x faster | `T0-08` |
 | 2026-10-03 | `ses_t0_03` | claude-opus-5[1m] | `T0-03` | 1 task completed — `R-06` closed, `P-15` now **measured** | `T0-07` |

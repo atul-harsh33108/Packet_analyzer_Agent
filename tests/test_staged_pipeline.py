@@ -19,6 +19,7 @@ that, and the CLI's console script does too.
 
 from __future__ import annotations
 
+import unittest.mock
 from pathlib import Path
 
 import pytest
@@ -434,3 +435,98 @@ def _parsed(
         dst_port=dport,
         payload=payload,
     )
+
+
+# ---------------------------------------------------------------------------
+# D-03: --live-rules must not be a silent no-op under --load-balancers
+# ---------------------------------------------------------------------------
+
+
+def test_staged_with_live_rules_still_matches_single_process(tmp_path: Path) -> None:
+    """`run_pipeline_staged` must honour `live_rules` at all.
+
+    It had no such parameter, so `cli._execute` -- which assembles one kwargs
+    dict and splats it into whichever variant is selected -- silently dropped
+    the flag whenever `--load-balancers` was given. No warning, no error: the
+    run looked identical while the promised per-worker control channel did not
+    exist. This is the equivalence twin of
+    `test_multiprocess_with_live_rules_still_matches_single_process`.
+    """
+    expected = run_pipeline(TEST_DPI_PCAP, tmp_path / "single.pcap", _yt_rules())
+    actual = run_pipeline_staged(
+        TEST_DPI_PCAP,
+        tmp_path / "staged.pcap",
+        _yt_rules(),
+        num_load_balancers=2,
+        fps_per_lb=2,
+        live_rules=True,
+    )
+    _compare(expected, actual)
+
+
+def test_staged_live_rules_defaults_to_off() -> None:
+    """Off by default: the channel costs a per-packet queue drain, so it must
+    be opt-in rather than silently enabled by a default change."""
+    import inspect
+
+    from dpi_engine import pipeline
+
+    sig = inspect.signature(pipeline.run_pipeline_staged)
+    assert "live_rules" in sig.parameters, (
+        "run_pipeline_staged has no live_rules parameter, which is why "
+        "--live-rules was silently ignored with --load-balancers (D-03)"
+    )
+    assert sig.parameters["live_rules"].default is False
+
+
+def test_staged_live_rules_registers_one_control_queue_per_fast_path(
+    tmp_path: Path,
+) -> None:
+    """Every fast path must get a channel, not just the first.
+
+    `RuleBroadcaster.register` appends to a list, so a partial registration
+    would leave later shards reading a stale ruleset forever -- and with
+    `num_load_balancers * fps_per_lb` shards that is easy to get wrong by
+    indexing on the wrong loop variable.
+    """
+    from dpi_engine import pipeline
+
+    real_register = pipeline.RuleBroadcaster.register
+    registered: list[object] = []
+
+    def spy(self: object, queue: object) -> None:  # type: ignore[no-untyped-def]
+        registered.append(queue)
+        real_register(self, queue)  # type: ignore[arg-type]
+
+    with unittest.mock.patch.object(pipeline.RuleBroadcaster, "register", spy):
+        run_pipeline_staged(
+            TEST_DPI_PCAP,
+            tmp_path / "out.pcap",
+            _yt_rules(),
+            num_load_balancers=3,
+            fps_per_lb=2,
+            live_rules=True,
+        )
+
+    assert len(registered) == 6, (
+        f"expected one control queue per fast path (3 LBs x 2 FPs = 6), "
+        f"registered {len(registered)}"
+    )
+
+
+def test_staged_live_rules_is_a_no_op_when_rules_never_change(tmp_path: Path) -> None:
+    """Opening the channel must not perturb a single decision.
+
+    Draining a queue per packet is easy to get subtly wrong -- draining the
+    wrong queue, blocking on it, or eating a shutdown sentinel. This pins the
+    semantics: `live_rules` is a performance knob, not a semantic one.
+    """
+    off = run_pipeline_staged(
+        TEST_DPI_PCAP, tmp_path / "off.pcap", _yt_rules(),
+        num_load_balancers=2, fps_per_lb=2, live_rules=False,
+    )
+    on = run_pipeline_staged(
+        TEST_DPI_PCAP, tmp_path / "on.pcap", _yt_rules(),
+        num_load_balancers=2, fps_per_lb=2, live_rules=True,
+    )
+    _compare(off, on)

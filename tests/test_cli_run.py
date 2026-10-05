@@ -240,3 +240,74 @@ def test_run_unwritable_output_path_creates_nothing(tmp_path: Path) -> None:
 
     assert not unwritable.exists()
     assert not unwritable.parent.exists()
+
+
+# ---------------------------------------------------------------------------
+# D-03: --live-rules must not be a silent no-op
+# ---------------------------------------------------------------------------
+
+
+def test_cli_passes_live_rules_to_the_staged_pipeline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`--live-rules` must actually reach `run_pipeline_staged`.
+
+    `cli._execute` assembles one `common` kwargs dict and splats it into
+    whichever variant is selected. Anything absent from that dict is dropped
+    without a trace -- which is exactly how `--live-rules` came to be ignored
+    under `--load-balancers`. This spies on the call rather than inferring
+    behaviour from the run's output, because the failure mode *is* silence: the
+    run produced perfectly plausible results either way.
+    """
+    from dpi_engine import cli
+
+    captured: dict[str, object] = {}
+    real = cli.run_pipeline_staged
+
+    def spy(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cli, "run_pipeline_staged", spy)
+    exit_code = main(
+        [
+            "run",
+            str(TEST_DPI_PCAP),
+            str(tmp_path / "out.pcap"),
+            "--load-balancers",
+            "2",
+            "--live-rules",
+        ]
+    )
+
+    assert exit_code == 0, f"run failed with exit code {exit_code}"
+    assert captured.get("live_rules") is True, (
+        f"--live-rules was not forwarded to run_pipeline_staged; kwargs were "
+        f"{sorted(captured)}. The flag was accepted and then silently ignored (D-03)."
+    )
+
+
+def test_live_rules_help_states_that_single_process_ignores_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The flag's help text is part of the defect.
+
+    It promised a per-worker control channel unconditionally, but in
+    single-process mode there is nothing that could mutate the ruleset mid-run
+    (a one-shot CLI run owns its RuleManager and nothing else touches it), so
+    the channel is deliberately not opened there. That is correct behaviour
+    with no warning attached -- the promise simply has to be qualified.
+
+    Asserted against what `run --help` actually prints, rather than against the
+    argparse internals: the flag is registered on the `run` subparser, and the
+    text a user reads is the contract.
+    """
+    with pytest.raises(SystemExit):
+        main(["run", "--help"])
+
+    out = capsys.readouterr().out
+    assert "--live-rules" in out
+    assert "single-process" in out or "single process" in out, (
+        "--live-rules does nothing in single-process mode, and the help text "
+        "must say so rather than promising a control channel unconditionally (D-03)"
+    )

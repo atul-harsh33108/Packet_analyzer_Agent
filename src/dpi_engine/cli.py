@@ -373,8 +373,17 @@ def _execute(args: argparse.Namespace, rules: RuleManager) -> PipelineResult:
         "max_total_packets": args.max_total_packets,
         "stale_timeout_seconds": None if args.flow_timeout <= 0 else args.flow_timeout,
         "reap_interval_packets": args.reap_interval,
-        "enable_quic": not args.no_quic,
+"enable_quic": not args.no_quic,
     }
+
+    # `live_rules` is deliberately NOT in `common`: `run_pipeline` has no such
+    # parameter, because a one-shot single-process run owns its RuleManager and
+    # nothing can mutate it mid-run, so the channel would be pure cost. It must
+    # therefore be passed explicitly to *both* multiprocess variants -- it used
+    # to be passed to only one of them, which is how `--live-rules` came to be
+    # silently ignored whenever `--load-balancers` selected the staged pipeline
+    # (D-03). A run that ignored the flag looked exactly like one that honoured
+    # it, because nothing was mutating the ruleset either way.
 
     if args.load_balancers:
         return run_pipeline_staged(
@@ -383,6 +392,7 @@ def _execute(args: argparse.Namespace, rules: RuleManager) -> PipelineResult:
             rules,
             num_load_balancers=args.load_balancers,
             fps_per_lb=args.fps_per_lb,
+            live_rules=args.live_rules,
             **common,
         )
 
@@ -492,9 +502,13 @@ def build_parser() -> argparse.ArgumentParser:
     stage.add_argument(
         "--live-rules",
         action="store_true",
-        help="Open a per-worker control channel so a RuleManager mutated "
-        "while the run is in progress takes effect on the next packet. "
-        "Costs one non-blocking queue drain per packet per worker.",
+help="Open a per-worker control channel so a RuleManager mutated "
+          "while the run is in progress takes effect on the next packet. "
+          "Costs one non-blocking queue drain per packet per worker. "
+          "Has no effect in single-process mode, where nothing can mutate "
+          "the ruleset mid-run: a one-shot run owns its RuleManager and "
+          "opens no channel, so the flag is only meaningful when embedding "
+          "run_pipeline_multiprocess/run_pipeline_staged directly.",
     )
 
     tuning = run_parser.add_argument_group("tuning")

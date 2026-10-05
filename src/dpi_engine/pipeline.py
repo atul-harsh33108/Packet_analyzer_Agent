@@ -669,6 +669,7 @@ def run_pipeline_staged(
     stale_timeout_seconds: float | None = DEFAULT_STALE_TIMEOUT_SECONDS,
     reap_interval_packets: int = DEFAULT_REAP_INTERVAL_PACKETS,
     enable_quic: bool = True,
+    live_rules: bool = False,
 ) -> PipelineResult:
     """Two-tier staged pipeline: reader -> load balancers -> fast paths.
 
@@ -700,6 +701,17 @@ def run_pipeline_staged(
     Produces the same decisions as `run_pipeline` for the same input and rules
     (asserted in tests/test_staged_pipeline.py, which also asserts the
     per-flow partitioning invariant that the round-robin variant violated).
+
+    `live_rules=True` opens a per-fast-path control channel and polls the
+    caller's `RuleManager` version each packet, exactly as
+    `run_pipeline_multiprocess` does. This parameter did not exist until D-03:
+    `cli._execute` assembled one kwargs dict for whichever variant it selected
+    and omitted `live_rules` from it, so `--live-rules` was accepted by the
+    parser and then dropped on the floor whenever `--load-balancers` was given
+    -- silently, with a plausible-looking result. There is one control queue
+    per fast path (`num_load_balancers * fps_per_lb`), all registered with a
+    single broadcaster the parent polls during dispatch. Off by default
+    because it costs one non-blocking queue drain per packet per fast path.
     """
     if num_load_balancers < 1:
         raise ValueError(f"num_load_balancers must be >= 1, got {num_load_balancers}")
@@ -708,12 +720,24 @@ def run_pipeline_staged(
 
     manager = rule_manager if rule_manager is not None else RuleManager()
     rule_source = FixedRuleSource(manager.snapshot())
+    broadcaster = RuleBroadcaster(manager) if live_rules else None
 
     lbs, all_fps = build_pipeline_graph(
         num_load_balancers, fps_per_lb, queue_factory=mp.Queue
     )
     lb_output_queue: Queue[_LoadBalancerResult] = mp.Queue()
     fp_output_queue: Queue[WorkerResult] = mp.Queue()
+
+    # One control queue per *fast path*, not per load balancer: the workers that
+    # read rules are the FPs, and the LB tier never touches a RuleSnapshot.
+    # Indexing must therefore be over `all_fps`, or later shards silently keep
+    # reading the startup snapshot forever.
+    control_queues: list[Queue[RuleSnapshot]] = (
+        [mp.Queue() for _ in all_fps] if live_rules else []
+    )
+    if broadcaster is not None:
+        for control_queue in control_queues:
+            broadcaster.register(control_queue)
 
     lb_processes = [
         mp.Process(
@@ -731,6 +755,7 @@ def run_pipeline_staged(
             kwargs={
                 "stale_timeout_seconds": stale_timeout_seconds,
                 "reap_interval_packets": reap_interval_packets,
+                "control_queue": control_queues[fp.fp_id] if live_rules else None,
                 "enable_quic": enable_quic,
             },
             name=f"dpi-fp-{fp.fp_id}",
@@ -749,6 +774,8 @@ def run_pipeline_staged(
             input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
         ) as reader:
             for sequence_index, raw, parsed, tuple_ in _iter_inspectable(reader, stats):
+                if broadcaster is not None:
+                    broadcaster.publish()
                 # OSC's first hash step: pick the owning load balancer from the
                 # five-tuple, so all of a flow's packets go to the same shard.
                 lbs[hash_select(tuple_, num_load_balancers)].input_queue.put(
@@ -769,7 +796,7 @@ def run_pipeline_staged(
                 [*lb_processes, *fp_processes],
                 [lb.input_queue for lb in lbs]
                 + [fp.input_queue for fp in all_fps]
-                + [lb_output_queue, fp_output_queue],
+                + [*control_queues, lb_output_queue, fp_output_queue],
             )
 
     if not dispatch_succeeded:
@@ -782,6 +809,7 @@ def run_pipeline_staged(
     for q in [
         *[lb.input_queue for lb in lbs],
         *[fp.input_queue for fp in all_fps],
+        *control_queues,
         lb_output_queue,
         fp_output_queue,
     ]:
