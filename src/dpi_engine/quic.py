@@ -660,6 +660,26 @@ class QuicFlowInspector:
                 return bytes(self.crypto[:i])
         return bytes(self.crypto)
 
+    def feed_counted(self, payload: bytes) -> tuple[str | None, bool]:
+        """Feeds one payload and reports `(sni, undecryptable)` for **this packet**.
+
+        `undecryptable_packets` is a *cumulative* counter: it is incremented once
+        per packet that genuinely fails and never reset. A caller that wants a
+        per-packet answer must therefore not test it directly -- `if
+        inspector.undecryptable_packets:` is true whenever the flow has *ever*
+        failed, so every later Initial on that flow would be misreported as
+        undecryptable even when it decrypted cleanly. That inflated the
+        pipeline's QUIC coverage figure towards 100% failure on any long-lived
+        flow.
+
+        `feed()` remains for callers that only want the SNI (and for the one-shot
+        `extract_quic_sni` wrapper); this method exists so that asking the
+        per-packet question has an obvious, correct spelling.
+        """
+        before = self.undecryptable_packets
+        sni = self.feed(payload)
+        return sni, self.undecryptable_packets > before
+
     def feed(self, payload: bytes) -> str | None:
         """Processes one UDP payload from this flow.
 

@@ -266,11 +266,15 @@ class FlowProcessor:
                 if inspector is None:
                     inspector = QuicFlowInspector()
                     self._quic_inspectors[tuple_] = inspector
-                found = inspector.feed(payload)
+                # `feed_counted`, not `feed` plus a check of
+                # `undecryptable_packets`: that counter is cumulative, so
+                # testing it directly counted every later Initial on a flow as
+                # undecryptable once any earlier packet had failed (D-08).
+                found, undecryptable = inspector.feed_counted(payload)
                 if found:
                     self.stats.quic_extractions += 1
                     return self._named(found)
-                if inspector.undecryptable_packets:
+                if undecryptable:
                     self.quic_undecryptable += 1
             else:
                 # Not an Initial: correctly undecryptable, and we say so rather

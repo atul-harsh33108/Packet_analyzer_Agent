@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T0-08
+current_task: T0-09
 next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t0_07
+session: ses_t0_08
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | 7 / 11 tasks done |
-| **Current task** | `T0-08` - Per-packet QUIC `undecryptable` accounting |
+| **Phase progress** | 8 / 11 tasks done |
+| **Current task** | `T0-09` - Make `--live-rules` honest |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | nothing - `T0-04` is unblocked |
+| **Blocked by** | nothing - `T0-09` is unblocked |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t0_07` - `T0-07` closed |
+| **Session** | `ses_t0_08` - `T0-08` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,7 +118,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
-| **0** | Harden | 11 | **7** | 0 | **1** | 2 | 0 | not met |
+| **0** | Harden | 11 | **8** | 0 | **1** | 1 | 0 | not met |
 | **0.5** | Real captures | 2 | 0 | 0 | **1** | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
@@ -151,7 +151,7 @@ Status vocabulary is closed (7 values) — see
 | `T0-05` | Guard `PcapWriter` open | `D-04` | done | - | 15 min |
 | `T0-06` | Direct pcap record-header read | `D-06` `D-07` | done | - | 0.5 d |
 | `T0-07` | Bound the HTTP `Host:` scan | `D-09` `D-10` | done | - | 0.5 d |
-| `T0-08` | Per-packet QUIC `undecryptable` accounting | `D-08` | pending | — | 0.5 d |
+| `T0-08` | Per-packet QUIC `undecryptable` accounting | `D-08` | done | — | 0.5 d |
 | `T0-09` | Make `--live-rules` honest | `D-03` | pending | — | 0.5–1 d |
 | `T0-10` | Teardown in `finally`; stale docstrings; dead code | `D-12` `S-03` | pending | — | 0.5 d |
 | `T0-11` | **Bound worker memory** | `D-01` `D-02` `D-22` | blocked | **`DEC-01`** | 2–3 d |
@@ -281,14 +281,14 @@ or `dropped` and say why.
 - **Notes:** The security framing is what makes this more than a tidy-up. The extracted host feeds **both** `sni_to_app_type` and `RuleManager`'s domain match, so before this fix an attacker who could influence any part of an HTTP payload after the request line could choose which app a flow was attributed to *and* which blocking rule it matched. `GET /?u=http://Host:x HTTP/1.1` was classified as host `x HTTP/1.1`.
 ### `T0-08` — Per-packet QUIC `undecryptable` accounting
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_08 — **Blocked by:** -
 - **Files:** `src/dpi_engine/quic.py`, `src/dpi_engine/worker.py`, `tests/test_quic.py`
-- **Test added:** a flow whose first Initial is undecryptable and whose second decrypts cleanly reports `undecryptable == 1`, not `2` — against a constructed fixture, not a timing accident
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** `pytest tests/test_quic.py -q`
-- **Closed findings:** `D-08` · **Follow-ups:** —
-- **Notes:** have `feed()` return a per-packet outcome; the caller currently infers status from a *cumulative* field
+- **Test added:** four, all failing without the fix. Three unit-level on `QuicFlowInspector` (a clean packet after an earlier failure is *not* counted; two failures *are* both counted, so the new flag does not under-count; a clean first packet is not counted) and one end-to-end through the real decision path asserting the pipeline reports exactly `quic_undecryptable == 1` while still extracting the SNI from the following good packet. Built from this file's own Initial builders, so deterministic {EM} not a captured trace.
+- **How it was tackled:** `undecryptable_packets` is a *cumulative* counter — incremented once per genuinely failing packet, never reset — and the call site tested it as `if inspector.undecryptable_packets:`, which is true whenever the flow has **ever** failed. One bad packet therefore poisoned the figure permanently: every later Initial on that flow was reported undecryptable even when it decrypted cleanly. `feed()` itself was correct throughout, so the fix is confined to how the caller asks. Added `feed_counted()`, which snapshots the counter, delegates to `feed()`, and returns the per-packet delta as an explicit boolean.
+- **Deviations:** the plan called for changing `feed()` to return a per-packet outcome object. Measured first: `feed()` has **16 call sites in tests**, so changing its return type would churn all of them for no behavioural gain. Added `feed_counted()` alongside instead — `feed()` keeps its `str | None` signature, so `extract_quic_sni` and every existing test are untouched. Two errors of mine, both caught by running the tests rather than assuming: my claim script aborted on a missing anchor *before* writing, so the claim silently never persisted (re-asserted here rather than trusted); and the end-to-end test first asserted `processor.stats.quic_packets`, but `quic_packets` is a `FlowProcessor` field, not a `FastPathStats` one.
+- **Verification:** **445 passed, 12 skipped, 2 xfailed** (up from 441). `ruff check .` and `mypy` (strict, 13 files) clean. Coverage 89%, above the 85 floor.
+- **Closed findings:** `D-08` · **Follow-ups:** none specific.
+- **Notes:** this was a *reporting* defect, not a parsing one — the SNI was always extracted correctly and `quic_extractions` was always right. Only `quic_undecryptable` lied, and it lied in the direction that made QUIC support look worse than it is: on a long-lived flow with a single early failure it would report ~100% undecryptable. Worth keeping `feed_counted` as the spelling callers reach for, since the cumulative trap is not obvious from the field name alone.
 
 ### `T0-09` — Make `--live-rules` honest
 
@@ -528,7 +528,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **6** (`D-04`, `D-05`, `D-06`, `D-07`, `D-09`, `D-10`) | 16 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
+| `D-##` defects | 26 | **7** (`D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`) | 15 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
 | `R-##` rails | 10 | **5** (`R-01`, `R-02`, `R-03`, `R-04`, `R-06`) | 5 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
@@ -577,6 +577,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_t0_08` | claude-opus-5[1m] | `T0-08` | 1 task completed — `D-08` closed | `T0-09` |
 | 2026-10-03 | `ses_t0_07` | claude-opus-5[1m] | `T0-07` | 1 task completed - `D-09` + `D-10` closed, `extract_http_host` 4x faster | `T0-08` |
 | 2026-10-03 | `ses_t0_03` | claude-opus-5[1m] | `T0-03` | 1 task completed — `R-06` closed, `P-15` now **measured** | `T0-07` |
 | 2026-10-03 | `ses_t0_02` | claude-opus-5[1m] | `T0-02` `DOC-06` | 1 task completed — `R-04` + `M-07` closed | `T0-03` |

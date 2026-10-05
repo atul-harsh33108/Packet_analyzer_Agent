@@ -653,3 +653,135 @@ def test_empty_and_tiny_payloads_never_raise() -> None:
     for payload in (b"", b"\x00", b"\xc0", b"\xc0\x00\x00\x00\x01", os.urandom(64)):
         assert inspector.feed(payload) in (None, "sni-must-not-appear")
         assert inspector.feed(payload) is None
+
+
+# --- D-08: per-packet, not cumulative, undecryptable accounting ------------------
+#
+# `undecryptable_packets` is a *cumulative* counter: it is incremented once per
+# packet that genuinely fails, and never reset. The pipeline's call site tested
+# `if inspector.undecryptable_packets:` -- i.e. "has this flow EVER failed" --
+# so after one failure every subsequent Initial on that flow was counted as
+# undecryptable even when it decrypted cleanly. The reported QUIC coverage
+# figure therefore decayed towards 100% failure on any long-lived flow.
+
+
+@requires_crypto
+def test_a_later_clean_packet_is_not_counted_after_an_earlier_failure() -> None:
+    """The exact miscount: fail once, then succeed, and expect one failure."""
+    secret = client_secret()
+    hello = build_client_hello("after-failure.example")
+
+    corrupt = bytearray(
+        build_initial_packet(RFC9001_DCID, build_crypto_frames(hello), secret, pn=0)
+    )
+    corrupt[-1] ^= 0xFF  # break the GCM tag
+
+    # A valid Initial whose CRYPTO frame is only *part* of the ClientHello: it
+    # decrypts fine but cannot yield an SNI yet.
+    split = len(hello) // 2
+    partial = build_initial_packet(
+        RFC9001_DCID,
+        build_crypto_frames(hello[split:], offset=split),
+        secret,
+        pn=1,
+    )
+
+    inspector = QuicFlowInspector()
+    assert inspector.feed(bytes(corrupt)) is None
+    assert inspector.undecryptable_packets == 1
+
+    sni, undecryptable = inspector.feed_counted(partial)
+    assert sni is None
+    assert undecryptable is False, (
+        "a packet that decrypted cleanly must not be reported as undecryptable "
+        "just because an earlier packet on the flow failed"
+    )
+    assert inspector.undecryptable_packets == 1, "the cumulative counter itself is correct"
+
+
+@requires_crypto
+def test_two_failures_on_one_flow_are_both_counted() -> None:
+    """Guard: the per-packet flag must not under-count either."""
+    secret = client_secret()
+    hello = build_client_hello("twice.example")
+
+    inspector = QuicFlowInspector()
+    for pn in (0, 1):
+        corrupt = bytearray(
+            build_initial_packet(RFC9001_DCID, build_crypto_frames(hello), secret, pn=pn)
+        )
+        corrupt[-1] ^= 0xFF
+        _, undecryptable = inspector.feed_counted(bytes(corrupt))
+        assert undecryptable is True, f"pn={pn} should have been counted"
+
+    assert inspector.undecryptable_packets == 2
+
+
+@requires_crypto
+def test_a_clean_first_packet_is_not_counted_as_undecryptable() -> None:
+    secret = client_secret()
+    packet = build_initial_packet(
+        RFC9001_DCID, build_crypto_frames(build_client_hello("clean.example")), secret
+    )
+    inspector = QuicFlowInspector()
+    sni, undecryptable = inspector.feed_counted(packet)
+    assert sni == "clean.example"
+    assert undecryptable is False
+    assert inspector.undecryptable_packets == 0
+
+
+@requires_crypto
+def test_pipeline_quic_coverage_does_not_decay_after_one_bad_packet() -> None:
+    """End-to-end: the number the report shows is what this is about.
+
+    Drives the real decision path with a corrupt Initial followed by a valid one
+    carrying the complete ClientHello, and asserts the flow is classified and
+    the undecryptable count is exactly one.
+    """
+    from dpi_engine.connection_tracker import ConnectionTracker
+    from dpi_engine.packet_parser import parse_packet
+    from dpi_engine.pcap_io import RawPacket
+    from dpi_engine.rule_manager import RuleManager
+    from dpi_engine.types import FiveTuple
+    from dpi_engine.worker import FixedRuleSource, FlowProcessor, WorkItem
+
+    secret = client_secret()
+    hello = build_client_hello("quic-coverage.example")
+
+    corrupt = bytearray(
+        build_initial_packet(RFC9001_DCID, build_crypto_frames(hello), secret, pn=0)
+    )
+    corrupt[-1] ^= 0xFF
+    good = build_initial_packet(
+        RFC9001_DCID, build_crypto_frames(hello), secret, pn=1
+    )
+
+    def _udp_frame(payload: bytes, sport: int) -> bytes:
+        eth = b"\xaa" * 6 + b"\xbb" * 6 + b"\x08\x00"
+        udp = sport.to_bytes(2, "big") + (443).to_bytes(2, "big") + (8 + len(payload)).to_bytes(2, "big") + b"\x00\x00" + payload
+        total = 20 + len(udp)
+        ip = (bytes([0x45, 0x00]) + total.to_bytes(2, "big") + b"\x00\x00" + b"\x40\x00"
+              + bytes([64, 17]) + b"\x00\x00"
+              + bytes([10, 0, 0, 1]) + bytes([10, 0, 0, 2]))
+        return eth + ip + udp
+
+    processor = FlowProcessor(
+        tracker=ConnectionTracker(fp_id=0),
+        rule_source=FixedRuleSource(RuleManager().snapshot()),
+        enable_quic=True,
+    )
+
+    tuple_ = FiveTuple(src_ip=0x0100000A, dst_ip=0x0200000A, src_port=5555, dst_port=443, protocol=17)
+    for i, payload in enumerate((bytes(corrupt), good)):
+        frame = _udp_frame(payload, 5555)
+        raw = RawPacket(ts_sec=1_700_000_000 + i, ts_usec=0, data=frame, orig_len=len(frame))
+        parsed = parse_packet(raw)
+        assert parsed is not None
+        processor.process(WorkItem(sequence_index=i, raw=raw, parsed=parsed, five_tuple=tuple_))
+
+    assert processor.stats.quic_extractions == 1, "the good packet's SNI should be found"
+    assert processor.quic_packets == 2
+    assert processor.quic_undecryptable == 1, (
+        f"expected exactly 1 undecryptable packet, got {processor.quic_undecryptable} "
+        "-- a later clean packet must not inherit an earlier failure"
+    )
