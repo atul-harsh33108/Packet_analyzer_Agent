@@ -43,6 +43,7 @@ dev = [
     # [tool.pytest.ini_options] below.
     "pytest-cov>=6.0",
     "pytest-timeout>=2.3",
+    "pytest-benchmark>=5.3.0",
 ]
 
 [tool.ruff]
@@ -87,6 +88,10 @@ module = ["dpkt.*", "scapy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+# Benchmarks are opt-in. `--benchmark-enable` forcibly overrides this, so
+# `pytest tests/benchmarks --benchmark-enable` works while a normal run stays
+# fast and free of machine-specific output. See tests/benchmarks/.
+addopts = "--benchmark-disable"
 # Every test gets a wall-clock ceiling. The slowest test at the time of writing
 # runs in ~1.6s, so 30s is roughly 19x headroom -- generous enough for a loaded
 # CI machine, tight enough that a hang is reported as a failure within half a

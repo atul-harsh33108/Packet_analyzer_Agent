@@ -125,3 +125,143 @@ def test_many_tiny_flows_completes_within_generous_time_bound(tmp_path: Path) ->
     # reasonable machine; a real O(n) eviction regression across 3000
     # flows / a 500-cap table would be dramatically slower than this.
     assert elapsed < 10.0, f"Processing {packet_count} tiny-flow packets took {elapsed:.2f}s"
+
+
+# --- D-01 / D-22 reproduction (T0-03) ---------------------------------------------
+#
+# These are `xfail(strict=True)`: they document a defect that is NOT yet
+# fixed, so they are expected to fail. strict=True means that if one starts
+# PASSING, the suite fails -- so T0-11 cannot silently land without someone
+# coming back and flipping the marker. That is the whole point: a failing
+# regression test would break CI, so the honest encoding of "known broken" is
+# xfail, not a red suite.
+#
+# The measurement is the pickled size of what the workers send back, because
+# that is the quantity the defect is actually about. `worker_main` accumulates
+# one `ProcessedPacket` -- which holds the packet's full bytes -- per input
+# packet (worker.py:501,512), then pickles the whole list into a single
+# `WorkerResult`. Measuring the pickle measures the memory that crosses the
+# process boundary and pins it in the same unit.
+
+
+def _worker_result_pickle_bytes(pcap: Path, tmp_path: Path, **kwargs: object) -> int:
+    """Total pickled bytes of every WorkerResult the pipeline collects.
+
+    `_collect` is the single point where the parent receives results, so
+    hooking it captures them without changing pipeline behaviour.
+    """
+    import pickle
+
+    import dpi_engine.pipeline as pipeline_module
+
+    captured: list[int] = []
+    original = pipeline_module._collect
+
+    def _spy(output_queue: object, expected: int) -> list[object]:
+        results = original(output_queue, expected)  # type: ignore[arg-type]
+        captured.extend(len(pickle.dumps(r)) for r in results)
+        return results
+
+    pipeline_module._collect = _spy  # type: ignore[assignment]
+    try:
+        pipeline_module.run_pipeline_multiprocess(
+            pcap, tmp_path / "out.pcap", num_workers=2, **kwargs
+        )
+    finally:
+        pipeline_module._collect = original  # type: ignore[assignment]
+
+    return sum(captured)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="D-01: workers accumulate every packet's full bytes and pickle them "
+    "back as one WorkerResult; fixed by T0-11",
+)
+def test_worker_results_do_not_carry_packet_payloads(tmp_path: Path) -> None:
+    """A worker's result must not grow with the size of the capture.
+
+    Before the fix the pickled results total roughly the size of the input
+    file, because every packet's bytes ride back to the parent. At the
+    documented defaults (10M packets x 65535 bytes) that is hundreds of GB,
+    and it defeats every other resource bound in the codebase -- including
+    the ones asserted above.
+    """
+    packet_count = 400
+    input_pcap = tmp_path / "many.pcap"
+    _build_many_tiny_flows_pcap(input_pcap, count=packet_count)
+    capture_bytes = input_pcap.stat().st_size
+
+    result_bytes = _worker_result_pickle_bytes(input_pcap, tmp_path)
+
+    assert result_bytes < capture_bytes // 4, (
+        f"worker results total {result_bytes} bytes for a {capture_bytes}-byte "
+        "capture -- they are carrying the packet payloads back to the parent "
+        "(D-01)"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="D-22: _quic_inspectors / blocked_tuples are never pruned and are "
+    "not covered by max_connections; fixed by T0-11",
+)
+def test_processor_state_stays_bounded_by_max_connections() -> None:
+    """`max_connections` bounds the flow table and nothing else.
+
+    `_quic_inspectors` holds one per-flow QUIC reassembly buffer (each capped
+    at MAX_CRYPTO_BUFFER = 64 KiB) and `blocked_tuples` grows monotonically;
+    neither is pruned and neither is touched by the tracker's LRU. A stream
+    with far more distinct flows than the bound should leave bounded state
+    behind.
+
+    Driven against `FlowProcessor` directly rather than through the pipeline:
+    the processor is discarded when a worker exits, so only `WorkerResult`
+    crosses the process boundary and these containers are invisible from
+    outside. The defect is about *peak* memory during a run.
+    """
+    from dpi_engine.connection_tracker import ConnectionTracker
+    from dpi_engine.packet_parser import parse_packet
+    from dpi_engine.pcap_io import RawPacket
+    from dpi_engine.rule_manager import RuleManager
+    from dpi_engine.types import AppType, FiveTuple
+    from dpi_engine.worker import FixedRuleSource, FlowProcessor, WorkItem
+
+    max_connections = 50
+    rules = RuleManager()
+    rules.block_app(AppType.HTTPS)  # so most flows get blocked and land in the set
+    processor = FlowProcessor(
+        tracker=ConnectionTracker(fp_id=0, max_connections=max_connections),
+        rule_source=FixedRuleSource(rules.snapshot()),
+        enable_quic=False,
+    )
+
+    distinct_flows = 1000
+    for i in range(distinct_flows):
+        frame = _build_tiny_tcp_packet(i)
+        raw = RawPacket(ts_sec=1700000000 + i, ts_usec=0, data=frame, orig_len=len(frame))
+        parsed = parse_packet(raw)
+        assert parsed is not None
+        processor.process(
+            WorkItem(
+                sequence_index=i,
+                raw=raw,
+                parsed=parsed,
+                five_tuple=FiveTuple(
+                    src_ip=parsed.src_ip,
+                    dst_ip=parsed.dst_ip,
+                    src_port=parsed.src_port,
+                    dst_port=parsed.dst_port,
+                    protocol=parsed.protocol,
+                ),
+            )
+        )
+
+    assert len(processor.blocked_tuples) <= max_connections, (
+        f"blocked_tuples holds {len(processor.blocked_tuples)} entries for "
+        f"{distinct_flows} flows against a {max_connections}-connection bound"
+    )
+    assert len(processor._quic_inspectors) <= max_connections, (
+        f"_quic_inspectors holds {len(processor._quic_inspectors)} entries for "
+        f"{distinct_flows} flows against a {max_connections}-connection bound"
+    )
