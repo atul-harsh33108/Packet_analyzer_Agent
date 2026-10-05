@@ -19,11 +19,13 @@ First baseline, 4000-packet synthetic capture / Windows / Python 3.13:
     sni_to_app_type      0.6 us
     extract_sni          1.4 us
     extract_dns_query    1.6 us
-    extract_http_host    6.5 us   <- 5x the other extractors
+    extract_http_host    1.4 us   <- was 6.5 us before T0-07
     parse_packet        11.3 us   <- the dominant per-packet cost
 
-`extract_http_host` being an outlier is `AUDIT.md`'s O(payload) claim measured
-rather than asserted; `T0-07` replaces that scan with a bounded one.
+`extract_http_host` was 5x the other extractors, which was `AUDIT.md`'s O(payload)
+claim measured rather than asserted. `T0-07` replaced the byte-by-byte scan with a
+line-oriented one and made it ~4x faster as a side effect. `parse_packet` is now
+unambiguously the hot spot.
 
 Timings are only comparable within a machine. `pytest-benchmark` writes a
 `.benchmarks/` directory with the machine's calibration for reference.

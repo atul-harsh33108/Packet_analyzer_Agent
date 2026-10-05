@@ -330,3 +330,86 @@ def test_dns_query_with_compression_pointer_does_not_crash_or_loop() -> None:
 def test_dns_query_too_short_returns_none() -> None:
     assert extract_dns_query(b"\x00" * 5) is None
     assert extract_dns_query(b"") is None
+
+
+# --- D-09 / D-10: bounded Host: extraction ---------------------------------------
+#
+# The original scanned the ENTIRE payload for a case-insensitive "Host:" with no
+# CRLF header-section boundary and no requirement that the match begin a line.
+# That makes an attacker-influenced string a classification and blocking input:
+# the extracted host feeds BOTH `sni_to_app_type` and `rule_manager`'s domain
+# match. It also stripped at the first colon, mangling IPv6 literals.
+
+
+def test_host_header_in_a_url_in_the_request_line_is_ignored() -> None:
+    """The canonical exploit: a request line that merely *contains* `Host:`.
+
+    Before the fix this returned "x HTTP/1.1"."""
+    request = b"GET /?u=http://Host:x HTTP/1.1\r\n\r\n"
+    assert extract_http_host(request) is None
+
+
+def test_host_header_after_the_blank_line_is_ignored() -> None:
+    """Anything past CRLFCRLF is a body, not a header.
+
+    A POST body, a redirect target or a User-Agent string appearing there must
+    not be able to set the host."""
+    body = b"Host: evil.example\r\nmore\r\n"
+    request = b"POST /submit HTTP/1.1\r\nHost: real.example\r\nContent-Length: 40\r\n\r\n" + body
+    assert extract_http_host(request) == "real.example"
+
+
+def test_host_header_within_a_body_only_request_yields_nothing() -> None:
+    request = b"POST /x HTTP/1.1\r\nContent-Type: text/plain\r\n\r\nHost: evil.example"
+    assert extract_http_host(request) is None
+
+
+def test_xhost_prefix_is_not_matched() -> None:
+    """`X-Host:` and `Ghost:` must not match; the original had no
+    preceding-boundary requirement."""
+    request = b"GET / HTTP/1.1\r\nX-Host: decoy.example\r\n\r\n"
+    assert extract_http_host(request) is None
+
+
+def test_host_header_must_start_a_line() -> None:
+    """A match in the middle of a header value is not a header."""
+    request = b"GET / HTTP/1.1\r\nReferer: http://Host: decoy.example/\r\n\r\n"
+    assert extract_http_host(request) is None
+
+
+def test_ipv6_literal_host_is_not_mangled() -> None:
+    """`Host: [2001:db8::1]:8080` must keep the bracketed literal.
+
+    The original stripped at the first colon, yielding the string "[2001"."""
+    request = b"GET / HTTP/1.1\r\nHost: [2001:db8::1]:8080\r\n\r\n"
+    assert extract_http_host(request) == "[2001:db8::1]"
+
+
+def test_ipv6_literal_without_a_port_is_returned_intact() -> None:
+    """`[::1]` has colons but no port suffix, so nothing may be stripped.
+
+    The first-colon strip made this return the single character "["."""
+    request = b"GET / HTTP/1.1\r\nHost: [::1]\r\n\r\n"
+    assert extract_http_host(request) == "[::1]"
+
+
+def test_port_suffix_is_still_stripped_from_a_normal_host() -> None:
+    """Guard: the D-10 fix must not break ordinary port stripping."""
+    request = b"GET / HTTP/1.1\r\nHost: example.com:8080\r\n\r\n"
+    assert extract_http_host(request) == "example.com"
+
+
+def test_connect_and_trace_are_recognised_methods() -> None:
+    """CONNECT (tunnels) and TRACE were missing from the method list, so those
+    requests were invisible to classification entirely."""
+    for method in (b"CONNECT example.com:443 HTTP/1.1", b"TRACE / HTTP/1.1"):
+        request = method + b"\r\nHost: tunnel.example\r\n\r\n"
+        assert is_http_request(request), f"{method!r} should be recognised"
+        assert extract_http_host(request) == "tunnel.example"
+
+
+def test_first_host_header_wins_and_later_ones_are_ignored() -> None:
+    """Duplicate Host headers are a request-smuggling vector; the first is the
+    one RFC 9110 says to act on, and later ones must not override it."""
+    request = b"GET / HTTP/1.1\r\nHost: first.example\r\nHost: second.example\r\n\r\n"
+    assert extract_http_host(request) == "first.example"

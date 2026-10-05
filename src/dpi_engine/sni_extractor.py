@@ -212,7 +212,53 @@ def extract_sni(payload: bytes, length: int | None = None) -> str | None:
 
 # --- HTTP Host header extraction ---------------------------------------------------
 
-_HTTP_METHODS: tuple[bytes, ...] = (b"GET ", b"POST", b"PUT ", b"HEAD", b"DELE", b"PATC", b"OPTI")
+_HTTP_METHODS: tuple[bytes, ...] = (
+    b"GET ",
+    b"POST",
+    b"PUT ",
+    b"HEAD",
+    b"DELE",
+    b"PATC",
+    b"OPTI",
+    # CONNECT and TRACE were missing from the original's list, which made
+    # CONNECT tunnels -- a large share of HTTPS proxying -- invisible to
+    # classification entirely.
+    b"CONN",
+    b"TRAC",
+)
+
+#: Terminates the HTTP header section. Everything at or after this is a body,
+#: where a "Host:" string is data rather than a header.
+_HEADER_TERMINATORS = (b"\r\n\r\n", b"\n\n")
+
+
+def _header_block(payload: bytes) -> bytes:
+    """The header section of a request: everything before the blank line."""
+    limit = len(payload)
+    for terminator in _HEADER_TERMINATORS:
+        found = payload.find(terminator)
+        if found != -1:
+            limit = min(limit, found)
+    return payload[:limit]
+
+
+def _strip_port(host: str) -> str:
+    """Removes a trailing ``:port`` suffix, leaving IPv6 literals alone.
+
+    The original stripped at the first colon, so `Host: [2001:db8::1]:8080`
+    became the string `[2001`. A bracketed literal keeps its brackets and only
+    loses a colon that appears *after* the closing bracket.
+    """
+    if host.startswith("["):
+        closing = host.find("]")
+        if closing != -1:
+            rest = host[closing + 1 :]
+            # A colon *after* the closing bracket is a port; drop it and keep
+            # the bracket. Anything else means there is no port suffix.
+            return host[: closing + 1] if rest.startswith(":") else host
+        return host  # malformed literal; return as-is rather than truncate
+    colon = host.find(":")
+    return host if colon == -1 else host[:colon]
 
 
 def is_http_request(payload: bytes) -> bool:
@@ -235,42 +281,38 @@ def is_http_request(payload: bytes) -> bool:
 def extract_http_host(payload: bytes) -> str | None:
     """Extracts the value of the first "Host:" header from an HTTP request.
 
-    Case-insensitive header name match, port suffix (":8080") stripped from
-    the returned host, matching the original's behavior.
+    The search is bounded to the header section and the match must begin a
+    line. The original scanned the entire payload for a case-insensitive
+    ``Host:`` with neither restriction, which let any attacker-influenced
+    string -- a URL in the request line, a redirect target, a POST body -- set
+    the host that is then fed to *both* app classification and domain-rule
+    matching. That is a false-classification and false-blocking vector, so the
+    bound is the fix, not a refinement.
     """
     if not is_http_request(payload):
         return None
 
-    length = len(payload)
-    host_header_len = 6  # len("Host: ") -- matches original's constant, used only as a loop bound
+    block = _header_block(payload)
+    if not block:
+        return None
 
-    i = 0
-    while i + host_header_len < length:
-        if (
-            payload[i] in (ord("H"), ord("h"))
-            and payload[i + 1] in (ord("o"), ord("O"))
-            and payload[i + 2] in (ord("s"), ord("S"))
-            and payload[i + 3] in (ord("t"), ord("T"))
-            and payload[i + 4] == ord(":")
-        ):
-            start = i + 5
-            while start < length and payload[start] in (ord(" "), ord("\t")):
-                start += 1
+    # Walk line by line: a header name can only start a line, which also makes
+    # "X-Host:" and "Ghost:" impossible to match.
+    offset = 0
+    while True:
+        newline = block.find(b"\n", offset)
+        line_end = len(block) if newline == -1 else newline
+        line = block[offset:line_end].rstrip(b"\r")
 
-            end = start
-            while end < length and payload[end] not in (ord("\r"), ord("\n")):
-                end += 1
+        colon = line.find(b":")
+        if colon != -1 and line[:colon].strip().lower() == b"host":
+            value = line[colon + 1 :].strip(b" \t")
+            if value:
+                return _strip_port(value.decode("ascii", errors="replace"))
 
-            if end > start:
-                host = payload[start:end].decode("ascii", errors="replace")
-                colon_pos = host.find(":")
-                if colon_pos != -1:
-                    host = host[:colon_pos]
-                return host
-
-        i += 1
-
-    return None
+        if newline == -1:
+            return None
+        offset = newline + 1
 
 
 # --- DNS query extraction -----------------------------------------------------------
