@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T0-10
+current_task: T0-11
 next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t0_09
+session: ses_t0_10
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | 9 / 11 tasks done |
-| **Current task** | `T0-10` - Teardown in `finally`, stale docstrings, dead code |
+| **Phase progress** | 10 / 11 tasks done |
+| **Current task** | `T0-11` - Bound worker memory (blocked on `DEC-01`) |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | nothing - `T0-10` is unblocked |
+| **Blocked by** | `DEC-01` blocks `T0-11` |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t0_09` - `T0-09` closed |
+| **Session** | `ses_t0_10` - `T0-10` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,7 +118,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
-| **0** | Harden | 11 | **9** | 0 | **1** | 1 | 0 | not met |
+| **0** | Harden | 11 | **10** | 0 | 0 | 1 | 0 | not met |
 | **0.5** | Real captures | 2 | 0 | 0 | **1** | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
@@ -153,7 +153,7 @@ Status vocabulary is closed (7 values) — see
 | `T0-07` | Bound the HTTP `Host:` scan | `D-09` `D-10` | done | - | 0.5 d |
 | `T0-08` | Per-packet QUIC `undecryptable` accounting | `D-08` | done | — | 0.5 d |
 | `T0-09` | Make `--live-rules` honest | `D-03` | done | — | 0.5–1 d |
-| `T0-10` | Teardown in `finally`; stale docstrings; dead code | `D-12` `S-03` | pending | — | 0.5 d |
+| `T0-10` | Teardown in `finally`; stale docstrings; dead code | `D-12` `S-03` | done | — | 0.5 d |
 | `T0-11` | **Bound worker memory** | `D-01` `D-02` `D-22` | blocked | **`DEC-01`** | 2–3 d |
 | `T05-01` | VLAN / 802.1Q and QinQ | `D-14` | pending | — | 0.5 d |
 | `T05-02` | pcapng diagnostic or reader | `D-15` | blocked | **`DEC-02`** | 10 min / 2 d |
@@ -300,16 +300,14 @@ or `dropped` and say why.
 - **Closed findings:** `D-03` · **Follow-ups:** none specific.
 - **Notes:** worth being precise about the severity here, because it is lower than the register's `High`/`High` suggests. Nothing was *wrong* — no packet was misclassified, no counter wrong. The defect was that a documented capability was absent while every observable output looked correct, which is the worst kind: it cannot be detected by running the tool. The register's rating is defensible on the basis that a user relying on `--live-rules` under `--load-balancers` would silently get stale rules, but the fix is small and the honest reading is `Medium`/`Medium`.
 ### `T0-10` — Teardown in `finally`, stale docstrings, dead code
-
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
-- **Files:** `src/dpi_engine/pipeline.py`, `worker.py`, `quic.py`, `load_balancer.py`, `types.py`, `tests/test_safety_constraints.py`
-- **Test added:** inject a `_collect` failure and assert no child processes survive; an AST check asserting no shipped docstring references a symbol absent from the module
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** `pytest -q`, `ruff check`, `mypy`
-- **Closed findings:** `D-12`, `D-13` (proposed), `S-03` partially · **Follow-ups:** —
-- **Notes:** the four docstring fixes are `quic.py:603` → `worker.FlowProcessor._quic_inspectors`; `worker.py:93` → `worker.FixedRuleSource`; `pipeline.py:131` → remove the non-existent `with_fast_path_stats`; **`load_balancer.py:20-35`**, which falsely claims the LB stage parses Ethernet/IP/TCP/UDP and contradicts `DESIGN_DECISIONS.md` and the root `README.md`. Plus `types.py:257` cites `DESIGN_DECISIONS.md` item 14 where items 7 and 11 are meant
-
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_10 — **Blocked by:** -
+- **Files:** `src/dpi_engine/pipeline.py`, `worker.py`, `quic.py`, `load_balancer.py`, `tests/test_safety_constraints.py`
+- **Test added:** three. Two `D-12` tests (parametrised over both multiprocess variants) inject a `_collect` failure and assert every queue is closed and every child reaped; one AST check asserting no shipped docstring cites a module-qualified symbol that does not exist.
+- **How it was tackled:** `D-12` first: the `_collect` -> `join` -> `_close_quietly` sequence in both variants is now inside `try/finally` calling `_terminate`, so teardown is unconditional. `_terminate` is safe on the happy path — a joined process is not `is_alive()`, so `terminate()` is skipped and the queue closes are the same ones the removed explicit loop performed — so it is now the single teardown path and the two variants cannot drift apart again. Then the four documentation defects. Then the AST check.
+- **Deviations:** three substantive ones, all in the plan's favour of correcting it. (1) Plan item 4 is **already satisfied**: it says `types.py:257` cites `DESIGN_DECISIONS.md` item 14, but it already cited item 7, which is exactly the `classifyConnection` terminal-classification bug it describes. There is no item 14, and no item 11 either — that list has only 10 entries. Nothing to change. (2) The plan claims the AST check "would have caught all four" phantom references. Verified against `git show HEAD`: it catches **two** of three — `pipeline.QuicFlowTable` and `pipeline.RuleBroadcaster.SnapshotHolder`, both module-qualified. It cannot catch `with_fast_path_stats=True`, which has no dot to resolve, nor load_balancer's prose claim. I prototyped a second check for bare `name=` references: against the fixed tree it returned 5 false positives for 1 true positive (`i=` and `d=` are C++ loop variables being documented, `confirmed=` and `is_outbound=` are other functions' parameters). Rejected as not worth the false alarms, and the rejected variant's reasoning is recorded in the test's docstring so nobody re-derives it. (3) `D-13` is **not** closed — see Notes.
+- **Verification:** **454 passed, 12 skipped, 2 xfailed** (up from 451). `ruff check .` and `mypy` (strict, 13 files) clean. Coverage 91.39%. The `D-12` tests were confirmed to be real regression tests by stashing only `pipeline.py` and re-running: `3 of 3 queues were left open after the failure`.
+- **Closed findings:** `D-12` — **Follow-ups:** `D-13` and the dead-code sweep half of `S-03` (tracked as `D-24`) both need a home; see Notes.
+- **Notes:** **`D-13` is still open and now has no task.** It is the LB-death orphan: only `_lb_main` sends FP shutdown sentinels, so if an LB dies its fast paths block on `input_queue.get()` until the parent hits the 120 s `_RESULT_TIMEOUT_SECONDS`. Rated `Medium`/`High`. The task title mentions dead code and the pre-seeded record said "`D-13` (proposed)", but the plan's Change list has five items and none of them is LB supervision, so implementing it would have been an undeclared scope increase on a 0.5 d task. Deliberately not claimed closed. It should be its own task, and it is the natural companion to `T0-11` since both concern bounding what happens when a stage dies mid-run. Also note `D-12`'s fix does **not** help here: it guarantees teardown once `_collect` gives up, which is strictly after the 120 s wait the orphan causes.
 ### `T0-11` — Bound worker memory
 
 - **Status:** blocked · **Blocked by:** `DEC-01` · **Claimed by:** — · **Session:** —
@@ -526,7 +524,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **8** (`D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`) | 14 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
+| `D-##` defects | 26 | **9** (`D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`) | 13 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
 | `R-##` rails | 10 | **5** (`R-01`, `R-02`, `R-03`, `R-04`, `R-06`) | 5 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
@@ -575,6 +573,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_t0_10` | claude-opus-5[1m] | `T0-10` | 1 task completed — `D-12` closed | `T0-11` (needs `DEC-01`) |
 | 2026-10-03 | `ses_t0_09` | claude-opus-5[1m] | `T0-09` | 1 task completed — `D-03` closed | `T0-10` |
 | 2026-10-03 | `ses_t0_08` | claude-opus-5[1m] | `T0-08` | 1 task completed — `D-08` closed | `T0-09` |
 | 2026-10-03 | `ses_t0_07` | claude-opus-5[1m] | `T0-07` | 1 task completed - `D-09` + `D-10` closed, `extract_http_host` 4x faster | `T0-08` |

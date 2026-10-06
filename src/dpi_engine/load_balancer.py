@@ -17,22 +17,27 @@ five-tuple hash, then that LB's `selectFP` picks one of *its* FPs. Both steps
 hash the same five-tuple, so the second step is just `hash % fps_per_lb`
 within a shard -- total FP count is `k * fps_per_lb`.
 
-In the original the LB tier was largely plumbing. In this port it earns its
-keep, because the reader's actual CPU cost is *parsing*, and parsing is exactly
-what the LB stage takes over. So the stages map onto two genuinely different
-kinds of work:
+In the original the LB tier was largely plumbing, and it is largely plumbing
+    here too. It earns its keep for a different reason than parsing: it is a
+    queue-decoupling and backpressure-isolation tier. The stages map onto:
 
-    stage 1 (LB process): read a raw frame off a byte stream, parse
+    stage 1 (parent): read raw frames off the byte stream and parse
         Ethernet/IP/TCP/UDP, compute the five-tuple, hash-select the owning
-        fast-path, forward the parsed item.
-    stage 2 (FP process): flow-table lookup, TCP state machine, classification
+        load balancer, forward the parsed `WorkItem`.
+    stage 2 (LB process): hash-select one of *its* own fast paths from the
+        five-tuple and forward. `_lb_main` never parses; it receives
+        pre-parsed `WorkItem`s and only calls `select_fp`.
+    stage 3 (FP process): flow-table lookup, TCP state machine, classification
         (SNI / HTTP Host / DNS / QUIC), rule check, forward-or-drop decision.
 
-The single-tier `run_pipeline_multiprocess` keeps the parsing in the parent
-process, which serialises the parse cost against everything else; the staged
-pipeline does not. The simple path stays the default because for small
-captures the extra process startup (tens of ms each on Windows' spawn start
-method) dominates any parse-time saving.
+    An earlier version of this module claimed the LB stage did the parsing, and
+    that the staged pipeline therefore parallelised parse cost that the
+    single-tier path serialises. That is wrong, and it contradicted both
+    `docs/DESIGN_DECISIONS.md` and the root `README.md`: the reader must parse
+    before it can hash a five-tuple, so the parse is the serial stage in every
+    variant and the extra hop makes the two-tier path slightly *slower*. Use
+    this variant for architecture parity and per-shard observability; use
+    `run_pipeline_multiprocess` for speed.
 
 =============================================================================
 Consistency guarantees

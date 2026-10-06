@@ -600,9 +600,9 @@ class QuicFlowInspector:
     QUIC packet numbers and the ClientHello's CRYPTO stream both span packets,
     so decryption cannot be stateless. The pipeline keeps one of these per
     five-tuple and calls `feed` for each UDP payload on that flow -- see
-    `pipeline.QuicFlowTable`. Keeping the state in a class (rather than
-    threading a state tuple through every call) is what makes the call site a
-    single line and keeps the mutation rules in one place.
+    `worker.FlowProcessor._quic_inspectors`. Keeping the state in a class
+    (rather than threading a state tuple through every call) is what makes the
+    call site a single line and keeps the mutation rules in one place.
     """
 
     version: int = 0

@@ -19,6 +19,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
+from conftest import TEST_DPI_PCAP
+
 SRC_DIR = Path(__file__).resolve().parents[1] / "src" / "dpi_engine"
 
 # Patterns that would indicate a live-capture, packet-injection, or
@@ -103,3 +107,174 @@ def test_no_scapy_dependency_in_shipped_source() -> None:
     for path in _iter_source_files():
         text = path.read_text(encoding="utf-8")
         assert "scapy" not in text.lower(), f"{path}: unexpected reference to scapy"
+
+
+# ---------------------------------------------------------------------------
+# D-12: a failure after dispatch must not leak children or queues
+# ---------------------------------------------------------------------------
+
+
+def _spy_on_processes_and_queues(monkeypatch: pytest.MonkeyPatch) -> tuple[list, list]:
+    """Record every mp.Process and mp.Queue the pipeline creates."""
+    import multiprocessing as mp
+
+    processes: list = []
+    queues: list = []
+
+    real_process = mp.Process
+    real_queue = mp.Queue
+
+    def process_spy(*args: object, **kwargs: object):
+        p = real_process(*args, **kwargs)
+        processes.append(p)
+        return p
+
+    def queue_spy(*args: object, **kwargs: object):
+        q = real_queue(*args, **kwargs)
+        queues.append(q)
+        return q
+
+    monkeypatch.setattr(mp, "Process", process_spy)
+    monkeypatch.setattr(mp, "Queue", queue_spy)
+    return processes, queues
+
+
+@pytest.mark.parametrize("variant", ["multiprocess", "staged"])
+def test_failure_during_result_collection_leaves_no_surviving_children(
+    variant: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_collect` raising must still terminate children and close queues.
+
+    `_collect` converts a lost worker into a `RuntimeError` after a bounded wait,
+    which is exactly the kind of failure the caller cannot recover from -- and
+    previously the `join` / `_close_quietly` sequence sat *after* it with no
+    `finally`, so the failure path re-introduced the very leak the
+    dispatch-phase shutdown protocol exists to prevent (D-12).
+
+    Asserted on queues being closed and processes being reaped, both of which
+    are deterministic. Asserting `not is_alive()` would not be: by this point the
+    workers have already been sent shutdown sentinels, so they exit on their own
+    regardless, and the bug would hide.
+    """
+    from dpi_engine import pipeline
+    from dpi_engine.rule_manager import RuleManager
+
+    processes, queues = _spy_on_processes_and_queues(monkeypatch)
+
+    def boom(*args: object, **kwargs: object):
+        raise RuntimeError("injected result-collection failure")
+
+    monkeypatch.setattr(pipeline, "_collect", boom)
+
+    out = tmp_path / "out.pcap"
+    with pytest.raises(RuntimeError, match="injected result-collection failure"):
+        if variant == "staged":
+            pipeline.run_pipeline_staged(
+                str(TEST_DPI_PCAP), out, RuleManager(),
+                num_load_balancers=1, fps_per_lb=1,
+            )
+        else:
+            pipeline.run_pipeline_multiprocess(
+                str(TEST_DPI_PCAP), out, RuleManager(), num_workers=2,
+            )
+
+    assert processes, "no processes were created, so the test proved nothing"
+    assert queues, "no queues were created, so the test proved nothing"
+
+    unclosed = [q for q in queues if not getattr(q, "_closed", False)]
+    assert not unclosed, (
+        f"{len(unclosed)} of {len(queues)} queues were left open after the "
+        f"failure; teardown must run on every exit path, not just the happy one"
+    )
+
+    unreaped = [p for p in processes if p.exitcode is None]
+    assert not unreaped, (
+        f"{len(unreaped)} of {len(processes)} child processes were never "
+        f"reaped after the failure"
+    )
+
+
+# ---------------------------------------------------------------------------
+# S-03: docstrings must not cite symbols that do not exist
+# ---------------------------------------------------------------------------
+
+
+def test_docstrings_reference_only_symbols_that_exist() -> None:
+    """No shipped docstring may point at a symbol that is not there.
+
+    Three docstrings cited `pipeline.QuicFlowTable`,
+    `pipeline.RuleBroadcaster.SnapshotHolder` and a `with_fast_path_stats=True`
+    parameter, none of which has ever existed. All three survived for as long as
+    the audit had been running, because prose has no compiler: a renamed or
+    deleted symbol leaves the documentation confidently wrong rather than
+    failing a build.
+
+    This walks every module docstring, class docstring and function docstring,
+    extracts backtick-quoted dotted references, and resolves each one. Only
+    references whose first segment names a module in this package are checked --
+    `docs/DESIGN_DECISIONS.md` and stdlib names are out of scope -- and
+    filename-ish references (`quic.py`) are skipped, since they are paths, not
+    attributes.
+
+    Honest scope: this catches references *qualified by module*. It does not
+    catch a bare phantom parameter name (`with_fast_path_stats=True`, which has
+    no dot to resolve), nor a prose claim like load_balancer's "the LB stage
+    parses Ethernet/IP/TCP/UDP". A variant that tried to catch those flagged 5
+    legitimate cross-references for every 1 true positive, so it was not worth
+    the false alarms.
+    """
+    import ast
+    import importlib
+    import re
+
+    module_stems = {p.stem for p in SRC_DIR.glob("*.py")}
+    dotted = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\b")
+    span = re.compile(r"`([^`\n]+)`")
+
+    checked = 0
+    violations: list[str] = []
+
+    for path in sorted(SRC_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        for node in ast.walk(tree):
+            if not isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                continue
+            doc = ast.get_docstring(node)
+            if not doc:
+                continue
+
+            for text in span.findall(doc):
+                if text.endswith((".py", ".md", ".json", ".yml", ".yaml", ".pcap")):
+                    continue
+                for ref in dotted.findall(text):
+                    head, _, rest = ref.partition(".")
+                    if head == "dpi_engine":
+                        target, chain = "dpi_engine", rest.split(".")
+                    elif head in module_stems:
+                        target, chain = f"dpi_engine.{head}", rest.split(".")
+                    else:
+                        continue
+
+                    checked += 1
+                    obj = importlib.import_module(target)
+                    for attr in chain:
+                        if not hasattr(obj, attr):
+                            where = getattr(node, "name", "<module>")
+                            violations.append(
+                                f"{path.name}:{node.lineno} "
+                                f"({where}) cites `{ref}`, but {target} has no "
+                                f"attribute {attr!r}"
+                            )
+                            break
+                        obj = getattr(obj, attr)
+
+    assert not violations, "docstrings cite symbols that do not exist:\n  " + "\n  ".join(
+        violations
+    )
+    assert checked > 0, (
+        "the check resolved 0 references, so it is not actually inspecting "
+        "anything and would pass vacuously"
+    )

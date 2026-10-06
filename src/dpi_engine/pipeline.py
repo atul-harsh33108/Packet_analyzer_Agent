@@ -127,8 +127,13 @@ class PipelineResult:
     #: pipeline, load-balancer id for the staged one), which is the analogue of
     #: the original's "LB0 dispatched / FP0 processed" report section.
     per_worker_packet_counts: list[int] = field(default_factory=list)
-    #: Aggregated fast-path counters. Empty for the single-process pipeline
-    #: unless `with_fast_path_stats=True` was requested.
+    #: Aggregated fast-path counters. Populated by all three variants: the
+    #: single-process path uses the one engine's own `fp_stats`, and the two
+    #: multiprocess variants fold the per-worker counters together with
+    #: `_combine_fast_path_stats`. (An earlier version of this comment claimed
+    #: the field was empty for the single-process pipeline unless a
+    #: `with_fast_path_stats=True` parameter was passed. No such parameter has
+    #: ever existed, and the field is in fact always populated -- S-03.)
     fast_path_stats: FastPathStats | None = None
     load_balancer_stats: LoadBalancerStats | None = None
     #: UDP packets recognised as QUIC, and how many of those we could not
@@ -569,11 +574,20 @@ def run_pipeline_multiprocess(
         # dispatch failure.
         raise AssertionError("unreachable: dispatch failure must propagate its exception")
 
-    results = _collect(output_queue, num_workers)
-    for process in processes:
-        process.join()
-    for queue_ in [*input_queues, *control_queues, output_queue]:
-        _close_quietly(queue_)
+    # Teardown must be unconditional (D-12). `_collect` raises on a worker that
+    # never reports, and anything after it can raise too -- `_accumulate`,
+    # `PcapWriter`, `_write_forwarded`. Without `finally`, a failure anywhere in
+    # this block left live worker processes and unclosed queues behind, i.e. the
+    # failure path re-introduced exactly the leak the dispatch-phase shutdown
+    # protocol above exists to prevent. On the happy path the children have
+    # already been joined, so terminating them here is a no-op.
+    all_queues = [*input_queues, *control_queues, output_queue]
+    try:
+        results = _collect(output_queue, num_workers)
+        for process in processes:
+            process.join()
+    finally:
+        _terminate(processes, all_queues)
 
     results.sort(key=lambda r: r.worker_id)
     stats.tcp_packets = sum(r.tcp_count for r in results)
@@ -802,18 +816,24 @@ def run_pipeline_staged(
     if not dispatch_succeeded:
         raise AssertionError("unreachable: dispatch failure must propagate its exception")
 
-    lb_results = _collect(lb_output_queue, num_load_balancers)
-    fp_results = _collect(fp_output_queue, len(all_fps))
-    for p in [*lb_processes, *fp_processes]:
-        p.join()
-    for q in [
+    # Unconditional teardown, for the same reason as the single-tier path above
+    # (D-12): `_collect` raises `RuntimeError` on a tier that never reports, and
+    # `_accumulate` / `PcapWriter` / `_write_forwarded` can raise after it. Any
+    # of those used to leave LB and FP processes alive and queues unclosed.
+    teardown_queues = [
         *[lb.input_queue for lb in lbs],
         *[fp.input_queue for fp in all_fps],
         *control_queues,
         lb_output_queue,
         fp_output_queue,
-    ]:
-        _close_quietly(q)
+    ]
+    try:
+        lb_results = _collect(lb_output_queue, num_load_balancers)
+        fp_results = _collect(fp_output_queue, len(all_fps))
+        for p in [*lb_processes, *fp_processes]:
+            p.join()
+    finally:
+        _terminate([*lb_processes, *fp_processes], teardown_queues)
 
     fp_results.sort(key=lambda r: r.worker_id)
     stats.tcp_packets = sum(r.tcp_count for r in fp_results)
@@ -895,8 +915,17 @@ _RESULT_TIMEOUT_SECONDS = 120.0
 def _terminate(
     processes: Sequence[mp.process.BaseProcess], queues: Sequence[Any]
 ) -> None:
-    """Best-effort teardown for the failure path: no sentinel is coming, so
-    terminate rather than wait, then close the queues.
+    """Best-effort teardown for every exit path: terminate what is still alive,
+    then join, then close the queues.
+
+    Used unconditionally from a `finally` in both multiprocess variants, so it
+    runs on the happy path too. That is safe and idempotent: a process that has
+    already been joined is not `is_alive()`, so `terminate()` is skipped, the
+    join returns immediately, and the queue closes are the same ones the old
+    explicit `_close_quietly` loop performed. Centralising it here is what stops
+    the two variants drifting apart again.
+
+    On the failure path no sentinel is coming, so terminate rather than wait.
 
     The queue parameter is deliberately untyped: the payload type is
     irrelevant to teardown, and the callers mix packet, control and result

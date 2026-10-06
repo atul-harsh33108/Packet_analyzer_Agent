@@ -90,9 +90,9 @@ class RuleSource(Protocol):
     version to poll.
 
     Implemented by `RuleManager` (the mutable admin front door) and by
-    `pipeline.RuleBroadcaster.SnapshotHolder` (what a worker process uses
-    after receiving updates over its control channel). Expressed as a
-    Protocol so the processor does not care which it has.
+    `FixedRuleSource` (what a worker process uses, swapped wholesale when an
+    update arrives over its control channel). Expressed as a Protocol so the
+    processor does not care which it has.
     """
 
     @property
