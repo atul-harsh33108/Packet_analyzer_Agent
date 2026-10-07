@@ -380,7 +380,7 @@ def test_rules_mutated_mid_run_are_picked_up(tmp_path: Path) -> None:
         five_tuple=flow,
     )
 
-    assert processor.process(item).forwarded is True
+    assert processor.process(item) is True
 
     rules.block_port(443)
     broadcaster.publish()  # in a real run the pipeline does this per packet
@@ -392,7 +392,7 @@ def test_rules_mutated_mid_run_are_picked_up(tmp_path: Path) -> None:
         parsed=_parsed(sport=flow.src_port, dport=443, has_tcp=True, payload=b""),
         five_tuple=flow,
     )
-    assert processor.process(second).forwarded is False
+    assert processor.process(second) is False
     assert processor.blocked_flows and processor.blocked_flows[0][0] == flow
 
 

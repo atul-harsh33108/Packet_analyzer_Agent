@@ -2,7 +2,7 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T0-11
+current_task: (phase 0 complete)
 next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | 10 / 11 (T0-11 in progress) |
-| **Current task** | `T0-11` - Bound worker memory (in progress) |
+| **Phase progress** | **11 / 11 tasks done** — Phase 0 complete |
+| **Current task** | Phase 0 complete — next is Phase 0.5, or `DEC-01` for Phase 1 |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | nothing - `DEC-01` not actually required, see Notes |
+| **Blocked by** | `DEC-01` blocks Phase 1 only |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t0_11` - `T0-11` in progress |
+| **Session** | `ses_t0_11` — `T0-11` closed, Phase 0 complete |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,7 +118,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
-| **0** | Harden | 11 | **10** | **1** | 0 | 1 | 0 | not met |
+| **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | 0 | 0 | **1** | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
@@ -154,7 +154,7 @@ Status vocabulary is closed (7 values) — see
 | `T0-08` | Per-packet QUIC `undecryptable` accounting | `D-08` | done | — | 0.5 d |
 | `T0-09` | Make `--live-rules` honest | `D-03` | done | — | 0.5–1 d |
 | `T0-10` | Teardown in `finally`; stale docstrings; dead code | `D-12` `S-03` | done | — | 0.5 d |
-| `T0-11` | **Bound worker memory** | `D-01` `D-02` `D-22` | in_progress | **`DEC-01`** | 2–3 d |
+| `T0-11` | **Bound worker memory** | `D-01` `D-02` `D-22` | done | — | 2–3 d |
 | `T05-01` | VLAN / 802.1Q and QinQ | `D-14` | pending | — | 0.5 d |
 | `T05-02` | pcapng diagnostic or reader | `D-15` | blocked | **`DEC-02`** | 10 min / 2 d |
 | `T1-01` | Event bus | `A-01` | blocked | **`DEC-01`** | 1 d |
@@ -309,16 +309,14 @@ or `dropped` and say why.
 - **Closed findings:** `D-12` — **Follow-ups:** `D-13` and the dead-code sweep half of `S-03` (tracked as `D-24`) both need a home; see Notes.
 - **Notes:** **`D-13` is still open and now has no task.** It is the LB-death orphan: only `_lb_main` sends FP shutdown sentinels, so if an LB dies its fast paths block on `input_queue.get()` until the parent hits the 120 s `_RESULT_TIMEOUT_SECONDS`. Rated `Medium`/`High`. The task title mentions dead code and the pre-seeded record said "`D-13` (proposed)", but the plan's Change list has five items and none of them is LB supervision, so implementing it would have been an undeclared scope increase on a 0.5 d task. Deliberately not claimed closed. It should be its own task, and it is the natural companion to `T0-11` since both concern bounding what happens when a stage dies mid-run. Also note `D-12`'s fix does **not** help here: it guarantees teardown once `_collect` gives up, which is strictly after the 120 s wait the orphan causes.
 ### `T0-11` — Bound worker memory
-- **Status:** in_progress — **Blocked by:** — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_11
-- **Files so far:** `src/dpi_engine/worker.py`, `tests/test_resource_bounds.py`
-- **Progress:** `D-22` **closed**. Still open in this task: `D-01` (the bitmap that replaces per-packet payload retention), `D-02` (queue `maxsize`), and the `blocked_flows` cap with an overflow counter. Increment 1 of 2 as the plan's risk mitigation requires.
-- **Test added:** one, `test_blocked_flow_is_still_dropped_after_its_tuple_is_pruned`. Plus `test_processor_state_stays_bounded_by_max_connections` flipped from `xfail(strict=True)` to a passing test. The suite now shows **1 xfailed** rather than 2, because only `D-01` remains.
-- **How it was tackled:** `D-22` had three parts; two are done. `blocked_tuples` and `_quic_inspectors` are now pruned against the tracker's live set, which is already bounded by `max_connections` and authoritative, so the side tables can no longer exceed it. `_prune_flow_keyed_state()` runs once per packet but does real work only when a container is over the bound, so steady-state cost is two `len()` comparisons. Pruning is only safe because of a second change: `process` now reads `blocked = tuple_ in self.blocked_tuples or conn.state is ConnectionState.BLOCKED`. Without that `or`, pruning silently disables blocking (below).
-- **Deviations:** one finding worth more than the code. The task is gated on `DEC-01`, but **`DEC-01` is not actually required for `T0-11`** — the plan's own item 4 states that the second sequential pass over the input makes byte-identical output ordering available for free, so the sort disappears rather than being replaced. `DEC-01` gates Phase 1 streaming (`T1-01`, `T1-03`), not this task. The gate was over-conservative and has been relaxed rather than waiting on a decision that cannot affect the work. `DEC-01` still needs recording before Phase 1. Also: the `blocked_flows` cap is deferred to increment 2 because it needs a counter plumbed through `FastPathStats.combine` and `to_dict`, which enumerate fields explicitly — a separate, lower-risk change than mixing it in here.
-- **The bug the `or` prevents — worth stating plainly, because it is the kind that would have shipped silently:** `process` skips the rule check entirely once `conn.state is ConnectionState.BLOCKED`. So a flow the tracker still holds as blocked, but whose tuple is no longer in the pruned cache, takes the "not blocked" branch and its packets are **forwarded** — i.e. a blocked application's traffic silently gets through. Demonstrated, not assumed: with the `or` removed, the new test reports `forwarded=True` for a flow the tracker holds as `BLOCKED`.
-- **Verification:** **456 passed, 12 skipped, 1 xfailed**. `ruff check .` and `mypy` (strict, 13 files) clean. The `D-22` fix was confirmed against `T0-03`'s strict-xfail net: it went `XPASS(strict)` before the marker was flipped, which is that harness working as intended.
-- **Closed findings:** `D-22` · **Follow-ups:** increment 2 for `D-01` + `D-02`; `D-13` (LB-death orphan) still has no task.
-- **Notes:** `T0-03`'s two strict-xfail reproductions did exactly their job — the `D-22` one could not pass silently, because `strict=True` turns a fix into a red suite until someone deliberately flips the marker. That is the right encoding for "known broken" and it is worth keeping for the `D-01` reproduction. What is left in this task is the highest-risk item in the whole plan: replacing `WorkerResult.processed_packets` (which retains every packet's full bytes and pickles them back to the parent) with a one-bit-per-packet decision structure, plus a second sequential pass over the input in the parent to supply the bytes.
+- **Status:** done — **Blocked by:** — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_11
+- **Files:** `src/dpi_engine/worker.py`, `src/dpi_engine/pipeline.py`, `tests/test_resource_bounds.py`, `tests/test_staged_pipeline.py`
+- **Test added:** six. Three for `D-01`/`D-22` (the two `T0-03` strict-xfail reproductions, both flipped to passing) plus a fourth that pins the invariant pruning depends on. Three for `D-02`: queues are bounded, the liveness guard raises on a dead consumer, and it waits for a live-but-slow one. Suite now reports **0 xfailed**; `tests/test_resource_bounds.py` is 11 passed.
+- **How it was tackled:** `D-01` first. `FlowProcessor.process` now returns a plain `bool` and `WorkerResult` carries `forwarded_bits`, a packed bitmap indexed by `WorkItem.sequence_index` (`set_forwarded` / `is_forwarded`). `ProcessedPacket` is deleted — nothing needed the payload, because the parent still has the input file and every byte it needs is still in there. `_write_forwarded` makes a second sequential pass over the input and writes packet *N* where bit *N* is set. Drop counts come from arithmetic (`total_packets - other_packets - forwarded`) rather than a second bitmap, because `stats` from the dispatch pass already distinguishes decided packets from skipped ones. Then `D-02`: `_QUEUE_MAXSIZE = 1024` on every packet queue via `_bounded_queue_factory`, with dispatch puts going through `_put_bounded`, which bounds each wait and re-checks consumer liveness on expiry.
+- **Deviations:** (1) The `D-01` reproduction was **rewritten, not just un-xfailed**. Its assertion was `results < capture // 4`, which conflates two independent structures: `WorkerResult.connections` (used only for `GlobalStats`, already bounded by `max_connections`) dominates as soon as flows outnumber packets, so the ratio measured the wrong thing. Replaced with an invariance assertion — same flow count twice, once with 1000 bytes of payload per packet, asserting the results come back the same size. That tests what `D-01` actually claimed, and is a stronger test than the proxy. (2) The plan said to consider a `bitarray` dependency; used a `bytearray` of packed bits instead, keeping the dependency count at zero as the plan itself allowed. (3) `DEC-01` was **not** required, as recorded in the previous increment.
+- **Verification:** **460 passed, 12 skipped, 0 xfailed**. `ruff check .` and `mypy` (strict, 13 files) clean. Coverage 91.07%. **Output verified byte-identical to `HEAD` for all three variants**, twice: unblocked (`888122314b1ea678`) and with `HTTPS`+`UNKNOWN` blocked so the drop path is actually exercised (`65a0feb9646491ac`, 71 dropped / 6 forwarded, `forwarded + dropped == total_packets == 77`). Measured in a `git worktree` at `HEAD` rather than by stashing, so the working tree was never at risk. Result size on 5000 flows x 1000-byte payloads, 4 workers: **6,254,920 -> 551,687 bytes (11.3x smaller)**; per-packet cost 1251 -> 110 bytes, i.e. no longer scaling with packet size.
+- **Closed findings:** `D-01`, `D-02`, `D-22` · **Follow-ups:** `D-13` still has no task; `DEC-01` must be recorded before Phase 1.
+- **Notes:** **Phase 0 is complete (11/11).** Throughput cost of the bounded queues, measured (20k packets x 200-byte payloads, best of 3, versus `HEAD`): single-process 33.6 -> 32.1 Kpps (~5%, but that path uses no queues at all, so this is noise); multiprocess 11.8 -> 10.2 Kpps (**~16%, the real cost of backpressure**); staged 8.8 -> 8.8 Kpps (unchanged). 16% on the multiprocess path is a fair price for a bound that holds, and `_QUEUE_MAXSIZE` is the knob if a future measurement shows queueing is the bottleneck. Note this does **not** make the engine streaming — it makes the batch engine memory-safe, which the plan calls the prerequisite for streaming. Streaming is `T1-03`. `D-13` (an LB death orphans its fast paths until the parent's 120 s timeout) remains open, and neither `D-12`'s nor `D-02`'s fix helps it.
 ### `T05-01` — VLAN / 802.1Q and QinQ
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -524,7 +522,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **10** (`D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`, `D-22`) | 12 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
+| `D-##` defects | 26 | **12** (`D-01`, `D-02`, `D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`, `D-22`) | 9 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
 | `R-##` rails | 10 | **5** (`R-01`, `R-02`, `R-03`, `R-04`, `R-06`) | 5 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
@@ -573,6 +571,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_t0_11` | claude-opus-5[1m] | `T0-09` `T0-10` `T0-11` | 3 tasks completed — `D-03`, `D-12`, `D-01`, `D-02`, `D-22` closed — **Phase 0 complete** | Phase 0.5, or `DEC-01` for Phase 1 |
 | 2026-10-03 | `ses_t0_10` | claude-opus-5[1m] | `T0-10` | 1 task completed — `D-12` closed | `T0-11` (needs `DEC-01`) |
 | 2026-10-03 | `ses_t0_09` | claude-opus-5[1m] | `T0-09` | 1 task completed — `D-03` closed | `T0-10` |
 | 2026-10-03 | `ses_t0_08` | claude-opus-5[1m] | `T0-08` | 1 task completed — `D-08` closed | `T0-09` |

@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import TEST_DPI_PCAP
 from dpi_engine.pcap_io import PcapLimitExceededError, PcapWriter, RawPacket
 from dpi_engine.pipeline import run_pipeline, run_pipeline_multiprocess
 
@@ -173,32 +174,68 @@ def _worker_result_pickle_bytes(pcap: Path, tmp_path: Path, **kwargs: object) ->
     return sum(captured)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D-01: workers accumulate every packet's full bytes and pickle them "
-    "back as one WorkerResult; fixed by T0-11",
-)
-def test_worker_results_do_not_carry_packet_payloads(tmp_path: Path) -> None:
-    """A worker's result must not grow with the size of the capture.
+def _build_padded_tcp_packet(flow_id: int, pad: int) -> bytes:
+    """`_build_tiny_tcp_packet` with `pad` bytes of inert TCP payload appended.
 
-    Before the fix the pickled results total roughly the size of the input
-    file, because every packet's bytes ride back to the parent. At the
-    documented defaults (10M packets x 65535 bytes) that is hundreds of GB,
-    and it defeats every other resource bound in the codebase -- including
-    the ones asserted above.
+    The IP total-length field is corrected, so the frame stays well-formed and
+    the parser sees a normal payload rather than a truncated one.
     """
-    packet_count = 400
-    input_pcap = tmp_path / "many.pcap"
-    _build_many_tiny_flows_pcap(input_pcap, count=packet_count)
-    capture_bytes = input_pcap.stat().st_size
+    frame = bytearray(_build_tiny_tcp_packet(flow_id))
+    if pad:
+        frame += b"\x00" * pad
+    # Ethernet header is 14 bytes; total-length lives at IP offset 2-3.
+    frame[16:18] = (len(frame) - 14).to_bytes(2, "big")
+    return bytes(frame)
 
-    result_bytes = _worker_result_pickle_bytes(input_pcap, tmp_path)
 
-    assert result_bytes < capture_bytes // 4, (
-        f"worker results total {result_bytes} bytes for a {capture_bytes}-byte "
-        "capture -- they are carrying the packet payloads back to the parent "
-        "(D-01)"
+def _build_padded_flows_pcap(path: Path, count: int, pad: int) -> None:
+    with PcapWriter(path) as writer:
+        for i in range(count):
+            data = _build_padded_tcp_packet(i, pad)
+            writer.write(
+                RawPacket(ts_sec=1700000000 + i, ts_usec=0, data=data, orig_len=len(data))
+            )
+
+
+def test_worker_results_do_not_carry_packet_payloads(tmp_path: Path) -> None:
+    """A worker's result must not grow with the size of the packets it saw.
+
+    Asserted as *invariance to payload size* rather than as a ratio against the
+    capture, because a ratio conflates two independent structures. The obvious
+    proxy -- "results should be smaller than the input" -- passes or fails
+    depending on how many distinct flows the fixture has, because
+    `WorkerResult.connections` (used only to build `GlobalStats`, and already
+    bounded by `max_connections`) dominates once flows outnumber packets. That
+    is a legitimate cost and this test is not about it.
+
+    What `D-01` actually claimed is that a worker shipped each packet's bytes
+    back to the parent, so its result scaled with packet *size*. So: run the same
+    number of flows twice, once with 1000 bytes of payload per packet and once
+    without, and assert the results come back the same size. Before the fix the
+    padded run returned ~400 KB more; after it, the decision rides back as one bit
+    per packet and the two sizes are equal.
+    """
+    flows = 400
+    small = tmp_path / "small.pcap"
+    padded = tmp_path / "padded.pcap"
+    _build_padded_flows_pcap(small, count=flows, pad=0)
+    _build_padded_flows_pcap(padded, count=flows, pad=1000)
+
+    padded_is_much_bigger = padded.stat().st_size - small.stat().st_size
+    assert padded_is_much_bigger > 300_000, (
+        "fixture is not exercising the invariant: the padded capture should be "
+        "at least 300 KB larger"
     )
+
+    small_bytes = _worker_result_pickle_bytes(small, tmp_path)
+    padded_bytes = _worker_result_pickle_bytes(padded, tmp_path)
+
+    assert padded_bytes < small_bytes * 1.10, (
+        f"worker results grew from {small_bytes} to {padded_bytes} bytes when "
+        f"{padded_is_much_bigger} bytes of packet payload were added -- they are "
+        f"still carrying packet payloads back to the parent (D-01)"
+    )
+
 
 
 def test_processor_state_stays_bounded_by_max_connections() -> None:
@@ -308,7 +345,7 @@ def test_blocked_flow_is_still_dropped_after_its_tuple_is_pruned() -> None:
         ), tuple_
 
     first, tuple_ = send(0)
-    assert first.forwarded is False, "the rule set should have blocked this flow"
+    assert first is False, "the rule set should have blocked this flow"
     assert tuple_ in processor.blocked_tuples
 
     # Simulate the state a prune produces for a flow the tracker still holds.
@@ -317,8 +354,123 @@ def test_blocked_flow_is_still_dropped_after_its_tuple_is_pruned() -> None:
     assert processor.tracker.get_connection(tuple_).state.name == "BLOCKED"
 
     second, _ = send(0)
-    assert second.forwarded is False, (
+    assert second is False, (
         "a flow the tracker still holds as BLOCKED must keep dropping packets "
         "even when its tuple is no longer in the pruned blocked_tuples cache; "
         "forwarding it here would silently disable the blocking rule"
     )
+
+# --- D-02: bounded queues apply backpressure ------------------------------
+
+
+def test_packet_queues_are_bounded(tmp_path: Path) -> None:
+    """Every packet queue must have a `maxsize`.
+
+    An unbounded `mp.Queue` is a memory bound in name only. The parent parses
+    faster than a fast-path worker can classify, so without `maxsize` the queue
+    accumulates the whole capture ahead of its consumers -- peak memory becomes a
+    function of the input size rather than of the bound the queue advertises,
+    which is `D-02` in everything but spelling.
+    """
+    import multiprocessing as mp
+
+    import dpi_engine.pipeline as pipeline
+
+    created: list[int | None] = []
+    real_queue = mp.Queue
+
+    def spy(*args: object, **kwargs: object):
+        q = real_queue(*args, **kwargs)
+        created.append(getattr(q, "_maxsize", None))
+        return q
+
+    mp.Queue = spy  # type: ignore[assignment]
+    try:
+        pipeline.run_pipeline_multiprocess(TEST_DPI_PCAP, tmp_path / "out.pcap", num_workers=2)
+    finally:
+        mp.Queue = real_queue  # type: ignore[assignment]
+
+    bounded = [m for m in created if m == pipeline._QUEUE_MAXSIZE]
+    assert len(bounded) >= 2, (
+        f"expected at least 2 packet queues bounded to {pipeline._QUEUE_MAXSIZE}, "
+        f"got maxsizes {created}"
+    )
+    assert all(m is None or m > 0 for m in created), (
+        f"a queue was created with a nonsensical maxsize: {created}"
+    )
+
+
+class _DeadConsumer:
+    """Stands in for a worker process that has exited.
+
+    `_put_bounded` only ever asks a consumer one question -- `is_alive()` -- so a
+    stub exercises the guard exactly, and unlike a real `mp.Process` it costs
+    nothing and cannot be unpicklable under the `spawn` start method.
+    """
+
+    def is_alive(self) -> bool:
+        return False
+
+
+class _LiveConsumer:
+    def is_alive(self) -> bool:
+        return True
+
+
+def test_put_bounded_raises_when_the_consumer_has_died(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backpressure must not become an indefinite hang.
+
+    Bounding the packet queues means the dispatcher waits. A plain blocking `put`
+    would turn a *dead* consumer into a hang -- the exact failure mode
+    `_collect`'s timeout exists to prevent, just moved earlier in the pipeline.
+    So on expiry the consumer's liveness is checked, and a dead one raises.
+    """
+    import multiprocessing as mp
+
+    import dpi_engine.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "_QUEUE_PUT_TIMEOUT_SECONDS", 0.05)
+
+    queue = mp.Queue(maxsize=1)
+    try:
+        queue.put("first")
+        with pytest.raises(RuntimeError, match="consumer process has died"):
+            pipeline._put_bounded(queue, "second", process=_DeadConsumer())  # type: ignore[arg-type]
+    finally:
+        queue.close()
+
+
+def test_put_bounded_waits_for_a_live_but_slow_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard must not give up on a healthy worker that is merely behind.
+
+    The opposite failure is just as bad as hanging: abandoning a busy-but-alive
+    worker would fail healthy runs. So with a live consumer, a full queue is
+    retried until it drains.
+    """
+    import multiprocessing as mp
+    import threading
+    import time
+
+    import dpi_engine.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "_QUEUE_PUT_TIMEOUT_SECONDS", 0.05)
+
+    queue = mp.Queue(maxsize=1)
+    queue.put("first")
+
+    def drain() -> None:
+        time.sleep(0.3)
+        queue.get()
+
+    thread = threading.Thread(target=drain)
+    thread.start()
+    try:
+        pipeline._put_bounded(queue, "second", process=_LiveConsumer())  # type: ignore[arg-type]
+        assert queue.get(timeout=5) == "second", "the retried put should have landed"
+    finally:
+        thread.join(timeout=5)
+        queue.close()

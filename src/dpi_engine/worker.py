@@ -119,14 +119,41 @@ class WorkItem:
     five_tuple: FiveTuple
 
 
-@dataclass(slots=True)
-class ProcessedPacket:
-    """One packet's outcome, returned from a fast-path to the parent for
-    output-pcap assembly."""
+def set_forwarded(bits: bytearray, index: int) -> None:
+    """Marks `index` as forwarded in a packed decision bitmap, growing it if needed.
 
-    sequence_index: int
-    raw: RawPacket
-    forwarded: bool
+    A fast-path used to return a `ProcessedPacket` per input packet -- holding
+    that packet's full bytes -- and the parent pickled the whole list back. At
+    the documented defaults (10M packets x up to 64 KiB) that is hundreds of GB,
+    and it defeated every other resource bound in the codebase, including the
+    ones asserted in `tests/test_resource_bounds.py` (D-01).
+
+    The packet's bytes do not need to travel at all: the parent still has the
+    input file, and every byte it needs is still in there. So the only thing a
+    worker has to say about a packet is *one bit* -- forward or drop -- indexed
+    by `WorkItem.sequence_index`, which is `enumerate(reader)` over the whole
+    capture and therefore a dense, contiguous index space. One bit per packet
+    is 1.25 MB at 10M packets, and it does not grow with packet size.
+    """
+    byte = index >> 3
+    if byte >= len(bits):
+        bits.extend(bytes(byte + 1 - len(bits)))
+    bits[byte] |= 1 << (index & 7)
+
+
+def is_forwarded(bits: bytearray, index: int) -> bool:
+    """Reads one decision bit. An index past the end was never decided, so it
+    is a drop -- which is also the correct answer for a packet the reader
+    skipped, since no worker ever saw one."""
+    byte = index >> 3
+    if byte >= len(bits):
+        return False
+    return bool(bits[byte] & (1 << (index & 7)))
+
+
+def count_forwarded(bits: bytearray) -> int:
+    """Number of set bits -- the packets this worker forwarded."""
+    return sum(bin(byte).count("1") for byte in bits)
 
 
 @dataclass(slots=True)
@@ -311,7 +338,7 @@ class FlowProcessor:
     # The per-packet decision
     # ------------------------------------------------------------------
 
-    def process(self, item: WorkItem) -> ProcessedPacket:
+    def process(self, item: WorkItem) -> bool:
         """Runs the full per-packet decision and returns its outcome.
 
         The order below is deliberate and follows OSC's (fast_path.cpp:79-108),
@@ -396,9 +423,7 @@ class FlowProcessor:
             self.stats.packets_dropped += 1
         else:
             self.stats.packets_forwarded += 1
-        return ProcessedPacket(
-            sequence_index=item.sequence_index, raw=item.raw, forwarded=not blocked
-        )
+        return not blocked
 
     def _prune_flow_keyed_state(self) -> None:
         """Keeps the per-flow side tables within the tracker's connection bound.
@@ -434,8 +459,10 @@ class FlowProcessor:
 
     def finalize(self) -> WorkerResult:
         """Snapshots everything the parent process needs and packages it for
-        transport. `processed_packets` is left empty; the caller fills it in
-        from its own loop, because only the caller knows the items it fed."""
+        transport. `forwarded_bits` is left empty; the caller fills it in from its
+        own loop, because only the caller knows the items it fed. See `set_forwarded`
+        for why the decision rides back as one bit per packet rather than as the
+        packet itself (D-01)."""
         self.stats.connections_tracked = self.tracker.get_active_count()
         self.stats.flows_reaped = self.tracker.reaped_total
         return WorkerResult(
@@ -479,7 +506,11 @@ class WorkerResult:
     worker_id: int
     tracker_stats: TrackerStats
     connections: list[Connection] = field(default_factory=list)
-    processed_packets: list[ProcessedPacket] = field(default_factory=list)
+    #: One bit per input packet, set where the packet is forwarded, indexed by
+    #: `WorkItem.sequence_index`. Replaces a per-packet list of retained packet
+    #: bytes, which made a worker's result grow with the size of the capture
+    #: rather than with the number of packets (D-01).
+    forwarded_bits: bytearray = field(default_factory=bytearray)
     app_counts: dict[AppType, int] = field(default_factory=dict)
     detected_domains: dict[str, AppType] = field(default_factory=dict)
     blocked_flows: list[tuple[FiveTuple, AppType, str]] = field(default_factory=list)
@@ -536,7 +567,7 @@ def worker_main(
         fp_id=worker_id,
     )
 
-    processed: list[ProcessedPacket] = []
+    forwarded_bits = bytearray()
 
     while True:
         _drain_control(processor, control_queue)
@@ -547,10 +578,11 @@ def worker_main(
 
         assert item is not None  # sentinel handled above; narrows for the type checker
         _maybe_apply_test_delay()
-        processed.append(processor.process(item))
+        if processor.process(item):
+            set_forwarded(forwarded_bits, item.sequence_index)
 
     result = processor.finalize()
-    result.processed_packets = processed
+    result.forwarded_bits = forwarded_bits
     output_queue.put(result)
 
 

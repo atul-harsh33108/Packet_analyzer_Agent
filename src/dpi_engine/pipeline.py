@@ -98,10 +98,10 @@ from dpi_engine.types import AppType, DPIStats, FiveTuple
 from dpi_engine.worker import (
     FixedRuleSource,
     FlowProcessor,
-    ProcessedPacket,
     RuleSource,
     WorkerResult,
     WorkItem,
+    is_forwarded,
     worker_main,
 )
 
@@ -253,13 +253,17 @@ class _FlowEngine:
             fp_id=context_id,
         )
 
-    def submit(self, item: WorkItem) -> ProcessedPacket:
+    def submit(self, item: WorkItem) -> bool:
+        """Decides one packet; returns whether it is forwarded.
+
+        Only the decision comes back, never the packet. The single-process path
+        writes from its own loop variable and the multiprocess paths read the
+        bytes back out of the input file, so nothing needs the payload (D-01).
+        """
         return self.processor.process(item)
 
-    def result(self, processed: Sequence[ProcessedPacket]) -> WorkerResult:
-        res = self.processor.finalize()
-        res.processed_packets = list(processed)
-        return res
+    def result(self) -> WorkerResult:
+        return self.processor.finalize()
 
 
 def _make_five_tuple(parsed: ParsedPacket) -> FiveTuple:
@@ -413,7 +417,6 @@ def run_pipeline(
     )
 
     stats = DPIStats()
-    processed: list[ProcessedPacket] = []
 
     with PcapReader(
         input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
@@ -421,22 +424,20 @@ def run_pipeline(
         for sequence_index, raw, parsed, tuple_ in _iter_inspectable(reader, stats):
             if rule_broadcaster is not None:
                 rule_broadcaster.publish()
-            outcome = engine.submit(
+            if engine.submit(
                 WorkItem(
                     sequence_index=sequence_index,
                     raw=raw,
                     parsed=parsed,
                     five_tuple=tuple_,
                 )
-            )
-            processed.append(outcome)
-            if outcome.forwarded:
+            ):
                 stats.forwarded_packets += 1
                 writer.write(raw)
             else:
                 stats.dropped_packets += 1
 
-    result = engine.result(processed)
+    result = engine.result()
     stats.tcp_packets = result.tcp_count
     stats.udp_packets = result.udp_count
 
@@ -508,7 +509,11 @@ def run_pipeline_multiprocess(
     rule_source = FixedRuleSource(manager.snapshot())
     broadcaster = RuleBroadcaster(manager) if live_rules else None
 
-    input_queues: list[Queue[WorkItem | None]] = [mp.Queue() for _ in range(num_workers)]
+    # Bounded: the parent parses faster than the workers can decide, so an
+    # unbounded queue here just accumulates the whole capture in memory (`D-02`).
+    input_queues: list[Queue[WorkItem | None]] = [
+        mp.Queue(maxsize=_QUEUE_MAXSIZE) for _ in range(num_workers)
+    ]
     output_queue: Queue[WorkerResult] = mp.Queue()
     control_queues: list[Queue[RuleSnapshot]] = (
         [mp.Queue() for _ in range(num_workers)] if live_rules else []
@@ -544,13 +549,16 @@ def run_pipeline_multiprocess(
             for sequence_index, raw, parsed, tuple_ in _iter_inspectable(reader, stats):
                 if broadcaster is not None:
                     broadcaster.publish()
-                input_queues[hash_select(tuple_, num_workers)].put(
+                worker_id = hash_select(tuple_, num_workers)
+                _put_bounded(
+                    input_queues[worker_id],
                     WorkItem(
                         sequence_index=sequence_index,
                         raw=raw,
                         parsed=parsed,
                         five_tuple=tuple_,
-                    )
+                    ),
+                    process=processes[worker_id],
                 )
         dispatch_succeeded = True
     finally:
@@ -602,7 +610,14 @@ def run_pipeline_multiprocess(
     ) = _accumulate(stats, results)
 
     with PcapWriter(output_path, source_path=input_path) as writer:
-        _write_forwarded(stats, results, writer)
+        _write_forwarded(
+            stats,
+            results,
+            writer,
+            input_path,
+            max_packet_size=max_packet_size,
+            max_total_packets=max_total_packets,
+        )
 
     return PipelineResult(
         stats=stats,
@@ -662,7 +677,10 @@ def _lb_main(
             stats.per_fp_packets.get(fast_path.fp_id, 0) + 1
         )
         stats.packets_dispatched += 1
-        fast_path.input_queue.put(item)
+        # No `process=` handle: the fast paths are this load balancer's own children,
+        # spawned in a different process, so it cannot check their liveness. An
+        # overrun here stays bounded by the parent's `_RESULT_TIMEOUT_SECONDS`.
+        _put_bounded(fast_path.input_queue, item)
 
     for fast_path in lb.fps:
         fast_path.input_queue.put(SHUTDOWN_SENTINEL)
@@ -737,7 +755,7 @@ def run_pipeline_staged(
     broadcaster = RuleBroadcaster(manager) if live_rules else None
 
     lbs, all_fps = build_pipeline_graph(
-        num_load_balancers, fps_per_lb, queue_factory=mp.Queue
+        num_load_balancers, fps_per_lb, queue_factory=_bounded_queue_factory
     )
     lb_output_queue: Queue[_LoadBalancerResult] = mp.Queue()
     fp_output_queue: Queue[WorkerResult] = mp.Queue()
@@ -792,13 +810,16 @@ def run_pipeline_staged(
                     broadcaster.publish()
                 # OSC's first hash step: pick the owning load balancer from the
                 # five-tuple, so all of a flow's packets go to the same shard.
-                lbs[hash_select(tuple_, num_load_balancers)].input_queue.put(
+                lb_id = hash_select(tuple_, num_load_balancers)
+                _put_bounded(
+                    lbs[lb_id].input_queue,
                     WorkItem(
                         sequence_index=sequence_index,
                         raw=raw,
                         parsed=parsed,
                         five_tuple=tuple_,
-                    )
+                    ),
+                    process=lb_processes[lb_id],
                 )
         dispatch_succeeded = True
     finally:
@@ -848,7 +869,14 @@ def run_pipeline_staged(
     ) = _accumulate(stats, fp_results)
 
     with PcapWriter(output_path, source_path=input_path) as writer:
-        _write_forwarded(stats, fp_results, writer)
+        _write_forwarded(
+            stats,
+            fp_results,
+            writer,
+            input_path,
+            max_packet_size=max_packet_size,
+            max_total_packets=max_total_packets,
+        )
 
     lb_stats = LoadBalancerStats().combine([r.stats for r in lb_results])
 
@@ -872,19 +900,117 @@ def run_pipeline_staged(
 
 
 def _write_forwarded(
-    stats: DPIStats, results: Sequence[WorkerResult], writer: PcapWriter
+    stats: DPIStats,
+    results: Sequence[WorkerResult],
+    writer: PcapWriter,
+    input_path: str | Path,
+    *,
+    max_packet_size: int = DEFAULT_MAX_PACKET_SIZE,
+    max_total_packets: int = DEFAULT_MAX_TOTAL_PACKETS,
 ) -> None:
-    """Writes every forwarded packet, in input order, counting drops. Used by
-    the multiprocessing variants, where the parent holds the decisions but not
-    the streaming writer."""
-    packets: list[ProcessedPacket] = [pp for r in results for pp in r.processed_packets]
-    packets.sort(key=lambda pp: pp.sequence_index)
-    for pp in packets:
-        if pp.forwarded:
-            stats.forwarded_packets += 1
-            writer.write(pp.raw)
-        else:
-            stats.dropped_packets += 1
+    """Writes every forwarded packet, in input order, counting drops.
+
+    Used by the multiprocessing variants, where the workers hold the decisions
+    but the parent holds the bytes.
+
+    The parent makes a second sequential pass over the input file and writes
+    packet *N* wherever bit *N* is set in the union of the workers' decision
+    bitmaps. Before this, each worker shipped every packet's bytes back to the
+    parent, which materialised the lot and sorted it by `sequence_index` -- the
+    unbounded accumulation of D-01, and the reason output order was only
+    deterministic *because* of that materialisation.
+
+    Re-reading the input removes the materialisation *and* the sort at once,
+    because the second pass is already sequential over the input. Output is
+    byte-identical to the old path, and it is why the plan's `DEC-01` question
+    does not need answering first: byte-order determinism is preserved outright
+    rather than traded away.
+
+    Drop counts come from arithmetic rather than a second bitmap. `stats` was
+    filled by the dispatch pass, where `total_packets` counts every packet read
+    and `other_packets` the ones skipped as uninspectable, so
+    `total_packets - other_packets` is exactly the number of packets a worker
+    decided -- and every decided packet either forwarded or dropped.
+    """
+    bits = bytearray()
+    for result in results:
+        worker_bits = result.forwarded_bits
+        if len(worker_bits) > len(bits):
+            bits.extend(bytes(len(worker_bits) - len(bits)))
+        for i, byte in enumerate(worker_bits):
+            bits[i] |= byte
+
+    forwarded = 0
+    with PcapReader(
+        input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
+    ) as reader:
+        for sequence_index, raw in enumerate(reader):
+            if is_forwarded(bits, sequence_index):
+                writer.write(raw)
+                forwarded += 1
+
+    stats.forwarded_packets += forwarded
+    stats.dropped_packets += (stats.total_packets - stats.other_packets) - forwarded
+
+
+#: Items a packet queue may hold before the dispatcher blocks. The queues carry
+#: `WorkItem`s, each holding a whole packet, so an unbounded queue is a memory
+#: bound in name only: the parent would read the entire capture into the queues
+#: as fast as it could parse, which is `D-02` in everything but spelling. Bounding
+#: them makes the read loop apply backpressure to itself, so peak memory becomes
+#: a function of this number rather than of the capture's size.
+#:
+#: Sized for throughput headroom, not for a tight memory cap: at the default
+#: `max_packet_size` of 64 KiB, 1024 in-flight items per worker is at most
+#: 64 MiB per worker, and in practice far less because most packets are ~100
+#: bytes. Raise it if a future measurement shows queueing is the bottleneck.
+_QUEUE_MAXSIZE = 1024
+
+#: How long a single bounded `put` waits before the consumer is re-checked.
+#: Long enough that a merely-busy worker is never mistaken for a dead one.
+_QUEUE_PUT_TIMEOUT_SECONDS = 30.0
+
+
+def _bounded_queue_factory() -> Any:
+    """The queue factory `build_pipeline_graph` uses for the staged pipeline.
+
+    Every queue it creates carries `WorkItem`s -- both the parent-to-load-balancer
+    hop and the load-balancer-to-fast-path hop -- so all of them are bounded. The
+    LB tier spawning the FP queues here is what makes `D-02` apply to the staged
+    pipeline as well as the single-tier one.
+    """
+    return mp.Queue(maxsize=_QUEUE_MAXSIZE)
+
+
+def _put_bounded(
+    queue: Queue[Any], item: Any, *, process: mp.process.BaseProcess | None = None
+) -> None:
+    """Puts to a bounded packet queue, converting a stuck consumer into an error.
+
+    A bounded queue makes the dispatcher wait instead of growing without limit
+    (`D-02`), but a plain blocking `put` would turn a *dead* consumer into an
+    indefinite hang -- exactly the failure mode `_collect`'s timeout exists to
+    avoid, just moved earlier in the pipeline. So each wait is bounded, and on
+    expiry we check whether the consumer is still alive: if it died, raise rather
+    than block forever on a queue nobody will ever drain; if it is merely slow,
+    keep waiting rather than give up on a healthy worker.
+
+    `process` is omitted only where the caller has no handle to the consumer (the
+    load balancer feeding its fast paths -- those are its own children, spawned in
+    a different process). There an overrun stays bounded by
+    `_RESULT_TIMEOUT_SECONDS`, because the parent is still waiting on that tier's
+    result and will time out with a diagnosable message.
+    """
+    while True:
+        try:
+            queue.put(item, timeout=_QUEUE_PUT_TIMEOUT_SECONDS)
+            return
+        except queue_module.Full:
+            if process is not None and not process.is_alive():
+                raise RuntimeError(
+                    "a packet queue is full and its consumer process has died; "
+                    "the run cannot make progress"
+                ) from None
 
 
 def _collect[T](output_queue: Queue[T], expected: int) -> list[T]:
