@@ -201,11 +201,6 @@ def test_worker_results_do_not_carry_packet_payloads(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D-22: _quic_inspectors / blocked_tuples are never pruned and are "
-    "not covered by max_connections; fixed by T0-11",
-)
 def test_processor_state_stays_bounded_by_max_connections() -> None:
     """`max_connections` bounds the flow table and nothing else.
 
@@ -264,4 +259,66 @@ def test_processor_state_stays_bounded_by_max_connections() -> None:
     assert len(processor._quic_inspectors) <= max_connections, (
         f"_quic_inspectors holds {len(processor._quic_inspectors)} entries for "
         f"{distinct_flows} flows against a {max_connections}-connection bound"
+    )
+
+
+def test_blocked_flow_is_still_dropped_after_its_tuple_is_pruned() -> None:
+    """Pruning `blocked_tuples` must not let a blocked flow's packets through.
+
+    This is the invariant that makes the `D-22` pruning safe, and it is easy to
+    get wrong. `process` skips the rule check entirely once
+    `conn.state is ConnectionState.BLOCKED`, so if `blocked` were read only from
+    the pruned cache, a flow that the tracker still holds as blocked but whose
+    tuple is no longer cached would take the "not blocked" branch and have its
+    packets **forwarded**. The tracker is therefore consulted as well:
+
+        blocked = tuple_ in self.blocked_tuples or conn.state is ConnectionState.BLOCKED
+
+    Driven by emptying `blocked_tuples` directly, which is exactly the state a
+    prune leaves behind for a flow the tracker has not evicted yet -- the window
+    in which the bug would show.
+    """
+    from dpi_engine.connection_tracker import ConnectionTracker
+    from dpi_engine.packet_parser import parse_packet
+    from dpi_engine.pcap_io import RawPacket
+    from dpi_engine.rule_manager import RuleManager
+    from dpi_engine.types import AppType, FiveTuple
+    from dpi_engine.worker import FixedRuleSource, FlowProcessor, WorkItem
+
+    rules = RuleManager()
+    rules.block_app(AppType.HTTPS)
+    processor = FlowProcessor(
+        tracker=ConnectionTracker(fp_id=0, max_connections=50),
+        rule_source=FixedRuleSource(rules.snapshot()),
+        enable_quic=False,
+    )
+
+    def send(index: int):
+        frame = _build_tiny_tcp_packet(index)
+        raw = RawPacket(ts_sec=1700000000 + index, ts_usec=0, data=frame, orig_len=len(frame))
+        parsed = parse_packet(raw)
+        assert parsed is not None
+        tuple_ = FiveTuple(
+            src_ip=parsed.src_ip, dst_ip=parsed.dst_ip,
+            src_port=parsed.src_port, dst_port=parsed.dst_port,
+            protocol=parsed.protocol,
+        )
+        return processor.process(
+            WorkItem(sequence_index=index, raw=raw, parsed=parsed, five_tuple=tuple_)
+        ), tuple_
+
+    first, tuple_ = send(0)
+    assert first.forwarded is False, "the rule set should have blocked this flow"
+    assert tuple_ in processor.blocked_tuples
+
+    # Simulate the state a prune produces for a flow the tracker still holds.
+    processor.blocked_tuples.clear()
+    assert tuple_ in processor.tracker, "precondition: the tracker still holds the flow"
+    assert processor.tracker.get_connection(tuple_).state.name == "BLOCKED"
+
+    second, _ = send(0)
+    assert second.forwarded is False, (
+        "a flow the tracker still holds as BLOCKED must keep dropping packets "
+        "even when its tuple is no longer in the pruned blocked_tuples cache; "
+        "forwarding it here would silently disable the blocking rule"
     )

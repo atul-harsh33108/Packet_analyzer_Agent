@@ -360,7 +360,13 @@ class FlowProcessor:
         if parsed.has_tcp:
             tracker.update_tcp_state(conn, parsed.tcp_flags)
 
-        blocked = tuple_ in self.blocked_tuples
+        # The tracker's Connection is the authority on whether a flow is
+        # blocked; `blocked_tuples` is only a fast-path cache of that fact.
+        # It has to be consulted as an *or*, not as the sole source, because the
+        # rule check below is skipped entirely once `conn.state` is BLOCKED --
+        # so if a pruned tuple's flow came back while the tracker still held it,
+        # reading only the cache would forward a blocked flow's packets (D-22).
+        blocked = tuple_ in self.blocked_tuples or conn.state is ConnectionState.BLOCKED
 
         if conn.state is not ConnectionState.BLOCKED:
             if conn.state is not ConnectionState.CLOSED:
@@ -384,6 +390,7 @@ class FlowProcessor:
                     blocked = True
 
         self._record_stats(conn)
+        self._prune_flow_keyed_state()
 
         if blocked:
             self.stats.packets_dropped += 1
@@ -392,6 +399,33 @@ class FlowProcessor:
         return ProcessedPacket(
             sequence_index=item.sequence_index, raw=item.raw, forwarded=not blocked
         )
+
+    def _prune_flow_keyed_state(self) -> None:
+        """Keeps the per-flow side tables within the tracker's connection bound.
+
+        `max_connections` bounded exactly one thing: the tracker's LRU. Two other
+        containers are keyed by five-tuple and grew monotonically regardless, so
+        a capture with far more distinct flows than the bound left unbounded
+        state behind -- and `_quic_inspectors` is the expensive one, holding a
+        CRYPTO reassembly buffer of up to `MAX_CRYPTO_BUFFER` (64 KiB) per flow
+        (D-22).
+
+        Both are now pruned against the tracker's live set, which is
+        already-bounded and authoritative. Pruning is safe precisely because
+        `process` derives `blocked` from `conn.state` as well as from
+        `blocked_tuples`: a tuple evicted from the cache whose flow is still
+        tracked is still recognised as blocked, and one whose flow was evicted
+        too is re-evaluated by the rule check when it next appears.
+
+        Called once per packet, but does real work only when a container is
+        over the bound, so the steady-state cost is two `len()` comparisons.
+        """
+        bound = self.tracker.max_connections
+        if len(self.blocked_tuples) > bound:
+            self.blocked_tuples = {t for t in self.blocked_tuples if t in self.tracker}
+        if len(self._quic_inspectors) > bound:
+            for tuple_ in [t for t in self._quic_inspectors if t not in self.tracker]:
+                del self._quic_inspectors[tuple_]
 
     def _record_stats(self, conn: Connection) -> None:
         self.app_counts[conn.app_type] = self.app_counts.get(conn.app_type, 0) + 1
