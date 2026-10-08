@@ -63,6 +63,14 @@ class ParsedPacket:
     dst_mac: bytes = b""
     ether_type: int = 0
 
+    #: 802.1Q VLAN ID, or None for an untagged frame. Metadata only -- the flow
+    #: key stays L3, so tagging never splits a conversation in two. Kept because
+    #: it is what Phase 5 fingerprinting needs. For QinQ this is the *innermost*
+    #: (customer) VID; the provider's outer tag is the less meaningful of the two.
+    vlan_id: int | None = None
+    #: 802.1Q priority (PCP), 0-7. Metadata only, as above.
+    vlan_priority: int = 0
+
     has_ip: bool = False
     src_ip: int = 0  # host-byte-order uint32, consistent with OSC's FiveTuple
     dst_ip: int = 0
@@ -135,6 +143,68 @@ def _ip_bytes_to_int(ip_bytes: bytes) -> int:
     return int.from_bytes(ip_bytes, "big")
 
 
+#: dst(6) + src(6) + type(2).
+_ETHERNET_HEADER_LEN = 14
+
+#: TCI(2) + inner EtherType(2).
+_VLAN_TAG_LEN = 4
+
+#: EtherTypes that introduce an 802.1Q/802.1ad tag. `0x8100` is plain 802.1Q,
+#: `0x88a8` is 802.1ad (provider bridging, what carriers actually use), and
+#: `0x9100` is legacy QinQ still emitted by some stacks.
+_VLAN_ETHER_TYPES = frozenset({0x8100, 0x88A8, 0x9100})
+
+#: How many tags to peel before declaring a frame pathological. Each tag is 4
+#: bytes and sits between the Ethernet header and the L3 header, so the loop is
+#: O(tags) and terminates regardless -- but a frame claiming more nesting than
+#: any real network uses is either malformed or hostile, and it should degrade to
+#: "not IP" rather than be unwrapped on the attacker's terms. Real deployments
+#: top out at double tagging.
+_MAX_VLAN_TAGS = 4
+
+
+def _peel_vlan_tags(data: bytes) -> tuple[bytes, int | None, int]:
+    """Removes any 802.1Q tags from an Ethernet frame.
+
+    `dpkt.ethernet.Ethernet` reads the EtherType at offset 12 and stops, so on a
+    tagged frame that is `0x8100` -- not IPv4 -- and the frame came back as
+    "non-IP, nothing further to parse". Every VLAN-tagged packet was therefore
+    silently discarded, which in an enterprise capture is most of the traffic
+    (`D-14`). This rebuilds the frame with the tags spliced out so the existing
+    dpkt path can be reused unchanged.
+
+    Returns `(frame, vlan_id, vlan_priority)`. The frame is returned **unchanged**
+    if it is untagged, truncated mid-tag, or nested deeper than
+    `_MAX_VLAN_TAGS` -- in every one of those cases the caller sees a VLAN
+    EtherType and correctly reports a non-IP frame, rather than getting a
+    fabricated inner EtherType from a half-unwrapped hostile frame.
+    """
+    if len(data) < _ETHERNET_HEADER_LEN:
+        return data, None, 0
+
+    ether_type = int.from_bytes(data[12:14], "big")
+    if ether_type not in _VLAN_ETHER_TYPES:
+        return data, None, 0
+
+    offset = _ETHERNET_HEADER_LEN
+    vlan_id: int | None = None
+    vlan_priority = 0
+
+    for _ in range(_MAX_VLAN_TAGS):
+        if len(data) < offset + _VLAN_TAG_LEN:
+            return data, vlan_id, vlan_priority  # truncated mid-tag
+        tci = int.from_bytes(data[offset : offset + 2], "big")
+        vlan_priority = (tci >> 13) & 0x7
+        vlan_id = tci & 0x0FFF
+        ether_type = int.from_bytes(data[offset + 2 : offset + 4], "big")
+        offset += _VLAN_TAG_LEN
+        if ether_type not in _VLAN_ETHER_TYPES:
+            return data[:12] + ether_type.to_bytes(2, "big") + data[offset:], vlan_id, vlan_priority
+
+    # Nested deeper than the bound: leave it alone rather than trust it.
+    return data, vlan_id, vlan_priority
+
+
 def parse_packet(raw: RawPacket) -> ParsedPacket | None:
     """Parses a single raw Ethernet frame.
 
@@ -150,10 +220,23 @@ def parse_packet(raw: RawPacket) -> ParsedPacket | None:
     except dpkt.dpkt.UnpackError:
         return None
 
+    # Peel 802.1Q before handing the frame to dpkt, which would otherwise stop at
+    # the tag and report every tagged packet as non-IP (`D-14`). Peeled first
+    # rather than by reconstructing a dpkt VLAN object so the rest of this
+    # function -- and its payload slices -- are untouched by tagging.
+    frame, vlan_id, vlan_priority = _peel_vlan_tags(raw.data)
+    if frame is not raw.data:
+        try:
+            eth = dpkt.ethernet.Ethernet(frame)
+        except (dpkt.dpkt.NeedData, dpkt.dpkt.UnpackError):
+            return None
+
     parsed = ParsedPacket(
         src_mac=bytes(eth.src),
         dst_mac=bytes(eth.dst),
         ether_type=eth.type,
+        vlan_id=vlan_id,
+        vlan_priority=vlan_priority,
     )
 
     if eth.type != dpkt.ethernet.ETH_TYPE_IP:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import socket
 
 import dpkt
+import pytest
 
 from conftest import TEST_DPI_PCAP
 from dpi_engine.packet_parser import ParsedPacket, five_tuple_of, parse_packet
@@ -174,3 +175,210 @@ def test_udp_packet_parses_correctly() -> None:
     assert parsed.dst_port == 53
     assert parsed.dst_ip_str == "8.8.8.8"
     assert parsed.payload == udp_payload
+
+
+# ---------------------------------------------------------------------------
+# D-14: VLAN / 802.1Q and QinQ
+# ---------------------------------------------------------------------------
+#
+# `dpkt.ethernet.Ethernet` reads the EtherType at offset 12 and stops. On a
+# tagged frame that is 0x8100, which is not IPv4, so the frame was returned as
+# "non-IP, nothing further to parse" -- and 100% of VLAN-tagged traffic was
+# silently discarded. VLAN-tagged captures are the norm in enterprise networks,
+# so this is the traffic the tool is most likely to be pointed at.
+#
+# The critical property is not merely "tags are now parsed" but that **tagging
+# does not change the flow**: the key stays L3, so a tagged frame and its
+# untagged twin must produce an identical FiveTuple and an identical
+# classification. A VLAN-aware-but-tag-sensitive parser would be worse than the
+# bug, because it would split one conversation into two half-classified flows.
+
+
+_ETH_IP = b"\x08\x00"
+_TAG_8021Q = b"\x81\x00"
+_TAG_8021AD = b"\x88\xa8"
+_TAG_QINQ = b"\x91\x00"
+
+
+def _vlan_tci(vid: int, priority: int = 0, cfi: int = 0) -> bytes:
+    tci = ((cfi & 1) << 12) | ((priority & 0x7) << 13) | (vid & 0x0FFF)
+    return tci.to_bytes(2, "big")
+
+
+def _tag(inner: bytes, vid: int, tag_type: bytes = _TAG_8021Q, priority: int = 0) -> bytes:
+    """Wraps an Ethernet frame in one VLAN tag."""
+    return inner[:12] + tag_type + _vlan_tci(vid, priority) + inner[12:]
+
+
+def _untagged_tcp_frame(
+    *, src_port: int = 51000, dst_port: int = 443, payload: bytes = b""
+) -> bytes:
+    """A minimal, well-formed Ethernet/IPv4/TCP frame."""
+    eth = b"\xaa" * 6 + b"\xbb" * 6 + _ETH_IP
+    tcp = (
+        src_port.to_bytes(2, "big")
+        + dst_port.to_bytes(2, "big")
+        + (0).to_bytes(4, "big")
+        + (0).to_bytes(4, "big")
+        + bytes([0x50, 0x18])          # data offset 5 words, PSH|ACK
+        + (65535).to_bytes(2, "big")
+        + (0).to_bytes(2, "big")
+        + (0).to_bytes(2, "big")
+        + payload
+    )
+    total_len = 20 + len(tcp)
+    ip = (
+        bytes([0x45, 0x00])
+        + total_len.to_bytes(2, "big")
+        + b"\x00\x00"
+        + b"\x40\x00"
+        + bytes([64, 6])                # TTL 64, protocol TCP
+        + b"\x00\x00"
+        + socket.inet_aton("10.1.2.3")
+        + socket.inet_aton("93.184.216.34")
+    )
+    return eth + ip + tcp
+
+
+def _raw(frame: bytes) -> RawPacket:
+    return RawPacket(ts_sec=0, ts_usec=0, data=frame, orig_len=len(frame))
+
+
+def test_untagged_frame_reports_no_vlan() -> None:
+    parsed = parse_packet(_raw(_untagged_tcp_frame()))
+    assert parsed is not None
+    assert parsed.has_ip and parsed.has_tcp
+    assert parsed.vlan_id is None, "an untagged frame must not claim a VLAN"
+    assert parsed.vlan_priority == 0
+
+
+def test_single_vlan_tag_is_peeled_and_metadata_preserved() -> None:
+    parsed = parse_packet(_raw(_tag(_untagged_tcp_frame(), 42, _TAG_8021Q, priority=5)))
+    assert parsed is not None
+    assert parsed.has_ip, "a VLAN-tagged IPv4 frame must still be recognised as IP"
+    assert parsed.has_tcp
+    assert parsed.vlan_id == 42
+    assert parsed.vlan_priority == 5
+    assert parsed.ether_type == dpkt.ethernet.ETH_TYPE_IP, (
+        "the reported EtherType should be the *inner* one, after the tag is gone"
+    )
+
+
+@pytest.mark.parametrize(
+    "tag_type", [_TAG_8021Q, _TAG_8021AD, _TAG_QINQ], ids=["8021q", "8021ad", "qinq"]
+)
+def test_all_three_tag_ethertypes_are_peeled(tag_type: bytes) -> None:
+    """802.1Q, 802.1ad (provider) and 0x9100 (legacy QinQ) are all in the wild."""
+    parsed = parse_packet(_raw(_tag(_untagged_tcp_frame(), 7, tag_type)))
+    assert parsed is not None
+    assert parsed.has_ip and parsed.has_tcp
+    assert parsed.vlan_id == 7
+
+
+def test_double_tagged_frame_keeps_the_innermost_vlan() -> None:
+    """QinQ: the outer tag is the service provider's, the inner one the
+    customer's. The inner VID is the more meaningful of the two, so it is the
+    one reported."""
+    # `_tag` wraps outside, so the tag applied *first* ends up innermost:
+    # the wire order is 200 (802.1Q, service provider) then 100 (802.1ad).
+    frame = _tag(_tag(_untagged_tcp_frame(), 100, _TAG_8021AD), 200, _TAG_8021Q)
+    parsed = parse_packet(_raw(frame))
+    assert parsed is not None
+    assert parsed.has_ip and parsed.has_tcp
+    assert parsed.vlan_id == 100, (
+        f"expected the innermost VID 100, not the outer 200; got {parsed.vlan_id}"
+    )
+    assert parsed.ether_type == dpkt.ethernet.ETH_TYPE_IP
+
+
+def test_triple_tagged_frame_still_parses() -> None:
+    # Applied 1, 2, 3 -> wire order is 3, 2, 1 -> innermost is 1.
+    frame = _tag(_tag(_tag(_untagged_tcp_frame(), 1), 2), 3)
+    parsed = parse_packet(_raw(frame))
+    assert parsed is not None
+    assert parsed.has_ip and parsed.has_tcp
+    assert parsed.vlan_id == 1, (
+        f"expected the innermost VID 1; got {parsed.vlan_id}"
+    )
+
+
+def test_pathological_tag_nesting_is_bounded_and_does_not_hang() -> None:
+    """A frame claiming more tags than any real network uses must terminate.
+
+    The peel loop advances 4 bytes per tag, so without a bound a crafted frame
+    could in principle keep it spinning; and a frame that *lies* about its
+    nesting depth must degrade to "not IP" rather than be half-unwrapped into a
+    bogus inner EtherType.
+    """
+    inner = _untagged_tcp_frame()
+    frame = inner
+    for _ in range(40):  # far beyond the bound
+        frame = _tag(frame, 9)
+
+    parsed = parse_packet(_raw(frame))
+    assert parsed is not None, "must still return a ParsedPacket, not raise"
+    assert not parsed.has_ip, (
+        "a frame nested past the bound should degrade to non-IP, not be "
+        "partially unwrapped into a fabricated inner EtherType"
+    )
+
+
+def test_truncated_vlan_tag_degrades_safely() -> None:
+    """A tag that claims another tag but has no bytes left must not crash."""
+    frame = _untagged_tcp_frame()[:14] + _TAG_8021Q  # header + type, no TCI/next-type
+    parsed = parse_packet(_raw(frame))
+    assert parsed is not None
+    assert not parsed.has_ip
+
+
+def test_tagging_does_not_change_the_flow_key() -> None:
+    """The whole point: the flow key stays L3, so tags must not partition flows."""
+    untagged = parse_packet(_raw(_untagged_tcp_frame()))
+    tagged = parse_packet(_raw(_tag(_untagged_tcp_frame(), 1234)))
+
+    assert untagged is not None and tagged is not None
+    assert five_tuple_of(untagged) == five_tuple_of(tagged), (
+        "a VLAN tag must not change the five-tuple; if it does, one conversation "
+        "becomes two half-classified flows"
+    )
+    assert (untagged.src_ip, tagged.src_ip) == (untagged.src_ip, untagged.src_ip)
+    assert tagged.dst_port == untagged.dst_port == 443
+    assert tagged.protocol == untagged.protocol == 6
+
+
+def test_tagging_does_not_change_classification_or_payload() -> None:
+    """End-to-end: the extracted SNI must survive tagging, since that is what the
+    tool actually acts on. A parser that reports the fields but not the payload
+    would pass the flow-key test and still misclassify every flow as UNKNOWN."""
+    from dpi_engine.sni_extractor import extract_sni
+
+    hello = _minimal_client_hello("vlan.example")
+    untagged = parse_packet(_raw(_untagged_tcp_frame(payload=hello)))
+    tagged = parse_packet(_raw(_tag(_untagged_tcp_frame(payload=hello), 77)))
+
+    assert untagged is not None and tagged is not None
+    assert untagged.payload == tagged.payload, "tagging must not disturb the payload"
+    assert extract_sni(untagged.payload) == "vlan.example"
+    assert extract_sni(tagged.payload) == "vlan.example"
+
+
+def _minimal_client_hello(server_name: str) -> bytes:
+    """A TLS ClientHello body carrying just enough for `extract_sni`."""
+    name = server_name.encode()
+    # server_name entry: type(1) + length(2) + name, wrapped in a list length(2)
+    sni_entry = b"\x00" + len(name).to_bytes(2, "big") + name
+    sni_list = len(sni_entry).to_bytes(2, "big") + sni_entry
+    # extension: type(2)=server_name + ext length(2) + body
+    sni_extension = b"\x00\x00" + len(sni_list).to_bytes(2, "big") + sni_list
+
+    body = (
+        b"\x03\x03"                       # client_version TLS 1.2
+        + b"\x00" * 32                     # random
+        + b"\x00"                          # session_id length
+        + b"\x00\x02\x00\x2f"            # cipher suites (len 2, TLS_RSA...)
+        + b"\x01\x00"                     # compression methods
+        + len(sni_extension).to_bytes(2, "big")   # extensions block length
+        + sni_extension
+    )
+    handshake = b"\x01" + len(body).to_bytes(3, "big") + body
+    return b"\x16\x03\x01" + len(handshake).to_bytes(2, "big") + handshake
