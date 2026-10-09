@@ -607,3 +607,104 @@ def test_byte_counters_report_bytes_read_not_on_wire_length(tmp_path: Path) -> N
         "byte counters must report captured bytes (incl_len), matching the "
         f"C++ original; got {result.stats.total_bytes}, expected {len(frame)}"
     )
+
+
+# --- D-15: pcapng gets a precise diagnostic, not "invalid pcap" -------------
+#
+# pcapng is a different container format, not a pcap variant: no 24-byte global
+# header, no fixed-length per-packet records. A pcap reader cannot parse it, and
+# before this the only symptom was dpkt's bare ValueError surfacing as
+# "'x.pcapng' is not a valid pcap file" -- telling someone with a perfectly good
+# capture that their capture is invalid. Roughly a third of real-world captures
+# are pcapng, so that message was both common and wrong.
+
+
+def _minimal_pcapng() -> bytes:
+    """A minimal, structurally valid pcapng Section Header Block (28 bytes).
+
+    Block Type 0x0A0D0D0A, Block Total Length, Byte-Order Magic, version,
+    Section Length (-1 = unspecified), and the trailing Block Total Length.
+    """
+    return (
+        bytes.fromhex("0a0d0d0a")            # block type
+        + (28).to_bytes(4, "little")          # block total length
+        + bytes.fromhex("1a2b3c4d")           # byte-order magic
+        + (1).to_bytes(2, "little")           # major version
+        + (0).to_bytes(2, "little")           # minor version
+        + b"\xff" * 8                         # section length: unspecified
+        + (28).to_bytes(4, "little")          # trailing block total length
+    )
+
+
+def test_pcapng_raises_a_precise_diagnostic_naming_a_conversion_command(
+    tmp_path: Path,
+) -> None:
+    from dpi_engine.pcap_io import PcapngUnsupportedError, PcapReader
+
+    p = tmp_path / "in.pcapng"
+    p.write_bytes(_minimal_pcapng())
+
+    with pytest.raises(PcapngUnsupportedError) as excinfo:
+        PcapReader(p)
+
+    message = str(excinfo.value)
+    assert "pcapng" in message, message
+    assert "editcap" in message, (
+        f"the diagnostic must name a conversion command so the user can act on "
+        f"it, not just report that the file is unsupported: {message}"
+    )
+    assert "-F pcap" in message, message
+
+
+def test_pcapng_error_is_catchable_as_pcap_error(tmp_path: Path) -> None:
+    """It subclasses PcapError so the CLI's existing handler reports it cleanly
+    rather than it escaping as an unhandled exception."""
+    from dpi_engine.pcap_io import PcapError, PcapngUnsupportedError, PcapReader
+
+    assert issubclass(PcapngUnsupportedError, PcapError)
+
+    p = tmp_path / "in.pcapng"
+    p.write_bytes(_minimal_pcapng())
+    with pytest.raises(PcapError):
+        PcapReader(p)
+
+
+def test_the_cli_reports_pcapng_as_an_error_not_a_traceback(tmp_path: Path, capsys) -> None:
+    """End to end through `main`: a clean exit code and a readable message."""
+    from dpi_engine.cli import main
+
+    p = tmp_path / "in.pcapng"
+    p.write_bytes(_minimal_pcapng())
+
+    exit_code = main(["run", str(p), str(tmp_path / "out.pcap")])
+
+    # The CLI reports errors on stderr, not stdout.
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert exit_code != 0, f"expected a non-zero exit code, got {exit_code}"
+    assert "pcapng" in text, text
+    assert "editcap" in text, text
+    assert "Traceback" not in text, text
+
+
+def test_a_corrupt_file_is_still_reported_as_invalid_pcap(tmp_path: Path) -> None:
+    """Detection must not over-match: garbage is still 'invalid', not 'pcapng'."""
+    from dpi_engine.pcap_io import PcapFormatError, PcapReader
+
+    p = tmp_path / "garbage.pcap"
+    p.write_bytes(b"\x00" * 64)
+
+    with pytest.raises(PcapFormatError) as excinfo:
+        PcapReader(p)
+
+    assert "pcapng" not in str(excinfo.value).lower(), str(excinfo.value)
+
+
+def test_an_empty_file_is_still_reported_as_invalid_pcap(tmp_path: Path) -> None:
+    from dpi_engine.pcap_io import PcapFormatError, PcapReader
+
+    p = tmp_path / "empty.pcap"
+    p.write_bytes(b"")
+
+    with pytest.raises(PcapFormatError):
+        PcapReader(p)

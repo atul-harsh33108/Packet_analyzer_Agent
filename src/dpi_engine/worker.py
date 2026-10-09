@@ -37,6 +37,7 @@ is processed by exactly one consumer before it exits.
 
 from __future__ import annotations
 
+import math
 import os
 import queue as queue_module
 import time
@@ -78,11 +79,45 @@ _MIN_TLS_PAYLOAD_LEN = 5
 # reliably reaches them. Never read or set in production code paths.
 _TEST_DELAY_MS_ENV_VAR = "DPI_ENGINE_TEST_WORKER_DELAY_MS"
 
+#: Ceiling on the per-packet test delay. No legitimate stress run needs
+#: more than a few seconds per packet, and the bound means a nonsense value
+#: resolves to "off" rather than to a worker that never finishes.
+_MAX_TEST_DELAY_SECONDS = 60.0
 
-def _maybe_apply_test_delay() -> None:
-    delay_ms = os.environ.get(_TEST_DELAY_MS_ENV_VAR)
-    if delay_ms:
-        time.sleep(float(delay_ms) / 1000.0)
+
+def _resolve_test_delay_seconds() -> float:
+    """Reads the test-delay env var once, at import.
+
+    Returns 0.0 when unset or unparseable. The previous form called
+    `os.environ.get` on *every packet* inside the hot loop, so a latency knob
+    sat in the per-packet path with an environment lookup's cost attached to it.
+    Resolving once at import reduces the steady-state cost to a float truthiness
+    check, and -- more to the point -- makes the knob inert unless someone set
+    the variable before the process started, rather than something that could
+    change behaviour mid-run (`R-10`).
+    """
+    raw = os.environ.get(_TEST_DELAY_MS_ENV_VAR)
+    if not raw:
+        return 0.0
+    try:
+        seconds = float(raw) / 1000.0
+    except ValueError:
+        return 0.0
+    # `float("1e999")` is `inf`, and `time.sleep(inf)` raises OverflowError -- so a
+    # stray variable could crash a worker rather than merely slow it. An absurd
+    # per-packet delay is never legitimate either, so anything non-finite or
+    # beyond a sane ceiling resolves to "off".
+    if not math.isfinite(seconds) or not 0.0 <= seconds <= _MAX_TEST_DELAY_SECONDS:
+        return 0.0
+    return seconds
+
+
+#: Per-packet artificial delay in seconds; 0.0 in every normal run. Resolved at
+#: import because Windows' `spawn` start method re-imports this module in each
+#: child, and environment variables -- unlike a monkeypatch -- are inherited by
+#: those children. `tests/test_safety_constraints.py` asserts this is 0.0
+#: outside the test that sets it.
+_TEST_DELAY_SECONDS: float = _resolve_test_delay_seconds()
 
 
 class RuleSource(Protocol):
@@ -577,7 +612,8 @@ def worker_main(
             break
 
         assert item is not None  # sentinel handled above; narrows for the type checker
-        _maybe_apply_test_delay()
+        if _TEST_DELAY_SECONDS:
+            time.sleep(_TEST_DELAY_SECONDS)
         if processor.process(item):
             set_forwarded(forwarded_bits, item.sequence_index)
 

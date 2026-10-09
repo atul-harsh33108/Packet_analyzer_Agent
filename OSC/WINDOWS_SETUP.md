@@ -1,3 +1,12 @@
+> **SUPERSEDED — this is the original C++ reference, not the product.**
+>
+> `dpi-engine` is the Python port, documented in the repository root
+> [`README.md`](../README.md). Nothing in this guide is needed to build or run it
+> (`uv sync` is the whole setup).
+>
+> This file is retained as part of the C++ reference's provenance, alongside
+> [`README.md`](README.md) and `docs/DESIGN_DECISIONS.md`.
+
 # Windows Setup Guide
 
 This guide will help you build and run the DPI Engine on Windows. Follow these steps exactly.
@@ -64,6 +73,14 @@ This guide will help you build and run the DPI Engine on Windows. Follow these s
 ### Step 4: Build the Project
 
 **Method A: Using CMake (if CMakeLists.txt works)**
+
+> **CMake does not build the DPI binaries.** `CMakeLists.txt` compiles exactly
+> three files -- `src/main.cpp`, `src/pcap_reader.cpp`, `src/packet_parser.cpp`
+> -- into a target named `packet_analyzer`, and links no `Threads::Threads` /
+> `-pthread`. Adding any DPI source to it fails to link. The DPI binaries
+> (`dpi_simple`, `dpi_engine`) are built with the hand-written `g++` lines in
+> [`README.md`](README.md#10-building-and-running), which do pass `-pthread`.
+> Treat Method A below as applicable to `packet_analyzer` only.
 
 1. Visual Studio should detect CMakeLists.txt automatically
 2. Select **"Build" → "Build All"** from the menu

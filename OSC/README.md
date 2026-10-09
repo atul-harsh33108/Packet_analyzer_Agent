@@ -1,3 +1,15 @@
+> **SUPERSEDED — this is the original C++ reference, not the product.**
+>
+> `dpi-engine` is the Python port, documented in the repository root
+> [`README.md`](../README.md). Its decisions and design rationale are tracked in
+> [`docs/DESIGN_DECISIONS.md`](../docs/DESIGN_DECISIONS.md), and every intentional
+> divergence from this C++ original is listed there.
+>
+> This document is retained deliberately: it is the provenance for every entry in
+> `DESIGN_DECISIONS.md`, and it is the authority the differential test suite
+> compares against. Read it for that reason. Do not build the C++ and assume the
+> result is what this tool ships.
+
 # DPI Engine - Deep Packet Inspection System
 
 

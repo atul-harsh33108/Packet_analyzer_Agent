@@ -176,28 +176,33 @@ code is.
 
 ## 3. Infrastructure gaps
 
+Re-verified against the tree on 2026-10-03, after Phase 0 and Phase 0.5/VLAN.
+Rows are marked from the filesystem and the tool configuration, not from
+recollection -- which is the point: this table was previously a snapshot that
+decayed while the code moved, and `S-01` identifies exactly that failure mode as
+the root cause of the wider documentation rot.
+
 | Gap | Status |
 |---|---|
-| **No CI configuration at all** | **Still true.** No `.github/`, `.gitlab-ci.yml`, `.circleci`, `azure-pipelines.yml` or `Jenkinsfile`. Tests are never run automatically, so "the tests pass" is a claim a human makes from memory |
-| **No coverage measurement** | **Still true.** No `pytest-cov` / `coverage.py`; no `.coveragerc`. The coverage percentage is **unknown** and cannot regress without detection |
-| **No `pytest-timeout`** | **Still true.** A regression into the known hang path would **hang the suite** rather than fail it — the worst possible failure mode for a test suite |
-| **`conftest.py` absent but referenced** | **Still true.** `tests/differential/README.md` names `build_reference_binary()` in a `conftest.py` that does not exist. The `cpp_available` fixture is duplicated verbatim across two modules; the `FIXTURES` path is duplicated across **8** test files |
-| **`scapy`'s stated purpose is unimplemented** | **Still true.** `DESIGN_DECISIONS.md` and `test_environment.py` both state scapy exists to cross-check hand-rolled TLS parsing against an independent implementation. It is only *imported* in `test_environment.py` and referenced as a *forbidden string* in `test_safety_constraints.py`. **No test cross-checks any parse against scapy.** The largest documentation-vs-implementation divergence in the repository. Decision `DEC-03` |
-| **No property-based or fuzz testing** | **Still true.** No `hypothesis`, no `atheris`. The only fuzz-like coverage is one deterministic truncation sweep over a single fixed ClientHello. For a codebase that exists *because* of byte-level parsing bugs, this is the wrong place to skip it — and arbitrary `length` arguments alone would have caught defect #5 above |
-| **No benchmark suite** | **Still true.** Three ad-hoc wall-clock assertions with large slack factors. This is why the throughput question above is still open |
-| **No format enforcement** | `ruff format` is configured in spirit — `E501` is ignored with the comment "line length is handled by the formatter" — but never enforced. 22 files would be reformatted |
-| **No snapshot / golden testing** | Report-format assertions are hand-typed substring literals |
-| **Differential tests skip silently** | 14 tests skip when Docker is absent, so a green run can mean "the most important cross-check never executed", with no reporting of skip counts |
-| **Three flaky-by-construction tests** | `test_eviction_cost_does_not_grow_with_table_size` (`< small*10 + 1.0`), `test_no_packet_loss_under_artificially_slowed_worker_processing` (`> 0.03`), `test_many_tiny_flows_completes_within_generous_time_bound` (`< 10.0`). These will flake on a loaded CI machine and train everyone to ignore red |
-| **Brittle literal assertions** | `test_cli_inspect.py` asserts exact strings including inter-field spacing: `"Packet count:   77"`. Any cosmetic reformat of `cli.py` breaks the suite |
-| **Test-only hook in production source** | `worker.py` carries a documented test-delay env-var hook, called from the hot loop. Justified — Windows `spawn` re-imports modules, so an env var is the only reliable channel — but a stray environment variable would slow production to a crawl |
+| **`scapy`'s stated purpose is unimplemented** (`R-08`) | **Open.** `DESIGN_DECISIONS.md` and `test_environment.py` both state scapy exists to cross-check hand-rolled TLS parsing, and nothing does. The stated substitute is `R-05`, which is also open. |
+| **No property-based or fuzz testing** (`R-05`) | **Open.** No `hypothesis`, no `atheris`. The only fuzz-like coverage is one deterministic truncation sweep over a single format. This is the highest-value remaining rail: every defect closed in Phase 0 was an adversarial-input defect, and none was found by an example-based test. |
+| **No format enforcement** | **Open.** `ruff format` is configured in spirit — `E501` is ignored with the comment "line length is handled by the formatter" — but never run as a gate. `uv run ruff format --check .` currently reports **25 of 57 files would be reformatted**, so enabling it as-is would be a large unrelated diff rather than a small fix. |
+| **No snapshot / golden testing** | **Open.** Report-format assertions are hand-typed substring literals. |
+| **Differential tests skip silently** | **Open.** 12 tests skip when Docker is absent, so a green run can mean "the most important cross-check never executed". C++ parity is additionally unverified for `T0-03`, `T0-06` and `T0-07`. |
+| **Three flaky-by-construction tests** (`R-07`) | **Open.** `test_eviction_cost_does_not_grow_with_table_size` (`< small*10 + 1.0`), `test_no_packet_loss_under_artificially_slowed_worker_processing`, and one more assert on wall clock. |
+| **Brittle literal assertions** | **Open.** `tests/test_cli_inspect.py:18` asserts `"Packet count:    77"`, including inter-field spacing. Any cosmetic reformat of `cli.py` breaks it. |
+| ~~No CI configuration at all~~ | **Fixed** (`T0-01`). `.github/workflows/ci.yml` runs lint, typecheck, tests with coverage, the differential suite, and a package build. |
+| ~~No coverage measurement~~ | **Fixed** (`T0-01`). `pytest-cov` with an 85% floor, uploaded as an artifact. Currently **91%**. |
+| ~~No `pytest-timeout`~~ | **Fixed** (`T0-01`). A regression into the hang path now fails rather than hanging. |
+| ~~`conftest.py` absent but referenced~~ | **Fixed** (`T0-02`). `tests/conftest.py` holds the repo-wide paths and `tests/differential/conftest.py` the single `cpp_available` fixture; the stale README reference is gone. Three structural guards in `test_environment.py` prevent it recurring. |
+| ~~No benchmark suite~~ | **Fixed** (`T0-03`). `tests/benchmarks/`, including the baseline that made the `P-15`/`D-23` throughput regression measurable. |
+| ~~Test-only hook in production source~~ | **Fixed** (`R-10`, this pass). `worker._maybe_apply_test_delay` called `os.environ.get` on every packet in the hot loop; the value is now resolved once at import into `_TEST_DELAY_SECONDS`, and `test_safety_constraints.py` asserts it is 0.0 outside the stress test that arms it. |
 | ~~No type checking~~ | **Fixed.** `mypy --strict` clean, `py.typed` shipped |
 | ~~No linting~~ | **Fixed.** `ruff` configured and passing |
 | ~~No `README.md`~~ | **Fixed.** 10 KB plus a `docs/` set |
-| ~~Test suite too small~~ | **Fixed.** 168 → 404 tests |
-| ~~Zero tests for `demo_classify.py`~~ | N/A — module deleted |
+| ~~Test suite too small~~ | **Fixed.** 168 → **491** tests |
 
----
+
 ## 4. The core strategic principle
 
 > **The DPI engine must stay deterministic. The agentic layer must never decide packet-level truth.**

@@ -397,8 +397,19 @@ def run_pipeline(
     that is handled by the parser/extractor layers returning None.
 
     `rule_broadcaster`, if given, is polled each packet, which is what makes
-    live rule mutation work in the single-process path too. Passing it is
-    optional because the common case is "rules never change during a run".
+    live rule mutation work in the single-process path too.
+
+    **The CLI never supplies it**, and that is deliberate rather than an
+    oversight. A one-shot `run` owns its `RuleManager` for the duration of the
+    process and nothing else can mutate it, so opening the channel would cost a
+    per-packet check for a capability nothing could use -- the same reasoning
+    that keeps `--live-rules` a no-op in single-process mode. The parameter
+    exists for embedding callers that *do* hold a long-lived `RuleManager` and
+    want rules changed mid-run without a second pass over the capture. It was
+    reachable only from tests, which made it read as dead API surface rather
+    than an embedding hook (`D-26`); the docstring is what was missing, not the
+    parameter. The multiprocess variants do use it, via
+    `run_pipeline_multiprocess(live_rules=True)` and `run_pipeline_staged`.
 
     The resource bounds are forwarded explicitly (rather than only defaulted
     deep inside PcapReader/ConnectionTracker) so callers, including the CLI,

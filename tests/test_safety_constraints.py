@@ -278,3 +278,86 @@ def test_docstrings_reference_only_symbols_that_exist() -> None:
         "the check resolved 0 references, so it is not actually inspecting "
         "anything and would pass vacuously"
     )
+
+
+# --- R-10: the test-only latency knob must be inert in a normal run -----------
+
+
+def test_the_test_delay_knob_is_inert_outside_tests() -> None:
+    """No production run may be slowed by a stray environment variable.
+
+    `worker._TEST_DELAY_SECONDS` is a latency knob that lives inside the
+    per-packet path, reachable only by setting
+    `DPI_ENGINE_TEST_WORKER_DELAY_MS` before the process starts. It has to stay
+    for `test_worker_stress.py` -- Windows' `spawn` re-imports `worker.py` in
+    each child, and environment variables are inherited where a monkeypatch
+    would not be -- but it must resolve to 0.0 in every ordinary run.
+
+    The value is resolved once at import rather than read per packet (`R-10`),
+    so this assertion is meaningful: it proves the knob was never armed, not
+    merely that nobody set it between packets.
+    """
+    import os
+
+    from dpi_engine import worker
+
+    assert worker._TEST_DELAY_MS_ENV_VAR not in os.environ, (
+        f"{worker._TEST_DELAY_MS_ENV_VAR} is set in this environment; every "
+        "packet in every worker would be delayed by it"
+    )
+    assert worker._TEST_DELAY_SECONDS == 0.0, (
+        f"the test delay resolved to {worker._TEST_DELAY_SECONDS}s; it must be "
+        "0.0 unless the variable was set before import"
+    )
+
+
+def test_the_test_delay_knob_is_resolved_at_import_not_per_packet() -> None:
+    """Setting the variable after import must have no effect.
+
+    This is the property that makes the knob safe: it cannot be armed after the
+    process is running, so there is no window in which a running engine's
+    per-packet latency changes underneath it.
+    """
+    import os
+
+    from dpi_engine import worker
+
+    assert worker._TEST_DELAY_SECONDS == 0.0
+    os.environ[worker._TEST_DELAY_MS_ENV_VAR] = "500"
+    try:
+        # Already imported, so the module-level constant is unchanged.
+        assert worker._TEST_DELAY_SECONDS == 0.0, (
+            "the delay must be resolved at import time, not per packet"
+        )
+        # ...and the resolver would produce 0.5s only for a fresh import.
+        assert worker._resolve_test_delay_seconds() == 0.5
+    finally:
+        del os.environ[worker._TEST_DELAY_MS_ENV_VAR]
+
+
+def test_an_unparseable_delay_value_is_ignored() -> None:
+    """A typo in the variable must not crash the worker at import time.
+
+    `_resolve_test_delay_seconds()` runs at import in every worker process, so a
+    `ValueError` escaping it would turn a harmless stray variable into a failed
+    run. Malformed, negative and absurd values all resolve to something safe.
+    """
+    import os
+
+    from dpi_engine import worker
+
+    original = os.environ.get(worker._TEST_DELAY_MS_ENV_VAR)
+    try:
+        for raw in ("not-a-number", "", "-5", "1e999"):
+            os.environ[worker._TEST_DELAY_MS_ENV_VAR] = raw
+            resolved = worker._resolve_test_delay_seconds()
+            assert resolved == 0.0 or 0.0 < resolved < 3600.0, (
+                f"{raw!r} resolved to {resolved}"
+            )
+        os.environ[worker._TEST_DELAY_MS_ENV_VAR] = "not-a-number"
+        assert worker._resolve_test_delay_seconds() == 0.0
+    finally:
+        if original is None:
+            os.environ.pop(worker._TEST_DELAY_MS_ENV_VAR, None)
+        else:
+            os.environ[worker._TEST_DELAY_MS_ENV_VAR] = original

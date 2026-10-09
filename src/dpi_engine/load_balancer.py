@@ -140,8 +140,6 @@ class LoadBalancerStats:
     packets_received: int = 0
     packets_dispatched: int = 0
     per_fp_packets: dict[int, int] = field(default_factory=dict)
-    #: Packets this LB could not hand off (an already-draining fast-path).
-    packets_unroutable: int = 0
 
     def combine(self, others: Sequence[LoadBalancerStats]) -> LoadBalancerStats:
         """Sums `self` and every entry in `others`.
@@ -155,7 +153,6 @@ class LoadBalancerStats:
         for other in (self, *others):
             total.packets_received += other.packets_received
             total.packets_dispatched += other.packets_dispatched
-            total.packets_unroutable += other.packets_unroutable
             for fp_id, count in other.per_fp_packets.items():
                 total.per_fp_packets[fp_id] = total.per_fp_packets.get(fp_id, 0) + count
 
@@ -167,7 +164,6 @@ class LoadBalancerStats:
             "packets_received": self.packets_received,
             "packets_dispatched": self.packets_dispatched,
             "per_fp_packets": dict(sorted(self.per_fp_packets.items())),
-            "packets_unroutable": self.packets_unroutable,
         }
 
 

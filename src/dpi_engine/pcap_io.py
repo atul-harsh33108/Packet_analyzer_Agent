@@ -72,6 +72,15 @@ _NANOSECOND_MAGIC_BYTES = frozenset(
 )
 _KNOWN_MAGIC_BYTES = _LITTLE_ENDIAN_MAGIC_BYTES | _BIG_ENDIAN_MAGIC_BYTES
 
+#: The pcapng Section Header Block magic. pcapng is a *different container
+#: format*, not a pcap with a different magic -- it has no 24-byte global header
+#: and no fixed-length per-packet records, so a pcap reader cannot parse it at
+#: all. The symptom without this check is dpkt raising a bare ValueError which
+#: became "not a valid pcap file", telling someone with a perfectly good capture
+#: that their capture is invalid. pcapng is roughly a third of real-world
+#: captures, so that message is common and wrong (`D-15`).
+_PCAPNG_MAGIC_BYTES = bytes.fromhex("0a0d0d0a")
+
 
 class PcapError(Exception):
     """Base class for all PCAP I/O errors raised by this module."""
@@ -79,6 +88,17 @@ class PcapError(Exception):
 
 class PcapFormatError(PcapError):
     """Raised when a file is not a valid/parseable pcap (bad magic, truncated header, etc.)."""
+
+
+class PcapngUnsupportedError(PcapError):
+    """Raised when the input is a valid pcapng file, which this reader cannot parse.
+
+    A distinct type rather than a `PcapFormatError` with nicer wording, because
+    "this is not a pcap, and here is how to convert it" and "this file is
+    corrupt" call for different responses from the caller. See `DEC-02`: the
+    choice was an honest refusal over a partial pcapng reader, since a wrong
+    reader is worse than a precise diagnostic (`D-15`).
+    """
 
 
 class PcapLinktypeError(PcapError):
@@ -164,6 +184,17 @@ class PcapReader:
         # unchanged.
         magic = self._file.read(4)
         self._file.seek(0)
+        if magic == _PCAPNG_MAGIC_BYTES:
+            # Checked before dpkt, which would otherwise fail with a bare
+            # ValueError and produce a misleading "not a valid pcap file".
+            self._file.close()
+            self._file = None
+            raise PcapngUnsupportedError(
+                f"'{self.path}' is a pcapng capture, which this engine does not "
+                "read yet. pcapng is a different container format, not a pcap "
+                "variant. Convert it with Wireshark's editcap: "
+                "    editcap -F pcap in.pcapng out.pcap"
+            )
         if magic in _LITTLE_ENDIAN_MAGIC_BYTES:
             self._endian = "<"
         elif magic in _BIG_ENDIAN_MAGIC_BYTES:

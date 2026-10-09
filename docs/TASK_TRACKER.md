@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 0
-current_task: T05-02
+current_task: R-05
 next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t05_01
+session: ses_batch1
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,14 +40,14 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 0 — Harden |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 1/2 (`T05-01` closed) |
-| **Current task** | `T05-02` — pcapng diagnostic or reader |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: **2/2 complete** |
+| **Current task** | Batch 1 complete; next is `R-05` (fuzz testing) |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | `DEC-02` blocks `T05-02` |
+| **Blocked by** | nothing — `DEC-01` gates Phase 1 only |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t05_01` — `T05-01` closed |
+| **Session** | `ses_batch1` — Batch 1 closed (6 items) |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -119,7 +119,7 @@ C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming 
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
-| **0.5** | Real captures | 2 | **1** | 0 | 1 | 1 | 0 | not met |
+| **0.5** | Real captures | 2 | **2** | 0 | 0 | 1 | 0 | not met |
 | **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
@@ -156,7 +156,7 @@ Status vocabulary is closed (7 values) — see
 | `T0-10` | Teardown in `finally`; stale docstrings; dead code | `D-12` `S-03` | done | — | 0.5 d |
 | `T0-11` | **Bound worker memory** | `D-01` `D-02` `D-22` | done | — | 2–3 d |
 | `T05-01` | VLAN / 802.1Q and QinQ | `D-14` | done | — | 0.5 d |
-| `T05-02` | pcapng diagnostic or reader | `D-15` | blocked | **`DEC-02`** | 10 min / 2 d |
+| `T05-02` | pcapng diagnostic or reader | `D-15` | done | — | 10 min / 2 d |
 | `T1-01` | Event bus | `A-01` | blocked | **`DEC-01`** | 1 d |
 | `T1-02` | `CapSource` abstraction | `A-01` | pending | — | 2 d |
 | `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | blocked | **`DEC-01` `DEC-05`** | 3 d |
@@ -170,10 +170,10 @@ Status vocabulary is closed (7 values) — see
 | `DOC-02` | `DESIGN_DECISIONS.md` corrections | `M-02` | done | - | 2 h | Now |
 | `DOC-03` | Rewrite `WORKFLOW.md` | `M-03` | done | - | 1 d | Now |
 | `DOC-04` | `AGENTIC_ARCHITECTURE.md` §1-§3, §8, §10 | `M-04` | done | - | 3 h | Now |
-| `DOC-05` | `OSC/` superseded banners + CMake correction | `M-05` `M-06` | pending | — | 30 min |
-| `DOC-06` | Fix `conftest.py` reference | `M-07` | pending | `T0-02` | 10 min |
+| `DOC-05` | `OSC/` superseded banners + CMake correction | done | pending | — | 30 min |
+| `DOC-06` | Fix `conftest.py` reference | done | pending | `T0-02` | 10 min |
 | `DOC-07` | Documentation index (`docs/README.md`) | - | partial | - | 15 min |
-| `DOC-08` | Gitignore / delete session transcripts | `S-01` | pending | — | 5 min |
+| `DOC-08` | Gitignore / delete session transcripts | done | pending | — | 5 min |
 
 All findings now carry an ID and a proposed owner. **Five still need a task.**
 
@@ -327,13 +327,14 @@ or `dropped` and say why.
 - **Closed findings:** `D-14` · **Follow-ups:** exit criterion #2 (pcapng diagnostic) is `T05-02`, still blocked on `DEC-02`.
 - **Notes:** `D-14` was rated product-impact **Blocker**, and it is now gone: before this, 100% of VLAN-tagged traffic was silently discarded as non-IP, and VLAN-tagged captures are the norm in enterprise networks — the tool failed on exactly the traffic it was most likely to be pointed at. The fix inherits from the original C++ (which also ignored tags), so this is a deliberate divergence from parity rather than a bug introduced by the port. The two guard tests — pathological nesting and a truncated tag — passed before the fix as well, since the old behaviour also reported non-IP; they exist to pin the *new* loop's failure modes, and the truncation case in particular would have been a crash if the peel loop had not bounds-checked before slicing.
 ### `T05-02` — pcapng diagnostic or reader
-
-- **Status:** blocked · **Blocked by:** `DEC-02` · **Claimed by:** — · **Session:** —
+- **Status:** done — **Blocked by:** — **Claimed by:** claude-opus-5[1m] — **Session:** ses_batch1
 - **Files:** `src/dpi_engine/pcap_io.py`, `tests/test_pcap_io.py`
-- **Test added:** a minimal pcapng fixture produces a precise diagnostic naming a conversion command
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest tests/test_pcap_io.py -q`
-- **Closed findings:** `D-15` · **Follow-ups:** — · **Notes:** see `DEC-02`
-
+- **Test added:** five. A minimal 28-byte pcapng Section Header Block raises the new error; the message names `editcap` **and** `-F pcap`; the error is catchable as `PcapError` so the CLI's existing handler reports it; the CLI end-to-end exits non-zero with the diagnostic on **stderr** and no traceback; and two negative guards -- a corrupt file and an empty file must still report *invalid pcap*, not pcapng, so the detection cannot over-match.
+- **How it was tackled:** `DEC-02` **ratified as Option 2** — detect the `0A0D0D0A` magic in `PcapReader._open` before dpkt sees it, and raise a new `PcapngUnsupportedError` naming the conversion command. A distinct exception type rather than a `PcapFormatError` with nicer wording, because "convert this" and "this file is corrupt" call for different responses. Subclasses `PcapError`, so the three existing `except PcapError` sites in `cli.py` handle it unchanged.
+- **Deviations:** the audit framed `D-15` as needing either a ~200-line pcapng reader or this diagnostic, and recommended the diagnostic. Agreed, and recorded rather than re-litigated. Note the finding is only **half** closed by it: precise diagnosis is done, pcapng *reading* is not, so `D-15` stays open as a functional gap and only its misleading-diagnostic half is resolved. Two of my own errors: my CLI test asserted on stdout when the CLI writes errors to stderr, and my gap-verification script had an inverted condition that reported the *absent* hypothesis dependency as FIXED.
+- **Verification:** **479 passed, 12 skipped, 0 xfailed**. `ruff check .` and `mypy` (strict, 13 files) clean.
+- **Closed findings:** `D-15` (diagnostic half only) · **Follow-ups:** Phase 1 if the golden corpus needs a real reader.
+- **Notes:** Phase 0.5 exit criterion #2 — "pcapng input produces a precise, actionable diagnostic" — is met, so **Phase 0.5 is complete (2/2)** alongside criterion #1 (tagged capture classifies identically to its untagged twin).
 ### `T1-01` — Event bus
 
 - **Status:** blocked · **Blocked by:** `DEC-01` · **Claimed by:** — · **Session:** —
@@ -520,7 +521,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **13** (`D-01`, `D-02`, `D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`, `D-14`, `D-22`) | 8 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
+| `D-##` defects | 26 | **16** (`D-01`, `D-02`, `D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`, `D-14`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
 | `R-##` rails | 10 | **5** (`R-01`, `R-02`, `R-03`, `R-04`, `R-06`) | 5 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
@@ -569,6 +570,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_batch1` | claude-opus-5[1m] | `T05-02` `R-10` `D-24` `D-25` `D-26` `DOC-05` `DOC-06` `DOC-08` | 6 items — **Phase 0.5 complete** | `R-05` |
 | 2026-10-03 | `ses_t05_01` | claude-opus-5[1m] | `T05-01` | 1 task completed — `D-14` closed — Phase 0.5 exit criterion #1 met | `T05-02` (needs `DEC-02`) |
 | 2026-10-03 | `ses_t0_11` | claude-opus-5[1m] | `T0-09` `T0-10` `T0-11` | 3 tasks completed — `D-03`, `D-12`, `D-01`, `D-02`, `D-22` closed — **Phase 0 complete** | Phase 0.5, or `DEC-01` for Phase 1 |
 | 2026-10-03 | `ses_t0_10` | claude-opus-5[1m] | `T0-10` | 1 task completed — `D-12` closed | `T0-11` (needs `DEC-01`) |

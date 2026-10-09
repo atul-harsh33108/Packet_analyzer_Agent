@@ -311,6 +311,19 @@ class Connection:
     app_type: AppType = AppType.UNKNOWN
     sni: str = ""
 
+    #: **Inbound counters are reserved and stay 0 in every production run.**
+    #:
+    #: `ConnectionTracker.update_connection` does implement the inbound branch and
+    #: it is unit-tested, but `FlowProcessor.process` only ever calls it with
+    #: `is_outbound=True`. Deriving a real inbound/outbound split is *not* the
+    #: small change the audit assumed: flows are keyed by the packet's exact
+    #: five-tuple and deliberately not folded to its reverse, so a SYN and the
+    #: SYN-ACK that answers it land in two independent `Connection` objects with
+    #: no shared state to correlate them. Doing it properly means either folding
+    #: flows (which would break parity with the C++ original, whose
+    #: `main_working.cpp` never calls `FiveTuple::reverse()`) or guessing from
+    #: port heuristics. Both are worse than an honest zero, so this is documented
+    #: rather than faked (`D-25`). Use `packets_out`/`bytes_out` for volume.
     packets_in: int = 0
     packets_out: int = 0
     bytes_in: int = 0
