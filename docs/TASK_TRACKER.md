@@ -7,7 +7,7 @@ next_action: Bound the HTTP Host: scan to the header block, require a line start
 blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_batch1
+session: ses_t1_07
 ---
 
 # Task Tracker — `dpi-engine`
@@ -41,13 +41,13 @@ session workflow — what to read, in what order, when to stop — read
 |---|---|
 | **Phase** | 0 — Harden |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: **2/2 complete** |
-| **Current task** | Batch 1 complete; next is `R-05` (fuzz testing) |
+| **Current task** | `T1-07` increment 1 done; increment 2 (scapy) needs `DEC-03` |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | nothing — `DEC-01` gates Phase 1 only |
+| **Blocked by** | `DEC-03` — increment 2 only |
 | **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_batch1` — Batch 1 closed (6 items) |
+| **Session** | `ses_t1_07` — `R-05` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -163,7 +163,7 @@ Status vocabulary is closed (7 values) — see
 | `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | blocked | **`DEC-04`** | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | pending | — | 2 d |
-| `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | blocked | **`DEC-03`** | 2 d |
+| `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | in_progress | — | 2 d |
 | `T1-08` | Benchmark suite | `R-06` `P-15` | pending | — | 1 d |
 | `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` `D-19` | pending | — | 1 d |
 | `DOC-01` | `README.md` corrections | `M-01` | pending | — | 1 h |
@@ -390,14 +390,15 @@ or `dropped` and say why.
 - **Notes:** **the keystone component.** Implement by running the engine twice and diffing the decision bitmaps `T0-11` produces — nearly free, and exact rather than approximate. Every safety claim in `AGENTIC_ARCHITECTURE.md` Layers 3/7/8 reduces to this existing
 
 ### `T1-07` — Property tests + scapy cross-check
-
-- **Status:** blocked · **Blocked by:** `DEC-03` · **Claimed by:** — · **Session:** —
-- **Files:** `tests/property/` (new), `pyproject.toml`
-- **Test added:** the `hypothesis` strategies are the tests; add a seed-reproducibility check so CI failures replay
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest tests/property -q`
-- **Closed findings:** `R-05` `R-08` · **Follow-ups:** —
-- **Notes:** include **arbitrary `length` arguments** — that alone would have caught `D-05`. See `DEC-03`
-
+- **Status:** in_progress — increment 1 of 2 complete — **Blocked by:** `DEC-03` (increment 2 only) — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_07
+- **Files:** `tests/property/test_extractor_properties.py` (new, 20 tests), `pyproject.toml` (`hypothesis>=6.100` added to the dev group)
+- **Test added:** twenty property tests over every byte-level entry point: the three extractors, `parse_packet`, `is_quic`/`is_quic_initial`, `parse_long_header`, `decode_varint`, `extract_crypto_frames`, `reconstruct_packet_number`, and the long-lived `QuicFlowInspector`. The properties are deliberately weak -- never raises, is deterministic, output is bounded -- because those are the ones that must hold for *every* byte string.
+- **How it was tackled:** the plan's sharpest suggestion was "arbitrary `length` arguments (this alone would have caught `D-05`)", so that is the headline test: `length` swept over the full signed 32-bit range including negatives and absurd values, paired with structured payloads biased towards the magic bytes each function looks for, so the generator actually reaches the interesting code rather than failing a type check on byte one. Also covered: the QUIC inspector fed *sequences* of garbage (state built up by packet 1 changing what packet 2 does is invisible to a single-packet test), and a parsing-purity check that a frame parsed twice gives the same answer, which guards the second input pass `_write_forwarded` now relies on.
+- **Verification — the suite was proven to bite, not assumed to.** Ran it against the actual pre-fix code in a `git worktree` at the parent of the `D-05` commit (`b4cfc84`), with `PYTHONPATH` pointed at that tree's `src`. It fails there with `IndexError: index out of range` at `sni_extractor.py:61`, and passes on the current tree. Hypothesis reduced it from the raw strategy to **`payload=b'\x16', length=9`** — a one-byte payload claiming a nine-byte TLS record — which is now pinned as an `@example` *and* asserted directly, so the discovery does not depend on random generation rediscovering it. An earlier run appeared to pass against pre-fix code; that was a bad import (`uv run --project .` resolved the *installed* fixed package), caught by printing `sni_extractor.__file__` rather than trusting the result.
+- **Deviations:** three of my own mistakes, all caught by running rather than reasoning. (1) The packet-number property asserted a window of `largest ± win`; RFC 9000 §17.1 centres the window on `largest + 1` and makes it `2*win` wide, so the test was wrong, not the code. (2) The CRYPTO-frame property asserted `offset + len(data) <= len(plaintext)`, conflating a *stream* offset with a buffer index -- a legal frame at stream offset 5 in a 4-byte plaintext failed it. The code was right: it clamps `crypto_len = min(crypto_len, length - offset)`. (3) Two of my earlier `D-05` bounds were also wrong (varints cap at 2**62-1; `truncated` must be `< 2**nbits`), and both are now asserted as *rejection* properties instead. Also note the plan assumed `hypothesis`; adding it is a new dev dependency, which `pyproject.toml` was already listed as covering.
+- **Verification:** **499 passed, 12 skipped, 0 xfailed** (up from 479). `ruff check .` and `mypy` (strict, 13 files) clean. Coverage **91.97%**, up from 91.13% — the property tests exercise branches the example-based suite never reached. Property suite runtime ~3 s.
+- **Closed findings:** `R-05` · **Follow-ups:** increment 2 (scapy cross-check) still needs `DEC-03`.
+- **Notes:** **no new production defect was found**, and that is the honest result rather than a disappointing one — Phase 0 already fixed the ones these target, and the value now is regression protection plus coverage of the *unreachable-by-hand* shapes. The real finding was about the harness: two of the four initial failures were my own invariants being wrong, which is exactly what a property suite is supposed to surface. A property test that cannot fail is worse than no test, because it reads as coverage; hence the pre-fix run above. `R-08` (the scapy cross-check) remains open and is documented as `R-05`'s substitute, so the two are now inverted: the substitute is built and the thing it was standing in for is what still needs doing.
 ### `T1-08` — Benchmark suite
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -522,7 +523,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
 | `D-##` defects | 26 | **16** (`D-01`, `D-02`, `D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`, `D-14`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
-| `R-##` rails | 10 | **5** (`R-01`, `R-02`, `R-03`, `R-04`, `R-06`) | 5 | 0 |
+| `R-##` rails | 10 | **6** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`) | 4 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
@@ -570,6 +571,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-03 | `ses_t1_07` | claude-opus-5[1m] | `T1-07` | increment 1 — `R-05` closed, 20 property tests, proven to catch `D-05` | `T1-07` increment 2 (needs `DEC-03`) |
 | 2026-10-03 | `ses_batch1` | claude-opus-5[1m] | `T05-02` `R-10` `D-24` `D-25` `D-26` `DOC-05` `DOC-06` `DOC-08` | 6 items — **Phase 0.5 complete** | `R-05` |
 | 2026-10-03 | `ses_t05_01` | claude-opus-5[1m] | `T05-01` | 1 task completed — `D-14` closed — Phase 0.5 exit criterion #1 met | `T05-02` (needs `DEC-02`) |
 | 2026-10-03 | `ses_t0_11` | claude-opus-5[1m] | `T0-09` `T0-10` `T0-11` | 3 tasks completed — `D-03`, `D-12`, `D-01`, `D-02`, `D-22` closed — **Phase 0 complete** | Phase 0.5, or `DEC-01` for Phase 1 |
