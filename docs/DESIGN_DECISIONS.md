@@ -52,8 +52,10 @@ built now.
   as "QUIC" must keep working on a minimal install, and the resulting limitation is reported
   rather than silently swallowed. See "Gap analysis" item 16.
 - **scapy** — dev/test dependency only, used to cross-check hand-rolled TLS parsing against
-  a trusted independent implementation in the differential test suite. Never a runtime
-  dependency of the shipped tool.
+  a trusted independent implementation. Implemented by `tests/property/test_scapy_cross_check.py`
+  (`T1-07` increment 2, `DEC-03` decided 2026-10-12), which drives *both* directions: scapy
+  parses our fixtures, and — the half that is not circular — `extract_sni` parses
+  handshakes scapy constructs. Never a runtime dependency of the shipped tool.
 - **ipaddress (stdlib)** — replaces the original's hand-rolled, unvalidated IP octet parser.
 - **JSON** — replaces the original's hand-rolled INI-like rules file format. Safer parsing,
   no unguarded `stoi`-equivalent crash path on malformed input.
@@ -168,9 +170,11 @@ Honest list, tracked as `R-##` in [`AUDIT.md`](AUDIT.md) §3:
 - **No benchmark suite.** Three ad-hoc wall-clock assertions with large slack factors instead.
   The port's per-packet throughput is therefore **unmeasured** — see `P-15`.
 - **No coverage measurement and no CI.** Not one command has ever run automatically.
-- **`scapy`'s stated purpose is unimplemented.** It is declared here as a cross-check of the
-  hand-rolled TLS parsing; no test performs that cross-check. Tracked as `R-08`; the decision
-  is `DEC-03`.
+- ~~`scapy`'s stated purpose is unimplemented~~ **Closed** (`T1-07` increment 2, 2026-10-12).
+  It was declared here as a cross-check of the hand-rolled TLS parsing and no test performed
+  that cross-check; `tests/property/test_scapy_cross_check.py` now does, in both directions.
+  Verified to bite by mutating `_TLS_RECORD_HEADER_LEN` from 5 to 6: 16 of 25 tests fail,
+  including "hand-rolled extractor failed on a ClientHello built by scapy".
 - **Three flaky-by-construction tests** assert on wall-clock with large slack, and no
   `pytest-timeout` is installed — so a regression into the known hang path would hang the
   suite rather than fail it.
@@ -519,11 +523,11 @@ they are deliberately not resolved in this document. Full detail in
 
 | ID | Question | Blocks |
 |---|---|---|
-| `DEC-01` | Output-ordering guarantee under streaming. Fixing the unbounded-memory defect removes the global sort that currently makes output deterministic, so a choice is forced. | `T0-11`, `T1-01`, `T1-03` |
-| `DEC-02` | pcapng: full reader, or a precise "not supported, here's how to convert" diagnostic? | `T05-02` |
-| `DEC-03` | scapy: implement the cross-check this document already claims, or delete the dependency and the claim? | `T1-07` |
-| `DEC-04` | Rule-file persistence key: migrate display names to stable `AppType.name` keys? | `T1-05` |
-| `DEC-05` | Bidirectional flow folding: default on, or on only in streaming mode? | `T1-03` |
+| `DEC-01` | Output-ordering guarantee under streaming. Fixing the unbounded-memory defect removes the global sort that currently makes output deterministic, so a choice is forced. **Decided 2026-10-12: bounded reorder window (option B)** — deterministic within a window of size *W*, a late packet emitted out of order rather than held, *W* a memory/latency tunable. | `T1-01`, `T1-03` |
+| `DEC-02` | pcapng: full reader, or a precise "not supported, here's how to convert" diagnostic? **Decided 2026-10-12: option 2, the diagnostic** — a wrong reader is worse than an honest refusal, and roughly a third of real captures are pcapng so the diagnostic is the high-value half. | `T05-02` (done) |
+| `DEC-03` | scapy: implement the cross-check this document already claims, or delete the dependency and the claim? **Decided 2026-10-12: implement it.** It is also the stated substitute for the fuzzing gap, which is now closed — so what remains is the thing the substitute stood in for. | `T1-07` (increment 2, done) |
+| `DEC-04` | Rule-file persistence key: migrate display names to stable `AppType.name` keys? **Decided 2026-10-12: (a)** — persist the stable key, keep display names as input-only aliases, one-shot migration on load with a deprecation warning. Rejected (b): it hard-fails every existing saved file. Rejected (c): two keys that can disagree are a worse invariant than one. | `T1-05` |
+| `DEC-05` | Bidirectional flow folding: default on, or on only in streaming mode? **Decided 2026-10-12: default ON** — the product-correct behaviour, and it **unblocks `D-25`**: with flows unfolded there is no shared state to correlate a SYN with the SYN-ACK answering it. A deliberate parity break, recorded in the differential allowlist like the VLAN peel. | `T1-03` |
 
 ## Open trade-offs, deliberately not resolved
 

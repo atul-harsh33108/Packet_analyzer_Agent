@@ -4,10 +4,10 @@ status: active
 phase: 0
 current_task: R-05
 next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
-blockers: [DEC-01 blocks T0-11, T1-01, T1-03; DEC-02 blocks T05-02; DEC-03 blocks T1-07; DEC-04 blocks T1-05; DEC-05 blocks T1-03]
+blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); Phase 0 and 0.5 complete; Phase 1 0/9]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_07
+session: ses_t1_07b
 ---
 
 # Task Tracker — `dpi-engine`
@@ -41,13 +41,13 @@ session workflow — what to read, in what order, when to stop — read
 |---|---|
 | **Phase** | 0 — Harden |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: **2/2 complete** |
-| **Current task** | `T1-07` increment 1 done; increment 2 (scapy) needs `DEC-03` |
+| **Current task** | `T1-07` complete (`R-05` + `R-08`); next unblocked is `T1-01` |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | `DEC-03` — increment 2 only |
-| **Open decisions** | `DEC-01` `DEC-02` `DEC-03` `DEC-04` `DEC-05` — **all five open.** `DEC-01` is on the critical path |
+| **Blocked by** | nothing — all five decisions recorded 2026-10-12 |
+| **Open decisions** | **none.** All five decided 2026-10-12; `DEC-01`, `DEC-03`, `DEC-04`, `DEC-05` by the user, `DEC-02` ratified in `T05-02` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t1_07` — `R-05` closed |
+| **Session** | `ses_t1_07b` — `T1-07` closed, `R-08` closed |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -61,29 +61,23 @@ without a new `DEC-##` row superseding it.
 
 | ID | Question | Status | Decided value | Decided by | Date | Blocks |
 |---|---|---|---|---|---|---|
-| `DEC-01` | Output-ordering guarantee under streaming | **open** | — | — | — | `T0-11`, `T1-01`, `T1-03` |
-| `DEC-02` | pcapng: full reader or precise diagnostic? | **open** | — | — | — | `T05-02` |
-| `DEC-03` | scapy: implement the cross-check or delete the dep? | **open** | — | — | — | `T1-07` |
-| `DEC-04` | Rule-file persistence key migration | **open** | — | — | — | `T1-05` |
-| `DEC-05` | Bidirectional flow folding: default on or off? | **open** | — | — | — | `T1-03` |
+| `DEC-01` | Output-ordering guarantee under streaming | **decided** | Bounded reorder window (`T1-01`/`T1-03`) | user | 2026-10-12 | `T0-11`, `T1-01`, `T1-03` | `T0-11` (done), `T1-01`, `T1-03` 
+| `DEC-02` | pcapng: full reader or precise diagnostic? | **decided** | Option 2: precise diagnostic, not a reader (`T05-02`) | claude (ratified from the recommendation) | 2026-10-12 | `T05-02` | `T05-02` (done) 
+| `DEC-03` | scapy: implement the cross-check or delete the dep? | **decided** | Implement the scapy cross-check (`T1-07`) | user | 2026-10-12 | `T1-07` | `T1-07` 
+| `DEC-04` | Rule-file persistence key migration | **decided** | (a) Persist `AppType.name` + migration (`T1-05`) | user | 2026-10-12 | `T1-05` | `T1-05` 
+| `DEC-05` | Bidirectional flow folding: default on or off? | **decided** | Bidirectional flow folding: default ON (`T1-03`) | user | 2026-10-12 | `T1-03` | `T1-03`, plus unblocks `D-25` 
 
 ### Detail
 
-**`DEC-01` — Output-ordering guarantee under streaming.**
-*Why it matters:* the current deterministic output depends on materialising every
-packet and sorting by `sequence_index`. Fixing `D-01` removes exactly the structure
-that makes the sort possible, so a choice is forced. `T0-11`'s recommended
-decision-bitmap design sidesteps this for the batch path (the second input pass is
-sequential, so the sort disappears rather than being replaced); `T1-03` cannot
-sidestep it.
-*Options:* **A** per-shard arrival order — output differs run to run, breaks the
-differential byte-comparison and the "all three variants are byte-identical"
-property. **B** bounded reorder window of size *W* — deterministic within *W*,
-out of order beyond, needs a documented late-packet policy. **C** drop the byte
-guarantee, compare packet *sets* in tests.
-*Recommendation:* **B**, with **C as the test-level fallback** (byte-exact when the
-capture fits the window, set-equality otherwise).
-*Recommendation is not a decision.* Record the human's choice here.
+**`DEC-01` — Output-ordering guarantee under streaming.** **Decided 2026-10-12: bounded reorder window.**
+
+Output is deterministic within a window of size *W*; a packet arriving later than *W* is emitted out of order rather than held. *W* is a tunable with a memory/latency trade-off, which is the IP-defragmentation analogue.
+
+Why this over the alternatives: per-shard arrival order (A) makes output non-deterministic across runs and breaks the differential suite's byte-comparison, which is the strongest property the engine currently has — confirmed by `T0-11` producing byte-identical output in all three variants. Dropping the guarantee entirely (C) throws that away permanently. B keeps it for any sane *W* while allowing true streaming.
+
+`T0-11` is unaffected: its second sequential input pass yields byte-identical ordering outright, so this only bites when the engine is actually streaming (`T1-03`).
+
+**`W` is still to be chosen** — that is a `T1-03` design parameter, not a decision. Suggested starting point: large enough to absorb a slow shard's backlog (thousands of packets), small enough that its memory is bounded by a documented figure rather than by the capture size.
 
 **`DEC-02` — pcapng.** `D-15`. Options: full reader (SHB/IDB/EPB/SPB, multi-interface,
 ~200 lines) or detect `0x0A0D0D0A` and raise a precise diagnostic naming
@@ -91,26 +85,31 @@ capture fits the window, set-equality otherwise).
 if the golden corpus needs it — pcapng appears in roughly a third of real captures,
 but a wrong reader is worse than an honest refusal.
 
-**`DEC-03` — scapy.** `R-08`. `DESIGN_DECISIONS.md` justifies scapy as an independent
-cross-check of hand-rolled TLS parsing; no test does this. *Recommendation:* implement
-it. It is the best available substitute for the fuzzing the project lacks
-(`R-05`), scapy is already a declared dev dependency, and it closes the largest
-documentation-vs-implementation gap in the repository. Fall back to deleting the
-dependency and striking the claim if scapy proves unreliable as a reference.
+**`DEC-03` — scapy.** **Decided 2026-10-12: implement the cross-check.**
 
-**`DEC-04` — Rule persistence key.** `D-16`. Keys are currently display names
-(`"Twitter/X"`); renaming a display string silently invalidates saved rules files.
-Options: **(a)** persist `AppType.name`, accept display names as input-only aliases,
-one-shot migration on load; **(b)** persist `AppType.name` only, hard-fail old files
-with a clear message; **(c)** persist both, prefer the stable one.
-*Recommendation:* **(a)** with a deprecation warning — existing users have saved
-files.
+`R-08`. `DESIGN_DECISIONS.md` justifies scapy as an independent cross-check of hand-rolled TLS parsing; no test did this. scapy is already a declared dev dependency, so the only cost is the tests themselves.
 
-**`DEC-05` — Bidirectional flow folding.** `P-16`. Flows are keyed by exact
-five-tuple, so a block on client→server does not apply to server→client. Correct for
-C++ parity, wrong for a product. *Recommendation:* default **ON** for streaming mode,
-**OFF** for differential mode, with the differential harness able to select the mode
-— which it currently cannot.
+This also resolves an inversion worth naming: `R-05` was originally justified *as* the substitute for the missing fuzzing. `R-05` is now closed (`T1-07` increment 1, 20 property tests, proven to catch `D-05`), so the substitute is built and the thing it stood in for is what remains.
+
+Fall back to deleting the dependency and striking the claim only if scapy proves an unreliable reference in practice.
+
+(The third option offered on `DEC-04`-style grounds — deleting the claim without the tests — was not taken: it removes a documented promise rather than checking whether the promise was true.)
+
+**`DEC-04` — Rule persistence key.** **Decided 2026-10-12: option (a), persist `AppType.name`, accept display names as input-only aliases, one-shot migration on load with a deprecation warning.**
+
+`D-16`. Keys are currently display names (`"Twitter/X"`), so renaming a display string silently invalidates saved rules files. `AppType.name` is stable because it is a symbol, not prose.
+
+Rejected (b), persist the name only and hard-fail old files: correct but breaks every existing saved rules file the first time it loads, with no migration path. Rejected (c), persist both and prefer the stable one: most compatible, but two keys that can disagree are a worse invariant than one key, and hand-editing a file can set them to conflicting values.
+
+Migration writes the new form back on load, so the window in which a deprecation warning is visible is one run per file.
+
+**`DEC-05` — Bidirectional flow folding.** **Decided 2026-10-12: default ON.**
+
+`P-16`. Flows are keyed by the packet's exact five-tuple and not folded to its reverse, so a connection's two directions are two independent flow-table entries. This is a deliberate divergence from the C++ original (`main_working.cpp` never calls `FiveTuple::reverse()`) and `AUDIT.md` §1.3 lists it among the quirks carried for parity that are wrong for a product.
+
+Defaulting it on is the product-correct behaviour and it **unblocks `D-25`**: `Connection.packets_in`/`bytes_in` are permanently 0 precisely because `update_connection` is only ever called with `is_outbound=True`, and with flows unfolded there is no shared state to correlate a SYN with the SYN-ACK that answers it. Folding gives that state an owner.
+
+It is a **parity break** and must be recorded in the differential allowlist, exactly as the VLAN peel (`D-14`) was. A fold-aware engine will attribute both directions to one flow, where the reference reports each direction separately.
 
 ---
 
@@ -163,7 +162,7 @@ Status vocabulary is closed (7 values) — see
 | `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | blocked | **`DEC-04`** | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | pending | — | 2 d |
-| `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | in_progress | — | 2 d |
+| `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | done | — | 2 d |
 | `T1-08` | Benchmark suite | `R-06` `P-15` | pending | — | 1 d |
 | `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` `D-19` | pending | — | 1 d |
 | `DOC-01` | `README.md` corrections | `M-01` | pending | — | 1 h |
@@ -390,15 +389,14 @@ or `dropped` and say why.
 - **Notes:** **the keystone component.** Implement by running the engine twice and diffing the decision bitmaps `T0-11` produces — nearly free, and exact rather than approximate. Every safety claim in `AGENTIC_ARCHITECTURE.md` Layers 3/7/8 reduces to this existing
 
 ### `T1-07` — Property tests + scapy cross-check
-- **Status:** in_progress — increment 1 of 2 complete — **Blocked by:** `DEC-03` (increment 2 only) — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_07
-- **Files:** `tests/property/test_extractor_properties.py` (new, 20 tests), `pyproject.toml` (`hypothesis>=6.100` added to the dev group)
-- **Test added:** twenty property tests over every byte-level entry point: the three extractors, `parse_packet`, `is_quic`/`is_quic_initial`, `parse_long_header`, `decode_varint`, `extract_crypto_frames`, `reconstruct_packet_number`, and the long-lived `QuicFlowInspector`. The properties are deliberately weak -- never raises, is deterministic, output is bounded -- because those are the ones that must hold for *every* byte string.
-- **How it was tackled:** the plan's sharpest suggestion was "arbitrary `length` arguments (this alone would have caught `D-05`)", so that is the headline test: `length` swept over the full signed 32-bit range including negatives and absurd values, paired with structured payloads biased towards the magic bytes each function looks for, so the generator actually reaches the interesting code rather than failing a type check on byte one. Also covered: the QUIC inspector fed *sequences* of garbage (state built up by packet 1 changing what packet 2 does is invisible to a single-packet test), and a parsing-purity check that a frame parsed twice gives the same answer, which guards the second input pass `_write_forwarded` now relies on.
-- **Verification — the suite was proven to bite, not assumed to.** Ran it against the actual pre-fix code in a `git worktree` at the parent of the `D-05` commit (`b4cfc84`), with `PYTHONPATH` pointed at that tree's `src`. It fails there with `IndexError: index out of range` at `sni_extractor.py:61`, and passes on the current tree. Hypothesis reduced it from the raw strategy to **`payload=b'\x16', length=9`** — a one-byte payload claiming a nine-byte TLS record — which is now pinned as an `@example` *and* asserted directly, so the discovery does not depend on random generation rediscovering it. An earlier run appeared to pass against pre-fix code; that was a bad import (`uv run --project .` resolved the *installed* fixed package), caught by printing `sni_extractor.__file__` rather than trusting the result.
-- **Deviations:** three of my own mistakes, all caught by running rather than reasoning. (1) The packet-number property asserted a window of `largest ± win`; RFC 9000 §17.1 centres the window on `largest + 1` and makes it `2*win` wide, so the test was wrong, not the code. (2) The CRYPTO-frame property asserted `offset + len(data) <= len(plaintext)`, conflating a *stream* offset with a buffer index -- a legal frame at stream offset 5 in a 4-byte plaintext failed it. The code was right: it clamps `crypto_len = min(crypto_len, length - offset)`. (3) Two of my earlier `D-05` bounds were also wrong (varints cap at 2**62-1; `truncated` must be `< 2**nbits`), and both are now asserted as *rejection* properties instead. Also note the plan assumed `hypothesis`; adding it is a new dev dependency, which `pyproject.toml` was already listed as covering.
-- **Verification:** **499 passed, 12 skipped, 0 xfailed** (up from 479). `ruff check .` and `mypy` (strict, 13 files) clean. Coverage **91.97%**, up from 91.13% — the property tests exercise branches the example-based suite never reached. Property suite runtime ~3 s.
-- **Closed findings:** `R-05` · **Follow-ups:** increment 2 (scapy cross-check) still needs `DEC-03`.
-- **Notes:** **no new production defect was found**, and that is the honest result rather than a disappointing one — Phase 0 already fixed the ones these target, and the value now is regression protection plus coverage of the *unreachable-by-hand* shapes. The real finding was about the harness: two of the four initial failures were my own invariants being wrong, which is exactly what a property suite is supposed to surface. A property test that cannot fail is worse than no test, because it reads as coverage; hence the pre-fix run above. `R-08` (the scapy cross-check) remains open and is documented as `R-05`'s substitute, so the two are now inverted: the substitute is built and the thing it was standing in for is what still needs doing.
+- **Status:** done — both increments — **Blocked by:** — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_07b
+- **Files:** `tests/property/test_extractor_properties.py`, `tests/property/test_scapy_cross_check.py` (both new), `pyproject.toml`, `docs/DESIGN_DECISIONS.md`
+- **Test added:** 45. Increment 1 (here): 20 hypothesis property tests. Increment 2 (this pass): 25 scapy cross-check tests — 8 corpus cases in each direction, the no-SNI case in both directions, a truncation sweep asserting ours is never more permissive than the reference, and six `length` values through scapy-built input.
+- **How it was tackled:** the decisive design point is that a cross-check is only worth anything if the two sides do not share a builder. So `scapy_builds_a_record` constructs the handshake with scapy's own serialiser and `extract_sni` parses it — agreement there means the extractor reads *the format*, not *our fixture*. The reverse direction (scapy parses our fixture) is kept too, but it is weak evidence since both sides of it were produced by the same author. On truncated input the two deliberately disagree: scapy returns what it managed to read (`'example.co'` from a record cut mid-hostname), ours returns None. Ours is the safer of the two, so the test asserts ours is never *more permissive* rather than asserting equality.
+- **Deviations:** one substantial, and it is about the reference rather than the code. `DEC-03`'s own text says to "fall back to deleting the dependency and striking the claim if scapy proves unreliable as a reference". Very nearly taken: the first probe showed scapy finding **no SNI at all** in well-formed input, which would have been that fallback. It was my harness, twice over. (1) `TLSClientHello` expects the handshake body, so the 5-byte TLS record header must be stripped — I stripped 3 (my own framing prefix), misaligning scapy by two bytes. (2) `bytes(TLS() / ch)` does not frame a record: scapy emits content-type `0x00` and a zero length field, so direction B appeared to fail until the handshake was framed explicitly. Also worth recording because it is the same trap as the `R-05` bite test: the first 'it bites' run against mutated code was checked with a sanity command whose own `sys.path.insert` outranked `PYTHONPATH`, so it reported the unmutated module. Re-verified cleanly before believing the 16 failures.
+- **Verification:** **524 passed, 12 skipped, 0 xfailed** (up from 499). `ruff check .` and `mypy` (strict, 13 files) clean. Coverage **92.04%**. **Proven to bite:** `_TLS_RECORD_HEADER_LEN` mutated 5 -> 6 in a worktree, with `PYTHONPATH` confirmed to resolve `dpi_engine.sni_extractor` to the mutated tree — **16 of 25 fail**, both directions, including "hand-rolled extractor failed on a ClientHello built by scapy: expected 'example.com', got None". `DESIGN_DECISIONS.md`'s "scapy's stated purpose is unimplemented" stale claim is closed and the dependency note now describes reality.
+- **Closed findings:** `R-08`, `R-05` · **Follow-ups:** the `scapy` name is forbidden in `test_safety_constraints.py`'s shipped-source pattern list; tests are out of scope there so no conflict, but the list now has an exception for a dependency it exists partly to police.
+- **Notes:** **all five roadmap decisions are now recorded** — `DEC-01` bounded reorder window, `DEC-02` precise pcapng diagnostic, `DEC-03` implement the cross-check, `DEC-04` `AppType.name` + migration, `DEC-05` flow folding default ON — so Phase 1's five blocked tasks are unblocked. `DEC-05` specifically unblocks `D-25`, which I had documented this session as *not cheaply solvable*: `packets_in`/`bytes_in` are permanently 0 because there is no folded flow to attribute the reverse direction to, and folding gives that state an owner. Next is `T1-01` (event bus), whose shape the `DEC-01` decision fixes.
 ### `T1-08` — Benchmark suite
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -523,7 +521,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
 | `D-##` defects | 26 | **16** (`D-01`, `D-02`, `D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`, `D-14`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
-| `R-##` rails | 10 | **6** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`) | 4 | 0 |
+| `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
 | `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
@@ -571,6 +569,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-12 | `ses_t1_07b` | claude-opus-5[1m] | `T1-07` | `R-05` + `R-08` closed — 45 tests, proven to bite | `T1-01` |
 | 2026-10-03 | `ses_t1_07` | claude-opus-5[1m] | `T1-07` | increment 1 — `R-05` closed, 20 property tests, proven to catch `D-05` | `T1-07` increment 2 (needs `DEC-03`) |
 | 2026-10-03 | `ses_batch1` | claude-opus-5[1m] | `T05-02` `R-10` `D-24` `D-25` `D-26` `DOC-05` `DOC-06` `DOC-08` | 6 items — **Phase 0.5 complete** | `R-05` |
 | 2026-10-03 | `ses_t05_01` | claude-opus-5[1m] | `T05-01` | 1 task completed — `D-14` closed — Phase 0.5 exit criterion #1 met | `T05-02` (needs `DEC-02`) |
