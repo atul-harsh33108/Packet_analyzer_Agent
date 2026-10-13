@@ -7,7 +7,7 @@ next_action: Bound the HTTP Host: scan to the header block, require a line start
 blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); Phase 0 and 0.5 complete; Phase 1 0/9]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_07b
+session: ses_t1_01
 ---
 
 # Task Tracker — `dpi-engine`
@@ -41,13 +41,13 @@ session workflow — what to read, in what order, when to stop — read
 |---|---|
 | **Phase** | 0 — Harden |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: **2/2 complete** |
-| **Current task** | `T1-07` complete (`R-05` + `R-08`); next unblocked is `T1-01` |
+| **Current task** | `T1-01` done; next unblocked is `T1-03` (streaming output + reorder) |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
 | **Blocked by** | nothing — all five decisions recorded 2026-10-12 |
 | **Open decisions** | **none.** All five decided 2026-10-12; `DEC-01`, `DEC-03`, `DEC-04`, `DEC-05` by the user, `DEC-02` ratified in `T05-02` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t1_07b` — `T1-07` closed, `R-08` closed |
+| **Session** | `ses_t1_01` — `T1-01` closed — A-01 event bus done |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -118,8 +118,8 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | Phase | Scope | Tasks | Done | In progress | Blocked | Pending | Deferred | Exit status |
 |---|---|---|---|---|---|---|---|---|
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
-| **0.5** | Real captures | 2 | **2** | 0 | 0 | 1 | 0 | not met |
-| **1** | Streaming core | 9 | 0 | 0 | **4** | 5 | 0 | not met |
+| **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
+| **1** | Streaming core | 9 | **2** | 0 | 7 | 0 | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
@@ -156,11 +156,11 @@ Status vocabulary is closed (7 values) — see
 | `T0-11` | **Bound worker memory** | `D-01` `D-02` `D-22` | done | — | 2–3 d |
 | `T05-01` | VLAN / 802.1Q and QinQ | `D-14` | done | — | 0.5 d |
 | `T05-02` | pcapng diagnostic or reader | `D-15` | done | — | 10 min / 2 d |
-| `T1-01` | Event bus | `A-01` | blocked | **`DEC-01`** | 1 d |
+| `T1-01` | Event bus | `A-01` | done | — | 1 d |
 | `T1-02` | `CapSource` abstraction | `A-01` | pending | — | 2 d |
-| `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | blocked | **`DEC-01` `DEC-05`** | 3 d |
+| `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | pending | — | 3 d |
 | `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
-| `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | blocked | **`DEC-04`** | 1 d |
+| `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | pending | — | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | pending | — | 2 d |
 | `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | done | — | 2 d |
 | `T1-08` | Benchmark suite | `R-06` `P-15` | pending | — | 1 d |
@@ -335,14 +335,15 @@ or `dropped` and say why.
 - **Closed findings:** `D-15` (diagnostic half only) · **Follow-ups:** Phase 1 if the golden corpus needs a real reader.
 - **Notes:** Phase 0.5 exit criterion #2 — "pcapng input produces a precise, actionable diagnostic" — is met, so **Phase 0.5 is complete (2/2)** alongside criterion #1 (tagged capture classifies identically to its untagged twin).
 ### `T1-01` — Event bus
-
-- **Status:** blocked · **Blocked by:** `DEC-01` · **Claimed by:** — · **Session:** —
-- **Files:** `src/dpi_engine/events.py` (new), `src/dpi_engine/pipeline.py`
-- **Test added:** folding a synthetic event stream yields a `PipelineResult` identical to today's batch result for the same capture — **this is the guarantee that makes the refactor safe**
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q`
-- **Closed findings:** — (addresses `A-01`) · **Follow-ups:** —
-- **Notes:** `PipelineResult` becomes a *derived* summary so the batch API and every existing consumer keep working
-
+- **Status:** done — **Blocked by:** — (DEC-01 decided 2026-10-12) — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_01
+- **Files:** `src/dpi_engine/events.py` (new), `src/dpi_engine/pipeline.py`, `tests/test_event_bus.py` (new)
+- **Test added:** thirteen. The guarantee test (`test_the_fold_reproduces_the_batch_result`) plus the same test with blocking rules, so the drop path is exercised; fidelity tests (one `PacketParsed` per packet with a dense `sequence_index`, skipped frames emitted with `inspected=False` and counted exactly, `FlowCreated` before `FlowClassified`, every flow classified at least once, `FlowBlocked` exactly once per flow, open/close ordered); robustness (a failing subscriber does not stop the run, unsubscribe works); and two fold tests in isolation -- a hand-built synthetic stream pinning the arithmetic, and an empty stream folding to the zero value.
+- **How it was tackled:** the spec's own framing — `PipelineResult` becomes a *derived* summary computed by folding the stream — so the batch API is preserved and every existing consumer keeps working. `run_pipeline` takes an optional `bus`, defaulting to `None` so the hot path pays nothing unless someone asks for the stream. `fold_events` reuses `WorkerResult` and `_LoadBalancerResult` rather than re-encoding them, so the fold and the batch path compose from the same objects and cannot drift. `T0-11` is why this is possible: it removed the global `sort` and the per-packet accumulation, so a fold reproduces the batch result exactly. Emission is opt-in at the *bus* level, not the *listener* level, pinned by `test_the_fold_reproduces_the_batch_result_with_a_bus_but_no_subscribers`.
+- **Two real bugs in my own emission, both caught by the guarantee test rather than by reading the code:** (1) `FlowCreated` was emitted *before* the decision with an early return, so a brand-new flow never emitted `FlowClassified` at all — `app_counts` under-counted by exactly the number of distinct flows, invisible in the output pcap and in every counter except that one. (2) "is this flow new" was implemented as `get_connection(tuple_) is None`, but `ConnectionTracker.get_connection` also matches the *reverse* five-tuple, so a flow whose reverse direction was already tracked never emitted `FlowCreated`. The exact-tuple containment check (`tuple_ in tracker`) is what 'this flow is new' means. Both are now regression tests.
+- **Deviations:** four. (1) The spec lists `FlowEvicted` in the vocabulary; it is defined but **not emitted** — eviction is a `ConnectionTracker` judgement and the tracker has no knowledge of events, which is a layering boundary worth keeping. Documented in its docstring rather than papered over; deferred to `T1-03`. (2) `fold_events` lives in `pipeline.py`, not `events.py`: the fold constructs a `PipelineResult`, and `pipeline` imports the event types in order to emit them, so one direction must be type-only and it cannot be the fold's. `events.py` is a leaf with no runtime pipeline dependency. (3) `TrackerStats.combine` takes a single argument while `FastPathStats.combine` and `LoadBalancerStats.combine` take a sequence — an upstream asymmetry the fold follows rather than unifying. (4) Only the single-process path emits events; the two multiprocess variants return the same `PipelineResult` but do not populate a bus yet.
+- **Verification:** **537 passed, 12 skipped, 0 xfailed** (up from 524). `ruff check .` and `mypy` (strict, 14 source files) clean. Coverage 92.02%. **Throughput measured, because this touched the hot loop:** with `bus=None` (the default) the run is *unchanged*, since emission is opt-in. With a bus supplied but zero subscribers the cost is **+7.3%** (3.55 -> 3.81 ms on the sample capture) {EM} pure dataclass construction that nobody reads. That is the number to know before subscribing anything real to this.
+- **Closed findings:** `A-01` (streaming analysis: the event bus and the derived summary) · **Follow-ups:** `FlowEvicted` emission, bus wiring for the two multiprocess variants, and a live-consumer contract — all `T1-03`.
+- **Notes:** this is the first task that could not be validated by comparing output bytes to `HEAD`, because the point is to change the shape of the data. The guarantee test replaces that check and is stronger: it asserts the two paths agree on every reported figure rather than on the bytes. Worth being explicit that it did its job twice — both emission bugs above were found by it and would have shipped silently without it, since `run_pipeline`'s own return value was unaffected in both cases.
 ### `T1-02` — `CapSource` abstraction
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -569,6 +570,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-12 | `ses_t1_01` | claude-opus-5[1m] | `T1-01` | event bus done — derived `PipelineResult` — guarantee test caught 2 emission bugs | `T1-03` |
 | 2026-10-12 | `ses_t1_07b` | claude-opus-5[1m] | `T1-07` | `R-05` + `R-08` closed — 45 tests, proven to bite | `T1-01` |
 | 2026-10-03 | `ses_t1_07` | claude-opus-5[1m] | `T1-07` | increment 1 — `R-05` closed, 20 property tests, proven to catch `D-05` | `T1-07` increment 2 (needs `DEC-03`) |
 | 2026-10-03 | `ses_batch1` | claude-opus-5[1m] | `T05-02` `R-10` `D-24` `D-25` `D-26` `DOC-05` `DOC-06` `DOC-08` | 6 items — **Phase 0.5 complete** | `R-05` |

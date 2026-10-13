@@ -77,6 +77,19 @@ from dpi_engine.connection_tracker import (
     TrackerStats,
     combine_tracker_reports,
 )
+from dpi_engine.events import (
+    CaptureClosed,
+    CaptureOpened,
+    Event,
+    EventBus,
+    FlowBlocked,
+    FlowClassified,
+    FlowCreated,
+    LimitExceeded,
+    LoadBalancerFinished,
+    PacketParsed,
+    WorkerFinished,
+)
 from dpi_engine.load_balancer import (
     SHUTDOWN_SENTINEL,
     FastPathStats,
@@ -89,12 +102,13 @@ from dpi_engine.packet_parser import ParsedPacket, parse_packet
 from dpi_engine.pcap_io import (
     DEFAULT_MAX_PACKET_SIZE,
     DEFAULT_MAX_TOTAL_PACKETS,
+    PcapLimitExceededError,
     PcapReader,
     PcapWriter,
     RawPacket,
 )
 from dpi_engine.rule_manager import RuleManager, RuleSnapshot
-from dpi_engine.types import AppType, DPIStats, FiveTuple
+from dpi_engine.types import AppType, Connection, ConnectionState, DPIStats, FiveTuple
 from dpi_engine.worker import (
     FixedRuleSource,
     FlowProcessor,
@@ -159,6 +173,140 @@ class PipelineResult:
         if inspected == 0:
             return 0.0
         return 100.0 * self.stats.dropped_packets / inspected
+
+
+# ---------------------------------------------------------------------------
+# The fold
+# ---------------------------------------------------------------------------
+
+
+def fold_events(events: Iterable[Event]) -> PipelineResult:
+    """Derives `PipelineResult` by folding an event stream.
+
+    This is the *only* place `PipelineResult` is constructed from a run's
+    behaviour once the pipeline emits events, and it must agree exactly with
+    what the batch path computed -- that is the guarantee
+    `tests/test_event_bus.py::test_the_fold_reproduces_the_batch_result`
+    asserts. Where the two would disagree, the fold is wrong, not the batch
+    path: the batch path is the specification until streaming replaces it.
+
+    Composition rules, mirroring `_accumulate`:
+      * `PacketParsed` builds `DPIStats`;
+      * `FlowClassified` builds `app_counts` and `detected_domains`, with
+        last-write-wins on a repeated domain, matching the batch dict merge;
+      * `FlowBlocked` appends to `blocked_flows` in arrival order;
+      * `WorkerFinished` contributes `per_worker_packet_counts`, its share of
+        `fast_path_stats`, its `quic_*` counters, and its tracker report;
+      * `LoadBalancerFinished` contributes `load_balancer_stats`.
+
+    `active_connections` and `flows_reaped` come from the tracker reports, not
+    from `FlowEvicted`, because eviction is a *tracker* judgement the fold has
+    no second source for.
+    """
+    stats = DPIStats()
+    app_counts: dict[AppType, int] = {}
+    detected_domains: dict[str, AppType] = {}
+    blocked_flows: list[tuple[FiveTuple, AppType, str]] = []
+    worker_results: list[WorkerResult] = []
+    lb_results = []
+    quic_packets = 0
+    quic_undecryptable = 0
+
+    for event in events:
+        if isinstance(event, PacketParsed):
+            stats.total_packets += 1
+            stats.total_bytes += event.byte_len
+            if event.is_tcp:
+                stats.tcp_packets += 1
+            elif event.is_udp:
+                stats.udp_packets += 1
+            else:
+                stats.other_packets += 1
+            if event.forwarded:
+                stats.forwarded_packets += 1
+            else:
+                stats.dropped_packets += 1
+
+        elif isinstance(event, FlowClassified):
+            app_counts[event.app_type] = app_counts.get(event.app_type, 0) + 1
+            if event.sni:
+                detected_domains[event.sni] = event.app_type
+
+        elif isinstance(event, FlowBlocked):
+            blocked_flows.append((event.five_tuple, event.app_type, event.sni))
+
+        elif isinstance(event, WorkerFinished):
+            worker_results.append(event.result)
+            quic_packets += event.result.quic_packets
+            quic_undecryptable += event.result.quic_undecryptable
+
+        elif isinstance(event, LoadBalancerFinished):
+            lb_results.append(event.result)
+
+        # CaptureOpened / CaptureClosed / FlowCreated / FlowEvicted /
+        # LimitExceeded carry no figure the fold needs; see module docstring.
+
+    stats.active_connections = _combined_active(worker_results)
+    result = PipelineResult(
+        stats=stats,
+        app_counts=app_counts,
+        detected_domains=detected_domains,
+        blocked_flows=blocked_flows,
+        per_worker_packet_counts=[r.fp_stats.packets_processed for r in worker_results],
+        fast_path_stats=_combined_fast_path(worker_results),
+        load_balancer_stats=_combined_lb_stats(lb_results),
+        quic_packets=quic_packets,
+        quic_undecryptable=quic_undecryptable,
+        global_stats=_combined_global(worker_results),
+    )
+    return result
+
+
+def _combined_active(results: list[WorkerResult]) -> int:
+    """`active_connections` across every tracker that reported."""
+    from dpi_engine.connection_tracker import TrackerStats
+
+    total = TrackerStats()
+    for r in results:
+        total = total.combine(r.tracker_stats)
+    return total.active_connections
+
+
+def _combined_global(results: list[WorkerResult]) -> GlobalStats | None:
+    """`combine_tracker_reports` over the reported trackers, or None if none."""
+    if not results:
+        return None
+    from dpi_engine.connection_tracker import combine_tracker_reports
+
+    return combine_tracker_reports(
+        [(r.tracker_stats, r.connections) for r in results]
+    )
+
+
+def _combined_fast_path(results: list[WorkerResult]) -> FastPathStats | None:
+    """Folds every reported `FastPathStats`, or None if no worker reported."""
+    if not results:
+        return None
+    from dpi_engine.load_balancer import FastPathStats
+
+    total = FastPathStats(fp_id=results[0].fp_stats.fp_id)
+    for r in results:
+        total = total.combine([r.fp_stats])
+    return total
+
+
+def _combined_lb_stats(
+    results: list[_LoadBalancerResult],
+) -> LoadBalancerStats | None:
+    """Folds every load-balancer stat, or None if none reported."""
+    if not results:
+        return None
+    from dpi_engine.load_balancer import LoadBalancerStats
+
+    total = LoadBalancerStats()
+    for r in results:
+        total = total.combine([r.stats])
+    return total
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +414,44 @@ class _FlowEngine:
         return self.processor.finalize()
 
 
+def _emit_lifecycle_events(
+    bus: EventBus,
+    engine: _FlowEngine,
+    tuple_: FiveTuple,
+    conn_before: Connection | None,
+    existed_before: bool,
+    was_blocked: bool,
+) -> None:
+    """Emits the flow-lifecycle events for a packet, after it has been decided.
+
+    Deliberately *after* `engine.submit`, not before. An earlier version emitted
+    `FlowCreated` before the decision and then returned, on the reasoning that a
+    brand-new flow has no classification yet -- which under-counted `app_counts`
+    by exactly the number of distinct flows, because the batch path tallies
+    `_record_stats` for every packet including the first. The guarantee test
+    caught it. Emitting after the decision means the connection exists and its
+    classification is the real one.
+
+    `existed_before` is an **exact-tuple** containment check, not
+    `get_connection(tuple_) is None`. That matters: `ConnectionTracker.
+    get_connection` also matches the *reverse* five-tuple, so a flow whose
+    reverse direction was already tracked would look "not new" and never emit
+    `FlowCreated` -- while the entry for this exact tuple did not exist.
+    `test_flow_created_precedes_flow_classified` caught that one.
+
+    `FlowBlocked` compares `was_blocked` to the post-decision state, which is
+    what makes it fire exactly once per flow rather than once per packet.
+    """
+    conn = engine.processor.tracker.get_connection(tuple_)
+    if conn is None:
+        return  # unreachable for an inspectable packet, but cheap to be safe
+    if not existed_before:
+        bus.emit(FlowCreated(five_tuple=tuple_))
+    bus.emit(FlowClassified(five_tuple=tuple_, app_type=conn.app_type, sni=conn.sni))
+    if not was_blocked and conn.state is ConnectionState.BLOCKED:
+        bus.emit(FlowBlocked(five_tuple=tuple_, app_type=conn.app_type, sni=conn.sni))
+
+
 def _make_five_tuple(parsed: ParsedPacket) -> FiveTuple:
     return FiveTuple(
         src_ip=parsed.src_ip,
@@ -284,12 +470,21 @@ InspectableItem = tuple[int, RawPacket, ParsedPacket, FiveTuple]
 def _iter_inspectable(
     reader: PcapReader,
     stats: DPIStats,
+    *,
+    bus: EventBus | None = None,
 ) -> Iterable[InspectableItem]:
     """Yields (sequence_index, raw, parsed, five_tuple) for every packet that
     is worth inspecting, accumulating the read-level counters into `stats`.
 
     Non-IPv4 frames, non-TCP/UDP payloads, and unparseable frames are counted
     in `stats.other_packets` and skipped -- never an error, just nothing to do.
+
+    When `bus` is given, a `PacketParsed` event is emitted for *every* packet,
+    including the skipped ones with `inspected=False`. The fold needs those:
+    `stats.total_packets` and `stats.total_bytes` count them, so an event
+    stream that omitted them could never reproduce the batch totals. Emission
+    is opt-in so that per-packet cost is paid only by callers who asked for the
+    stream.
     """
     for sequence_index, raw in enumerate(reader):
         stats.total_packets += 1
@@ -301,6 +496,18 @@ def _iter_inspectable(
         parsed = parse_packet(raw)
         if parsed is None or not parsed.has_ip or not (parsed.has_tcp or parsed.has_udp):
             stats.other_packets += 1
+            if bus is not None:
+                bus.emit(
+                    PacketParsed(
+                        sequence_index=sequence_index,
+                        byte_len=len(raw.data),
+                        inspected=False,
+                        is_tcp=False,
+                        is_udp=False,
+                        # Nothing was considered, so nothing was dropped.
+                        forwarded=True,
+                    )
+                )
             continue
 
         if parsed.has_tcp:
@@ -389,6 +596,7 @@ def run_pipeline(
     enable_quic: bool = True,
     with_global_stats: bool = True,
     rule_broadcaster: RuleBroadcaster | None = None,
+    bus: EventBus | None = None,
 ) -> PipelineResult:
     """Runs the full pipeline in one process, with no IPC.
 
@@ -432,23 +640,66 @@ def run_pipeline(
     with PcapReader(
         input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
     ) as reader, PcapWriter(output_path, source_path=input_path) as writer:
-        for sequence_index, raw, parsed, tuple_ in _iter_inspectable(reader, stats):
-            if rule_broadcaster is not None:
-                rule_broadcaster.publish()
-            if engine.submit(
-                WorkItem(
-                    sequence_index=sequence_index,
-                    raw=raw,
-                    parsed=parsed,
-                    five_tuple=tuple_,
+        if bus is not None:
+            bus.emit(CaptureOpened(path=str(input_path), linktype=reader.linktype))
+        try:
+            for sequence_index, raw, parsed, tuple_ in _iter_inspectable(reader, stats, bus=bus):
+                if rule_broadcaster is not None:
+                    rule_broadcaster.publish()
+
+                # `tuple_ in tracker`, not `get_connection(tuple_) is None`:
+                # `get_connection` also matches the *reverse* five-tuple, so a
+                # flow whose reverse direction was already tracked would look
+                # "not new" and never emit FlowCreated -- while the connection
+                # for this exact tuple did not exist. The exact-tuple containment
+                # check is the one that means what "this flow is new" means.
+                conn_before = engine.processor.tracker.get_connection(tuple_)
+                existed_before = tuple_ in engine.processor.tracker
+                was_blocked = tuple_ in engine.processor.blocked_tuples
+                forwarded = engine.submit(
+                    WorkItem(
+                        sequence_index=sequence_index,
+                        raw=raw,
+                        parsed=parsed,
+                        five_tuple=tuple_,
+                    )
                 )
-            ):
-                stats.forwarded_packets += 1
-                writer.write(raw)
-            else:
-                stats.dropped_packets += 1
+                if bus is not None:
+                    _emit_lifecycle_events(
+                        bus, engine, tuple_, conn_before, existed_before, was_blocked
+                    )
+                    bus.emit(
+                        PacketParsed(
+                            sequence_index=sequence_index,
+                            byte_len=len(raw.data),
+                            inspected=True,
+                            is_tcp=parsed.has_tcp,
+                            is_udp=parsed.has_udp,
+                            forwarded=forwarded,
+                        )
+                    )
+
+                if forwarded:
+                    stats.forwarded_packets += 1
+                    writer.write(raw)
+                else:
+                    stats.dropped_packets += 1
+        except PcapLimitExceededError as exc:
+            # The one resource bound that ends a run mid-capture. It is a
+            # failure the caller already sees as a raised exception; emitting it
+            # is what makes a stream consumer able to tell "the capture ended"
+            # from "the capture hit a bound", which are otherwise the same thing
+            # from the outside.
+            if bus is not None:
+                bus.emit(
+                    LimitExceeded(kind=type(exc).__name__, detail=str(exc))
+                )
+            raise
 
     result = engine.result()
+    if bus is not None:
+        bus.emit(WorkerFinished(worker_id=0, result=result))
+        bus.emit(CaptureClosed())
     stats.tcp_packets = result.tcp_count
     stats.udp_packets = result.udp_count
 
