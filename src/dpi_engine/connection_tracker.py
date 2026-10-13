@@ -130,6 +130,8 @@ class ConnectionTracker:
         *,
         stale_timeout_seconds: float | None = DEFAULT_STALE_TIMEOUT_SECONDS,
         reap_interval_packets: int = DEFAULT_REAP_INTERVAL_PACKETS,
+        fold_bidirectional: bool = True,
+        on_evicted: Callable[[FiveTuple], None] | None = None,
     ) -> None:
         if max_connections < 1:
             raise ValueError(f"max_connections must be >= 1, got {max_connections}")
@@ -146,6 +148,26 @@ class ConnectionTracker:
         self.max_connections = max_connections
         self.stale_timeout_seconds = stale_timeout_seconds
         self.reap_interval_packets = reap_interval_packets
+
+        # `DEC-05`. With folding on -- the default -- a flow and its reverse
+        # direction are the same entry, so a SYN and the SYN-ACK answering it
+        # share one `Connection`. That is what makes `packets_in`/`bytes_in`
+        # derivable at all (`D-25`): there is finally a shared object to
+        # attribute the second direction to.
+        #
+        # Differential mode passes False. The C++ original keys flows by exact
+        # tuple and never calls `FiveTuple::reverse()`, so folding would show
+        # up as a divergence in flow counts, in app counts, and in every
+        # per-flow byte total. Off is the parity behaviour; on is the
+        # product-correct one.
+        self.fold_bidirectional = fold_bidirectional
+
+        # `T1-01` follow-up: a hook fired when a flow leaves the table, so the
+        # pipeline can publish `FlowEvicted` without the tracker importing the
+        # event vocabulary. The tracker stays ignorant of reporting; the parent
+        # decides what a departure means. None by default, so the hot path is a
+        # single truthiness check.
+        self.on_evicted = on_evicted
 
         # OrderedDict preserves insertion order; every *use* moves the entry to
         # the end, so the front is always the least-recently-used entry --
@@ -172,6 +194,29 @@ class ConnectionTracker:
     # Lookup / creation
     # ------------------------------------------------------------------
 
+    def flow_key(self, tuple_: FiveTuple) -> FiveTuple:
+        """The canonical key for `tuple_`, which is what `_connections` is keyed by.
+
+        Public because two other modules need exactly this mapping and must not
+        reimplement it: `worker.FlowProcessor` keys its per-flow side tables by
+        it, and the multiprocessing dispatcher hashes it so that both
+        directions of a flow reach the same worker. A second, subtly different
+        canonicalisation anywhere would silently split one flow across two
+        trackers.
+
+        `DEC-05`. Canonicalising by taking the lexicographically smaller of the
+        tuple and its reverse makes the mapping a *projection*: both directions
+        land on one key, and the choice is stable and total, so it does not
+        depend on which direction happened to arrive first.
+
+        `min` over a `NamedTuple` compares field by field, so the winner is the
+        same on every call and in every process.
+
+        With folding off this is the identity, and the tracker behaves exactly
+        as the C++ original does.
+        """
+        return canonical_flow_key(tuple_, self.fold_bidirectional)
+
     def get_or_create_connection(self, tuple_: FiveTuple) -> Connection:
         """Returns the existing connection for `tuple_`, or creates one.
 
@@ -185,17 +230,24 @@ class ConnectionTracker:
             self._calls_since_reap = 0
             self.reap_if_due()
 
-        existing = self._connections.get(tuple_)
+        key = self.flow_key(tuple_)
+        existing = self._connections.get(key)
         if existing is not None:
-            self._connections.move_to_end(tuple_)
+            self._connections.move_to_end(key)
             return existing
 
         if len(self._connections) >= self.max_connections:
             self._evict_oldest()
 
         now = time.monotonic()
-        conn = Connection(tuple=tuple_, state=ConnectionState.NEW, first_seen=now, last_seen=now)
-        self._connections[tuple_] = conn
+        # `Connection.tuple` is the *canonical* key, not the packet's own tuple.
+        # `worker.FlowProcessor.process` tells the two apart with
+        # `tuple_ == conn.tuple` to decide which direction a packet belongs to,
+        # which is how `packets_in`/`bytes_in` become derivable (`D-25`). Storing
+        # the packet's tuple instead would make that test always true and leave
+        # both counters at zero again.
+        conn = Connection(tuple=key, state=ConnectionState.NEW, first_seen=now, last_seen=now)
+        self._connections[key] = conn
         self._total_seen += 1
         return conn
 
@@ -209,13 +261,18 @@ class ConnectionTracker:
         idle flow alive. Callers that genuinely mean "this flow is active"
         should use `get_or_create_connection`.
         """
-        existing = self._connections.get(tuple_)
-        if existing is not None:
+        existing = self._connections.get(self.flow_key(tuple_))
+        if existing is not None or self.fold_bidirectional:
+            # With folding on, the canonical key already spans both directions,
+            # so there is nothing further to try.
             return existing
+        # Folding off: the key is the exact tuple, so the reverse fallback is
+        # still what gives this method its bidirectional behaviour -- and it is
+        # the path differential mode exercises.
         return self._connections.get(tuple_.reverse())
 
     def __contains__(self, tuple_: FiveTuple) -> bool:
-        return tuple_ in self._connections
+        return self.flow_key(tuple_) in self._connections
 
     def __len__(self) -> int:
         return len(self._connections)
@@ -379,6 +436,7 @@ class ConnectionTracker:
         for t in stale:
             del self._connections[t]
             self._guessed.discard(t)
+            self._notify_evicted(t)
         self._reaped_total += len(stale)
         return len(stale)
 
@@ -440,6 +498,48 @@ class ConnectionTracker:
             return
         oldest_tuple, _ = self._connections.popitem(last=False)
         self._guessed.discard(oldest_tuple)
+        self._notify_evicted(oldest_tuple)
+
+    def _notify_evicted(self, tuple_: FiveTuple) -> None:
+        """Fires the `on_evicted` hook, if one is installed.
+
+        Both eviction paths -- LRU pressure and the stale sweep -- funnel
+        through here, so a subscriber sees every departure exactly once and
+        cannot tell which mechanism caused it. That indistinguishability is
+        deliberate: from a live view's perspective a flow leaving the table is
+        one event with two causes, and splitting it would make consumers
+        reimplement the tracker's policy.
+
+        A hook that raises does not take the run down. Eviction happens inside
+        `get_or_create_connection`, i.e. on the packet path, so letting a
+        reporting bug propagate would turn a broken dashboard into a dropped
+        capture -- the same reasoning as `EventBus.emit`.
+        """
+        if self.on_evicted is None:
+            return
+        try:
+            self.on_evicted(tuple_)
+        except Exception:  # a reporting bug must not break the packet path
+            return
+
+
+def canonical_flow_key(tuple_: FiveTuple, fold_bidirectional: bool = True) -> FiveTuple:
+    """The key a flow is stored under, as a plain function.
+
+    `ConnectionTracker.flow_key` is the same computation, and delegates here.
+    It exists at module level because the *parent* process needs it too: the
+    multiprocessing dispatcher has to hash this key rather than the packet's
+    own tuple, or the two directions of one conversation land on different
+    workers -- and then folding in each worker's tracker is worse than useless,
+    because each sees only half a flow. Two implementations of this mapping
+    would be a silent correctness hazard, so there is exactly one.
+
+    `DEC-05`.
+    """
+    if not fold_bidirectional:
+        return tuple_
+    reverse = tuple_.reverse()
+    return reverse if reverse < tuple_ else tuple_
 
 
 @dataclass(slots=True)

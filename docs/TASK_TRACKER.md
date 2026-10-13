@@ -7,7 +7,7 @@ next_action: Bound the HTTP Host: scan to the header block, require a line start
 blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); Phase 0 and 0.5 complete; Phase 1 0/9]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_01
+session: ses_t1_03
 ---
 
 # Task Tracker — `dpi-engine`
@@ -41,13 +41,13 @@ session workflow — what to read, in what order, when to stop — read
 |---|---|
 | **Phase** | 0 — Harden |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: **2/2 complete** |
-| **Current task** | `T1-01` done; next unblocked is `T1-03` (streaming output + reorder) |
+| **Current task** | `T1-03` — streaming output (claimed) |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
 | **Blocked by** | nothing — all five decisions recorded 2026-10-12 |
 | **Open decisions** | **none.** All five decided 2026-10-12; `DEC-01`, `DEC-03`, `DEC-04`, `DEC-05` by the user, `DEC-02` ratified in `T05-02` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t1_01` — `T1-01` closed — A-01 event bus done |
+| **Session** | `ses_t1_03` — `T1-03` in progress |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -158,7 +158,7 @@ Status vocabulary is closed (7 values) — see
 | `T05-02` | pcapng diagnostic or reader | `D-15` | done | — | 10 min / 2 d |
 | `T1-01` | Event bus | `A-01` | done | — | 1 d |
 | `T1-02` | `CapSource` abstraction | `A-01` | pending | — | 2 d |
-| `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | pending | — | 3 d |
+| `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | in_progress | — | 3 d |
 | `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | pending | — | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | pending | — | 2 d |
@@ -354,14 +354,21 @@ or `dropped` and say why.
 - **Notes:** `PcapReader`/`PcapWriter` stay the only I/O boundary, so the safety invariant holds by construction
 
 ### `T1-03` — Streaming output + reorder buffer
-
-- **Status:** blocked · **Blocked by:** `DEC-01` `DEC-05` · **Claimed by:** — · **Session:** —
-- **Files:** `src/dpi_engine/pipeline.py`, `src/dpi_engine/worker.py`
-- **Test added:** deterministic byte-identical output within the window; documented and tested behaviour beyond it; differential mode pinned to exact-tuple keying
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q` plus differential
-- **Closed findings:** `A-02`, `P-16` · **Follow-ups:** —
-- **Notes:** replace `T0-11`'s second input pass with a bounded reorder window; add `--reorder-window`. Medium-high risk — this is where `RK-01` and `RK-03` actually live, which is why `T0-11` deliberately kept the pass
-
+- **Status:** in_progress — **Blocked by:** — (DEC-01, DEC-05 decided 2026-10-12) — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_03
+- **Files (so far):** `src/dpi_engine/worker.py`, `src/dpi_engine/connection_tracker.py`, `src/dpi_engine/pipeline.py`
+- **Scope (user decision, 2026-10-13):** all three pieces in one commit (A) bounded reorder buffer, (B) `DEC-05` flow folding, (C) the three `T1-01` follow-ups.
+- **NOT COMMITTABLE.** 16 tests fail. Do not commit this state. Revert with `git checkout -- src/ docs/TASK_TRACKER.md` if the work is not resumed.
+- **Done (A, single-tier only):** `worker.PacketDecision` + `worker_main(emit_decisions=)` publish a verdict per packet; `pipeline.ReorderBuffer` holds up to *W* packets keyed on `sequence_index` and emits in input order within the window; `_pump_worker_messages`, `_await_space`, `_collect_streaming`; `DEFAULT_REORDER_WINDOW = 1024`. `run_pipeline_multiprocess` now dispatches, drains and writes in one interleaved pass, and `reorder_window=None` still selects `T0-11`'s second pass for exact parity.
+- **Late-packet policy (documented in the class docstring):** order is preserved by default; out-of-order emission happens only when the window is full *and* the packet at `next_expected` has no verdict. The verdict itself is never guessed, dropped or forwarded early. `out_of_order_emissions` and `late_decisions` report every departure from input order.
+- **Done (B, partial):** `canonical_flow_key()` is the single canonicalisation, delegated to by `ConnectionTracker.flow_key`; tracker keys, `blocked_tuples` and `_quic_inspectors` are canonical; MP dispatch hashes the canonical key; `worker.process` derives `is_outbound` from `tuple_ == conn.tuple`, which is what makes `packets_in`/`bytes_in` real for the first time (`D-25`). `fold_bidirectional=False` preserves the unfolded C++ behaviour.
+- **Done (C, partial):** `ConnectionTracker(on_evicted=)` fires on both the LRU and the stale sweep, so the pipeline can publish `FlowEvicted` without the tracker importing the event vocabulary.
+- **Left to do:** (1) wire the *staged* variant — its dispatch hashes the raw tuple and `LoadBalancer.select_fp` does too, so `DEC-05` splits one flow across fast-paths there, and its fast paths report to the LB rather than the parent, so the reorder buffer cannot be reused as-is. (2) `--reorder-window` and `fold_bidirectional` in `cli.py`. (3) Install `on_evicted` so `FlowEvicted` is actually emitted, and wire the bus in the MP paths. (4) Write the reorder tests, including the beyond-the-window half. (5) Update the differential allowlist for folding, the VLAN peel and the inbound/outbound split.
+- **The 16 failures, by cause:** 7 staged (unwired `DEC-05`); 3 `test_report` + 2 `test_event_bus` (folding legitimately changes flow and app counts, so those expectations need re-deriving, not weakening); 2 `test_resource_bounds` (`_worker_result_pickle_bytes` returns 0, and a test that seeds `blocked_tuples` with a raw tuple now needs the canonical key); 1 `test_safety_constraints` (the teardown moved inside the writer's `with`, so the simulated-failure path needs re-checking); 1 `test_staged_pipeline::test_every_flow_lands_on_exactly_one_fast_path` (the partitioning invariant, same root cause as the staged wiring).
+- **One real bug found and fixed during the work:** `_ensure_alive` treated any `not p.is_alive()` worker as dead, but a worker that finished and exited cleanly is *done*, not dead — with more workers than a capture has flows that is the common case. It now flags only abnormal exit codes.
+- **One real bug found and fixed during the work:** the reorder buffer was flushed after the writer's `with` had closed, so it wrote to a closed file. Collection now runs inside the `with`. This is why the tail of `run_pipeline_multiprocess` was restructured.
+- **Verification:** `ruff` and `mypy --strict` clean. 522 passed, 16 failed, 12 skipped. `tests/test_worker.py` is green (9/9), which is the single-tier streaming path.
+- **Follow-ups:** none new; `D-13` (LB-death orphan) is still unowned and the staged work is where it would bite.
+- **Notes:** this is the first task where the tree has been left red on purpose. The right call was to stop and record rather than to keep going on a 3-day task with a shrinking budget, and to leave the state visible rather than implied.
 ### `T1-04` — Rule DSL with provenance
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
@@ -570,6 +577,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-13 | `ses_t1_03` | claude-opus-5[1m] | `T1-03` | partial — reorder buffer works single-tier, `DEC-05` folding half-wired — **tree red, not committable** | finish staged wiring, then tests |
 | 2026-10-12 | `ses_t1_01` | claude-opus-5[1m] | `T1-01` | event bus done — derived `PipelineResult` — guarantee test caught 2 emission bugs | `T1-03` |
 | 2026-10-12 | `ses_t1_07b` | claude-opus-5[1m] | `T1-07` | `R-05` + `R-08` closed — 45 tests, proven to bite | `T1-01` |
 | 2026-10-03 | `ses_t1_07` | claude-opus-5[1m] | `T1-07` | increment 1 — `R-05` closed, 20 property tests, proven to catch `D-05` | `T1-07` increment 2 (needs `DEC-03`) |
