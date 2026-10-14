@@ -82,7 +82,12 @@ def _add_pcap_bounds_args(parser: argparse.ArgumentParser) -> None:
 def _add_rule_building_args(parser: argparse.ArgumentParser, *, removals: bool = False) -> None:
     """The rule-mutation flags shared by `rules` and `run`."""
     parser.add_argument(
-        "--block-ip", action="append", default=[], metavar="IP", help="Block a source IP."
+        "--block-ip",
+        action="append",
+        default=[],
+        metavar="IP",
+        help="Block an IP, or a whole subnet as CIDR (e.g. 10.0.0.0/8). "
+        "Matches either endpoint (DEC-06), not just the source.",
     )
     parser.add_argument(
         "--block-app",
@@ -110,7 +115,11 @@ def _add_rule_building_args(parser: argparse.ArgumentParser, *, removals: bool =
     if not removals:
         return
     parser.add_argument(
-        "--unblock-ip", action="append", default=[], metavar="IP", help="Unblock a source IP."
+        "--unblock-ip",
+        action="append",
+        default=[],
+        metavar="IP",
+        help="Unblock an IP, or a whole subnet as CIDR (e.g. 10.0.0.0/8).",
     )
     parser.add_argument(
         "--unblock-app",

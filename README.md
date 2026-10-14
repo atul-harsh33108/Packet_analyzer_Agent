@@ -17,7 +17,7 @@ uv run dpi-engine inspect capture.pcap    # what's in this file?
 uv run dpi-engine dump capture.pcap       # every packet's five-tuple
 uv run dpi-engine run capture.pcap out.pcap
 uv run dpi-engine run capture.pcap out.pcap --block-app YouTube
-uv run pytest                            # 377 unit + 14 differential tests
+uv run pytest                            # everything; the C++ differential suite skips without Docker
 ```
 
 `--json` on `run` emits the same report as machine-readable JSON.
@@ -62,6 +62,17 @@ Choosing one:
   `--workers` — see the "Why the reader still parses" note in `pipeline.py`;
   the LB tier is queue-decoupling and observability, not throughput.
 
+> **This port is slower per packet than the C++ original, and that is expected.**
+> A Python DPI engine cannot match a compiled one on the packet path. The
+> measured gap is large and is stated rather than buried: multiprocess measured
+> **~4.7x slower** than single-process, and staged **~6.2x** (`D-23`). The
+> figures predate `T0-11` and the benchmark suite under `tests/benchmarks/` can
+> re-measure them — note `--benchmark-disable` is in the project's `addopts`, so
+> those tests report as passed without executing unless you pass
+> `--benchmark-enable`. If raw throughput against a large capture is what you
+> need, the original is preserved under [`OSC/`](OSC/); this port exists for the
+> safety guarantees, the test suite, and the agentic layer above it.
+
 The partitioning invariant all variants rely on: **every packet of a given
 five-tuple reaches the same fast-path process**, so per-flow state (TCP
 lifecycle, classification, block decisions) is never split.
@@ -75,7 +86,7 @@ lifecycle, classification, block decisions) is never split.
 ```bash
 dpi-engine run in.pcap out.pcap \
   --block-app YouTube --block-domain '*.tiktok.com' \
-  --block-ip 192.168.1.50 --block-port 8080
+  --block-ip 192.168.1.50 --block-ip 10.0.0.0/8 --block-port 8080
 
 dpi-engine rules --load-rules rules.json --unblock-app YouTube --save-rules rules.json
 ```
@@ -83,6 +94,23 @@ dpi-engine rules --load-rules rules.json --unblock-app YouTube --save-rules rule
 Rules are checked in a fixed priority order — **IP, then port, then app, then
 domain** — and the first match is reported, so a flow matching several
 categories always shows the most specific reason.
+
+Two things about IP rules are worth knowing, since both differ from the
+original:
+
+- **An IP rule matches either endpoint** ([`DEC-06`](DESIGN_DECISIONS.md)), not
+  just the source. "Block 192.168.1.50" names an address, not the direction it
+  was reached from; the original matched only the source, so the same rule was
+  inert whenever that address was the destination. The destination is checked
+  after the source but still *within* the IP category, so adding it can never
+  demote an IP match to a lower-priority reason. There is no opt-out, because
+  source-only is not a behaviour anyone would select on purpose.
+- **`--block-ip` accepts a CIDR** (`10.0.0.0/8`), so a subnet needs one rule
+  rather than one per address. Subnets are stored grouped by prefix length, so
+  matching is one shift and one set lookup per distinct prefix length present —
+  at most 33, however many networks are registered. A rule with host bits set
+  (`10.1.2.3/8`) is **rejected at insertion time** rather than silently masked:
+  masking it would apply a far wider rule than was written.
 
 ### Domain rule semantics
 
@@ -157,17 +185,33 @@ QUIC". Verified against the RFC 9001 Appendix A.1 key-derivation vectors.
 
 ## Known limitations
 
-- **IPv4/Ethernet only.** IPv6, VLAN tags, and non-Ethernet link types are not
-  parsed; a non-Ethernet capture is rejected with a clear error rather than
-  silently misparsed. (Same as the original.)
-- **TCP only carries a 14-byte Ethernet header assumption** — no
-  encapsulation beyond a single Ethernet header (no tunnelling, no
-  link-layer types other than plain IPv4).
-- **Flows are keyed by exact five-tuple, not by direction-folded pair.** The
-  client→server direction carries the ClientHello and gets classified and
-  potentially blocked; the server→client direction is a separate entry, so a
-  block on one does not apply to the other. Preserved from the original
-  deliberately — folding directions would change blocking scope.
+- **IPv4 only.** IPv6 is not parsed. Non-Ethernet link types are rejected with a
+  clear error rather than silently misparsed. (Same as the original.)
+- **pcapng input is not supported** ([`DEC-02`](DESIGN_DECISIONS.md)). The
+  reader detects the pcapng Section Header magic and raises
+  `PcapngUnsupportedError` naming the fix, rather than reporting the file as
+  corrupt — roughly a third of real-world captures are pcapng, and "this is the
+  wrong container" and "this file is damaged" call for different responses.
+  Convert first:
+
+  ```
+  editcap -F pcap in.pcapng out.pcap
+  ```
+- **VLAN tags are peeled, which the original did not do.** 802.1Q tags are
+  stripped and the frame rebuilt so the inner packet can be parsed
+  (`T05-01`) — in enterprise captures most traffic is tagged, so without this
+  it was discarded rather than misclassified. Bounded to a small number of
+  nested tags; a frame nested deeper is left alone and correctly reported as
+  non-IP. Deliberate parity break, differential allowlist entry 7.
+- **No encapsulation beyond a single Ethernet header** — no tunnelling, and no
+  link-layer types other than plain Ethernet.
+- **Flows are bidirectionally folded by default** ([`DEC-05`](DESIGN_DECISIONS.md)).
+  A flow and its reverse share one entry, so a block applies to both directions
+  and a SYN can be correlated with the SYN-ACK answering it. The C++ original
+  keyed flows by exact five-tuple, which meant the server→client direction was a
+  separate entry that a block never reached. Pass `--exact-tuple-flows` to
+  restore the original behaviour; the differential suite pins that mode, because
+  it has to agree with a C++ binary that cannot be asked to fold.
 - **DNS name-compression pointers are not followed.** A compressed question
   name stops parsing early. Legal but rare in a question section; it cannot
   loop or read out of bounds, it just may return a truncated name.
@@ -179,10 +223,14 @@ QUIC". Verified against the RFC 9001 Appendix A.1 key-derivation vectors.
   rather than "fixed" into a different label.
 - **Unrecognised SNI is not a "miss".** `example.com` resolves fine and is
   reported as `example.com -> HTTPS`; the name is never discarded.
-- **On failure partway through, the output file is left on disk** containing
-  whatever was successfully written before the failure. It is a valid, bounded,
-  non-corrupt pcap and the failure is reported with a non-zero exit code, but a
-  re-run will overwrite it rather than append.
+- **On failure partway through, an output file is left on disk**, and what it
+  contains depends on the variant. Single-process writes incrementally, so you
+  get a valid, bounded, non-corrupt pcap holding whatever was written before the
+  failure. The multiprocess and staged variants leave only the **24-byte pcap
+  header and no packets** — workers are pure compute and results are collected
+  after dispatch, so nothing has been written when the failure surfaces. In both
+  cases the failure is reported with a non-zero exit code and a re-run
+  overwrites the file rather than appending.
 
 ## Layout
 
@@ -202,6 +250,8 @@ src/dpi_engine/
   cli.py               command-line interface
 OSC/                   the original C++ engine, preserved
 tests/                 unit + integration tests
+tests/property/        hypothesis property tests + a scapy cross-check
+tests/benchmarks/      pytest-benchmark suites (see the note above)
 tests/differential/    differential suite vs. the compiled C++ binary
 ```
 
@@ -212,10 +262,22 @@ uv run pytest                              # everything
 uv run pytest --ignore=tests/differential  # no Docker needed
 ```
 
-The differential suite builds `OSC/src/main_working.cpp` with `gcc:13` in a
-Docker container and runs both implementations against the same fixtures. It
-**skips** rather than fails when Docker is unavailable, since it is a
-supplementary cross-check; the rest of the suite has no external dependency.
+Three parts beyond the unit suite:
+
+- **`tests/property/`** — `hypothesis`-driven properties over generated inputs,
+  plus a **cross-check against scapy**: our hand-rolled extractors must agree
+  with an independently written parser on every fixture in a shared corpus. That
+  corpus deliberately contains only names that are legal under DNS rules; names
+  that are parseable but impossible are pinned separately, asserting that scapy
+  accepts them and we refuse them.
+- **`tests/benchmarks/`** — end-to-end and micro benchmarks across all three
+  pipeline variants. Disabled by default (see the `D-23` note above).
+- **`tests/differential/`** — builds `OSC/src/main_working.cpp` with `gcc:13` in
+  a Docker container and runs both implementations against the same fixtures. It
+  **skips** rather than fails when Docker is unavailable, since it is a
+  supplementary cross-check; the rest of the suite has no external dependency.
+  Where the two deliberately differ, the difference is recorded in that
+  directory's README rather than being allowed to look like a failure.
 
 ## Design notes
 
@@ -228,7 +290,7 @@ Full project documentation lives in [`docs/`](docs/README.md) — start with the
 | [`docs/TASK_TRACKER.md`](docs/TASK_TRACKER.md) | Current state — task statuses, decisions, what to do next |
 | [`docs/TASK_TRACKER_UPDATE_PROTOCOL.md`](docs/TASK_TRACKER_UPDATE_PROTOCOL.md) | How to keep that tracker consistent across sessions and agents |
 | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | How the known defects get fixed: 30 tasks, dependency graph, risk register |
-| [`docs/AUDIT.md`](docs/AUDIT.md) | The findings — port-vs-C++ verdict, 22 defects, 10 missing engineering rails |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | The findings — port-vs-C++ verdict, 26 defects, 10 missing engineering rails |
 | [`docs/AGENTIC_ARCHITECTURE.md`](docs/AGENTIC_ARCHITECTURE.md) | The agentic product vision and roadmap |
 | [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md) | *Why* the port is built this way: every bug fixed relative to the original, safety constraints, trade-offs left open |
 | [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Architecture diagrams — ⚠️ stale, scheduled for rewrite |

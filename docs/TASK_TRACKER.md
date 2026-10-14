@@ -1,11 +1,11 @@
 ---
 schema: dpi-engine-tracker/v1
 status: active
-phase: 0
-current_task: R-05
-next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
-blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); DEC-06 decided 2026-10-13 (parity break, allowlist entry 8); Phase 0 and 0.5 complete; Phase 1 4/9 (T1-01, T1-03, T1-05, T1-09)]
-last_updated: 2026-10-03
+phase: 1
+current_task: DOC-01
+next_action: Pick up the next Phase 1 task — T1-02 (CapSource), T1-04 (rule DSL), T1-06 (simulate_ruleset) or T1-08 (publish the benchmark baseline). Alternatively close D-13, which still has no owning task.
+blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); DEC-06 decided 2026-10-13 (parity break, allowlist entry 8); Phase 0 and 0.5 complete; Phase 1 5/9 (T1-01, T1-03, T1-05, T1-07, T1-09); all documentation findings M-01..M-07 closed]
+last_updated: 2026-10-13
 last_updated_by: claude-opus-5[1m]
 session: ses_t1_05
 ---
@@ -39,15 +39,16 @@ session workflow — what to read, in what order, when to stop — read
 
 | Field | Value |
 |---|---|
-| **Phase** | 0 — Harden |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: **2/2 complete** |
-| **Current task** | `T1-09` - SNI / DNS parser correctness (**done**, uncommitted) |
-| **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
-| **Blocked by** | nothing — all five decisions recorded 2026-10-12 |
-| **Open decisions** | **none.** All five decided 2026-10-12; `DEC-01`, `DEC-03`, `DEC-04`, `DEC-05` by the user, `DEC-02` ratified in `T05-02` |
+| **Phase** | 1 — Streaming core |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 5/9** (`T1-01` `T1-03` `T1-05` `T1-07` `T1-09`) |
+| **Current task** | `DOC-01` - `README.md` corrections (**done**, uncommitted) |
+| **Next action** | Pick up `T1-02` (`CapSource`, 2 d), `T1-04` (rule DSL, 3 d), `T1-06` (`simulate_ruleset`, 2 d) or `T1-08` (publish the benchmark baseline, the missing half). Or close `D-13` |
+| **Blocked by** | nothing — all six decisions recorded; `DEC-06` is the last, 2026-10-13 |
+| **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
-| **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t1_05` - `T1-05` + `T1-09` done, **both uncommitted and interleaved** |
+| **Untracked findings** | `D-13` and `D-23` have no owning task. `D-23` is now re-measurable — `T0-11` has landed, which was what it waited on |
+| **Documentation** | **all `M-01`–`M-07` closed.** One follow-up: `AUDIT.md:162` still reads "Defect register (`D-01`…`D-22`)" while the file holds `D-01`–`D-26`, and line 171 says "Twenty-one live defects" — three counts in one document. Left alone deliberately; correcting a register others may be citing is a separate call |
+| **Session** | `ses_t1_05` - `T1-05` `T1-09` `DOC-01` done, **uncommitted** |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -164,26 +165,25 @@ Status vocabulary is closed (7 values) — see
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | done | - | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | pending | — | 2 d |
 | `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | done | — | 2 d |
-| `T1-08` | Benchmark suite | `R-06` `P-15` | pending | — | 1 d |
+| `T1-08` | Benchmark suite | `R-06` `P-15` | partial | — | 1 d |
 | `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` | done | - | 1 d |
-| `DOC-01` | `README.md` corrections | `M-01` | pending | — | 1 h |
+| `DOC-01` | `README.md` corrections | `M-01` | done | — | 1 h |
 | `DOC-02` | `DESIGN_DECISIONS.md` corrections | `M-02` | done | - | 2 h | Now |
 | `DOC-03` | Rewrite `WORKFLOW.md` | `M-03` | done | - | 1 d | Now |
 | `DOC-04` | `AGENTIC_ARCHITECTURE.md` §1-§3, §8, §10 | `M-04` | done | - | 3 h | Now |
-| `DOC-05` | `OSC/` superseded banners + CMake correction | done | pending | — | 30 min |
-| `DOC-06` | Fix `conftest.py` reference | done | pending | `T0-02` | 10 min |
+| `DOC-05` | `OSC/` superseded banners + CMake correction | `M-05` `M-06` | done | — | 30 min |
+| `DOC-06` | Fix `conftest.py` reference | `M-07` | done | `T0-02` | 10 min |
 | `DOC-07` | Documentation index (`docs/README.md`) | - | partial | - | 15 min |
-| `DOC-08` | Gitignore / delete session transcripts | done | pending | — | 5 min |
+| `DOC-08` | Gitignore / delete session transcripts | `S-01` | done | — | 5 min |
 
-All findings now carry an ID and a proposed owner. **Five still need a task.**
+All findings now carry an ID and a proposed owner. **Two still need a task** —
+`D-24`, `D-25` and `D-26` were closed by `ses_batch1` and `T1-03` and are gone
+from this list.
 
 | Finding | Issue | Proposed owner | Priority |
 |---|---|---|---|
-| `D-13` | An LB process death orphans all its fast-paths forever: only `_lb_main` sends FP sentinels, so the parent discovers it only via the 120 s timeout | `T0-10` (same supervision/teardown family) | add to that task |
-| `D-23` | **Multiprocess is 4.7x slower than single-process; staged 6.2x slower.** Promoted from `P-15` once measured | re-measure after `T0-11`; no code task until then | blocked on `T0-11` |
-| `D-24` | Dead code from `S-03`: `five_tuple_of`, `STATIC_RULES`, `queue_for`, `packets_unroutable` (reported as a permanent 0), `PacketAction.INSPECT`/`LOG_ONLY` | new task; `T0-10` already touches adjacent code | low |
-| `D-25` | `Connection.packets_in` / `bytes_in` are permanently 0 | new task; consider deriving the split from the SYN/SYN-ACK the state machine already observes | low |
-| `D-26` | `run_pipeline`'s `rule_broadcaster` parameter is never supplied by the CLI | new task; the same confusion as `D-03` seen from the other side | low |
+| `D-13` | An LB process death orphans all its fast-paths forever: only `_lb_main` sends FP sentinels, so the parent discovers it only via the 120 s timeout | `T0-10` (same supervision/teardown family) — **that task has since landed without taking this**, so it needs an owner of its own | add to a new task |
+| `D-23` | **Multiprocess is 4.7x slower than single-process; staged 6.2x slower.** Promoted from `P-15` once measured | re-measure — `T0-11` has landed, which is exactly what it was waiting on. `tests/benchmarks/` can do it, with `--benchmark-enable` | **now unblocked** |
 
 ---
 
@@ -448,12 +448,20 @@ or `dropped` and say why.
 
 ### `DOC-01` — root `README.md` corrections
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `../README.md` (repository root — this file's own directory holds the docs)
-- **Change:** test count `377 + 14` → the current real count; add pcapng, CIDR, dst-IP and HTTP-host limitations; **add an explicit note that the port is likely slower per packet than the C++ original**
-- **How it was tackled:** — · **Deviations:** — · **Verification:** —
-- **Closed findings:** `M-01` · **Follow-ups:** — · **Notes:** independent of code work; do it now
-- **Status correction (2026-10-13, ses_t1_05):** previously read **done**, but the work is not present. README line 20 still reads `# 377 unit + 14 differential tests` — the real figure is now **581 passed, 12 skipped** — and the file mentions neither pcapng, CIDR, destination-IP nor the slower-per-packet caveat. Two notes for whoever picks this up: the planned figure `390 + 14 = 404` is already stale, so take the count from `uv run pytest -q` at the time of the edit rather than from here; and **do not hardcode the count again**, since it drifted by 177 in the time between this task being written and being checked.
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t1_05 · **Blocked by:** —
+- **Files:** `../README.md`, `src/dpi_engine/cli.py` (two `--help` strings)
+- **Change:** test count unhardcoded; pcapng, VLAN, CIDR and destination-IP documented; flow folding corrected; **an explicit slower-per-packet note added**
+- **How it was tackled:** every claim was checked against the source before it was written, and four turned out to be wrong in ways the task did not anticipate. Details below.
+- **Deviations:** the task said "test count → the current real count". Not done, deliberately: the figure was **377** when the task was written, the previous session found **581**, and it is **601** now — it drifted by 177 and then 20 across three sessions. Publishing a number guarantees it rots. Line 20 now describes the suite and points at `Testing`, which carries the composition.
+- **Verification:** `ruff check .` clean · `mypy --strict` clean · `pytest -q` → 601 passed, 12 skipped. Markdown fence balance checked (12, even). Every new claim smoke-tested: `--block-ip 10.0.0.0/8` writes `blocked_cidrs: ["10.0.0.0/8"]`; `--block-ip 10.1.2.3/8` is rejected with `has host bits set`, exactly as documented; the three variants' failure outputs measured at 458 / 24 / 24 bytes.
+- **Closed findings:** `M-01` · **Follow-ups:** `AUDIT.md` §2 heading (below)
+- **Notes:** independent of code work. Most of `M-01`'s "missing limitations" list had been **overtaken by the code fixing them**, which is the better resolution: `D-09`/`D-10` were closed by `T0-07`, so the HTTP-host vectors no longer need a limitation entry at all. `M-01` was written when they were live.
+- **Four things `M-01` did not predict, all found by checking rather than transcribing:**
+  1. **The flow-folding bullet described the opposite of current behaviour.** It read "flows are keyed by exact five-tuple… preserved from the original deliberately", but `DEC-05` made bidirectional folding the **default** and added `--exact-tuple-flows` as the opt-out. A reader would have come away with the blocking scope inverted. This was the most material error in the file.
+  2. **The VLAN claim was stale in the other direction.** The README said VLAN tags "are not parsed"; `T05-01` added 802.1Q peeling and it is differential allowlist entry 7. `M-01` had asked to make the limitation *louder* ("100% of tagged traffic is discarded") — doing that would have documented a bug that had already been fixed. Now recorded as a deliberate parity break instead.
+  3. **The "output left on disk" claim was right for one variant and wrong for two.** `M-02c` had already corrected this in `DESIGN_DECISIONS.md`; the README carried the same stale text. Verified by measurement, not inference: single-process leaves 458 bytes (the packets written before failure), while `--workers` and `--load-balancers` both leave **24 bytes — header only**, because workers are pure compute and results are collected after dispatch.
+  4. **The `22 defects` figure in the doc index was faithfully repeating a stale heading in `AUDIT.md`.** Not a README bug: `AUDIT.md:162` still reads "Defect register (`D-01`…`D-22`)" while the file actually contains `D-01`–`D-26`, and its line 171 says "Twenty-one live defects" — three different counts in one document. README corrected to 26; **`AUDIT.md` left alone** because correcting it is outside this task's scope and its §2 is a register others may be citing.
+- **Also fixed, in `cli.py`:** `--block-ip` and `--unblock-ip` both read "Block a source IP." That was wrong twice over after `T1-05` — the rule matches **either endpoint** (`DEC-06`) and the flag **accepts a CIDR**. A `--help` string is user-facing documentation, and it was describing a behaviour the code had already left behind. A nonexistent `--block-cidr` flag was briefly written into the README draft and caught by re-reading the argparse definition rather than trusting the prose.
 
 ### `DOC-02` — `DESIGN_DECISIONS.md` corrections
 
@@ -516,11 +524,13 @@ or `dropped` and say why.
 
 ### `DOC-06` — Fix `conftest.py` reference
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** `T0-02`
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t0_02 · **Blocked by:** `T0-02`
 - **Files:** `tests/differential/README.md`
 - **Change:** line 83 names a `conftest.py` that does not exist
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `n/a`
+- **How it was tackled:** resolved by the blocker rather than by editing the README. `T0-02` created `tests/conftest.py` and hoisted the duplicated fixture path into it, so the reference became true. `tests/differential/conftest.py` was added later, independently, to pin `fold_bidirectional=False` for `DEC-05`.
+- **Deviations:** — · **Verification:** both files present; `M-07` closed
 - **Closed findings:** `M-07` · **Follow-ups:** — · **Notes:** do together with `T0-02`
+- **Status correction (2026-10-13, ses_t1_05):** the summary-table row for this task read `done` in the **Findings** column and `pending` in the **Status** column — the same column shift as `DOC-05` and `DOC-08`. The detail block said `pending`, but the append-only session log records `ses_t0_02` completing `T0-02` + `DOC-06` and closing `M-07`, and the filesystem confirms it. The record is now `done`, and the row's columns are realigned.
 
 ### `DOC-07` — Documentation index
 
@@ -555,7 +565,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | `D-##` defects | 26 | **21** (`D-01`–`D-10`, `D-12`, `D-14`, `D-16`, `D-17`, `D-18`, `D-20`, `D-21`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 (`D-11`, `D-13`, `D-15`, `D-19`, `D-23`) | 2 (`D-13`, `D-23`) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
-| `M-##` documentation | 7 | **6** (`M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 1 (`M-01`) | 0 |
+| `M-##` documentation | 7 | **7** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 0 | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
 
 **Register corrections (2026-10-13, `ses_t1_05`)** — this table was wrong in both
@@ -570,6 +580,24 @@ directions and was recomputed against the code rather than trusted:
 - `D-15` is counted **open** because only its diagnostic half landed (`T05-02`);
   the reader half has no task. `D-23` stays open and unowned by design — `T0-11`
   has now landed, so it is finally re-measurable, which is what it was waiting for.
+- `M-##` read "6 closed / 1 open" until `DOC-01` landed; now **7 / 0**. Every
+  documentation finding is closed. `M-01`'s "missing limitations" list had
+  largely been **overtaken by the code fixing them** — `D-09`/`D-10` were closed
+  by `T0-07`, so the HTTP-host vectors needed no limitation entry at all.
+- **Three `DOC-*` summary rows had their columns shifted**, reading `done` in the
+  *Findings* column and `pending` in *Status* (`DOC-05`, `DOC-06`, `DOC-08`). All
+  three are genuinely done — verified against `OSC/README.md:1`,
+  `tests/differential/conftest.py`, and a transcript-free repo root. `DOC-06`'s
+  detail block also said `pending`, but its blocker `T0-02` had landed and made
+  its premise true. Rows realigned.
+- **§1 was rebuilt.** It still read `phase: 0`, `current_task: R-05`, and a next
+  action describing `extract_http_host` work that landed in `T0-07`. Since §1 is
+  the only block a cold-starting agent reads, a stale one is the most expensive
+  staleness in this file. The header also counted Phase 1 as 4/9, omitting
+  `T1-07`; it is **5/9**.
+- **Outstanding-work table** listed `D-24`, `D-25` and `D-26`, all closed. Now
+  two findings need an owner: `D-13` (whose proposed owner `T0-10` landed
+  without taking it) and `D-23` (now unblocked).
 
 **Rules:**
 - A finding is `closed` only when its owning task is `done` **and** a regression test exists that fails without the fix.
@@ -614,7 +642,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
-| 2026-10-13 | `ses_t1_05` | claude-opus-5[1m] | `T1-05` `T1-09` + tracker integrity | `T1-05` done — CIDR rules (`D-20`), either-endpoint matching (`D-21`/`DEC-06`), stable rule keys (`D-16`/`DEC-04`); `T1-09` done — server_name list walked per entry (`D-17`), hostname policy (`D-18`). 601 green. **Both uncommitted.** Also corrected six task blocks that falsely read `done` (`T1-02`, `T1-04`, `T1-06`, `T1-08`, `T1-09`, `DOC-01`) and recomputed §6, which could not add up and listed three findings as both closed and unassigned | split into two commits, then `DOC-01` or `T1-02` |
+| 2026-10-13 | `ses_t1_05` | claude-opus-5[1m] | `T1-05` `T1-09` `DOC-01` + tracker integrity | `T1-05` done — CIDR (`D-20`), either-endpoint matching (`D-21`/`DEC-06`), stable rule keys (`D-16`/`DEC-04`) — committed `cce25c7`. `T1-09` done — server_name list walked per entry (`D-17`), hostname policy (`D-18`) — committed `e628771`. `DOC-01` done — `M-01` closed, **all `M-##` now closed**. 601 green throughout. Also corrected six task blocks that falsely read `done`, recomputed §6, realigned three malformed `DOC-*` rows, and rebuilt §1, which still said `phase: 0` and named `R-05` as the current task | `T1-02` or `T1-04`; both uncommitted |
 | 2026-10-12 | `ses_t1_01` | claude-opus-5[1m] | `T1-01` | event bus done — derived `PipelineResult` — guarantee test caught 2 emission bugs | `T1-03` |
 | 2026-10-12 | `ses_t1_07b` | claude-opus-5[1m] | `T1-07` | `R-05` + `R-08` closed — 45 tests, proven to bite | `T1-01` |
 | 2026-10-03 | `ses_t1_07` | claude-opus-5[1m] | `T1-07` | increment 1 — `R-05` closed, 20 property tests, proven to catch `D-05` | `T1-07` increment 2 (needs `DEC-03`) |
