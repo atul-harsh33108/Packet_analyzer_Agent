@@ -164,7 +164,14 @@ def test_failure_during_result_collection_leaves_no_surviving_children(
     def boom(*args: object, **kwargs: object):
         raise RuntimeError("injected result-collection failure")
 
+    # Both, because which one collects depends on `reorder_window`: streaming
+    # mode goes through `_collect_streaming` and the legacy second pass through
+    # `_collect`. Patching only the old one would inject nothing, the pipeline
+    # would succeed, and the test would fail for the wrong reason -- or worse,
+    # a future `pytest.raises` that happened to match something else could pass
+    # without the teardown ever being exercised.
     monkeypatch.setattr(pipeline, "_collect", boom)
+    monkeypatch.setattr(pipeline, "_collect_streaming", boom)
 
     out = tmp_path / "out.pcap"
     with pytest.raises(RuntimeError, match="injected result-collection failure"):

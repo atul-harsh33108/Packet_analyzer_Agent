@@ -69,7 +69,14 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
-from dpi_engine.types import AppType, Connection, ConnectionState, FiveTuple, PacketAction
+from dpi_engine.types import (
+    AppType,
+    Connection,
+    ConnectionState,
+    FiveTuple,
+    PacketAction,
+    canonical_flow_key,
+)
 
 DEFAULT_MAX_CONNECTIONS = 100_000
 
@@ -521,25 +528,6 @@ class ConnectionTracker:
             self.on_evicted(tuple_)
         except Exception:  # a reporting bug must not break the packet path
             return
-
-
-def canonical_flow_key(tuple_: FiveTuple, fold_bidirectional: bool = True) -> FiveTuple:
-    """The key a flow is stored under, as a plain function.
-
-    `ConnectionTracker.flow_key` is the same computation, and delegates here.
-    It exists at module level because the *parent* process needs it too: the
-    multiprocessing dispatcher has to hash this key rather than the packet's
-    own tuple, or the two directions of one conversation land on different
-    workers -- and then folding in each worker's tracker is worse than useless,
-    because each sees only half a flow. Two implementations of this mapping
-    would be a silent correctness hazard, so there is exactly one.
-
-    `DEC-05`.
-    """
-    if not fold_bidirectional:
-        return tuple_
-    reverse = tuple_.reverse()
-    return reverse if reverse < tuple_ else tuple_
 
 
 @dataclass(slots=True)

@@ -15,10 +15,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from conftest import TEST_DPI_PCAP
-from dpi_engine.pipeline import run_pipeline
 from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType
 
+from .conftest import run_pipeline
 from .cpp_reference import run_cpp_reference
 
 # Domains where the original C++ binary is KNOWN to misclassify due to the

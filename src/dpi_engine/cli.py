@@ -41,6 +41,7 @@ from dpi_engine.pcap_io import (
     PcapReader,
 )
 from dpi_engine.pipeline import (
+    DEFAULT_REORDER_WINDOW,
     PipelineResult,
     run_pipeline,
     run_pipeline_multiprocess,
@@ -373,8 +374,17 @@ def _execute(args: argparse.Namespace, rules: RuleManager) -> PipelineResult:
         "max_total_packets": args.max_total_packets,
         "stale_timeout_seconds": None if args.flow_timeout <= 0 else args.flow_timeout,
         "reap_interval_packets": args.reap_interval,
-"enable_quic": not args.no_quic,
+        "enable_quic": not args.no_quic,
+        # All three variants take it, so unlike `live_rules` it belongs in
+        # `common`. Getting this wrong would look like a working run with a
+        # subtly different flow table, which is the failure mode D-03 taught.
+        "fold_bidirectional": not args.exact_tuple_flows,
     }
+
+    # `reorder_window` is deliberately NOT in `common`: `run_pipeline` writes
+    # each packet as it decides, in input order, with no buffer to size, so it
+    # has no such parameter.
+    reorder_window = None if args.reorder_window <= 0 else args.reorder_window
 
     # `live_rules` is deliberately NOT in `common`: `run_pipeline` has no such
     # parameter, because a one-shot single-process run owns its RuleManager and
@@ -393,6 +403,7 @@ def _execute(args: argparse.Namespace, rules: RuleManager) -> PipelineResult:
             num_load_balancers=args.load_balancers,
             fps_per_lb=args.fps_per_lb,
             live_rules=args.live_rules,
+            reorder_window=reorder_window,
             **common,
         )
 
@@ -403,6 +414,7 @@ def _execute(args: argparse.Namespace, rules: RuleManager) -> PipelineResult:
             rules,
             num_workers=args.workers,
             live_rules=args.live_rules,
+            reorder_window=reorder_window,
             **common,
         )
 
@@ -512,6 +524,31 @@ help="Open a per-worker control channel so a RuleManager mutated "
     )
 
     tuning = run_parser.add_argument_group("tuning")
+    tuning.add_argument(
+        "--reorder-window",
+        type=int,
+        default=DEFAULT_REORDER_WINDOW,
+        metavar="W",
+        help="How many packets the parent may hold awaiting a worker's verdict "
+        "before it gives up preserving input order (default: %(default)s). "
+        "Within the window output is byte-identical and in input order; beyond "
+        "it, packets whose verdict has not arrived are written out of order "
+        "rather than dropped or guessed at. 0 falls back to re-reading the "
+        "input in a second pass -- slower to produce anything, but always in "
+        "input order. Has no effect in single-process mode, which writes each "
+        "packet as it decides and never reorders.",
+    )
+    tuning.add_argument(
+        "--exact-tuple-flows",
+        action="store_true",
+        help="Key each direction of a conversation as its own flow, instead of "
+        "folding the two together (DEC-05). This is the C++ reference "
+        "behaviour and is what the differential suite pins. The default folds, "
+        "which is a deliberate parity break: it is what makes packets_in and "
+        "bytes_in mean anything, and it stops a flow being split across "
+        "workers.",
+    )
+
     tuning.add_argument(
         "--max-connections",
         type=int,

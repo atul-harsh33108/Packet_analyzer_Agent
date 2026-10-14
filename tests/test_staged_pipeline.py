@@ -50,7 +50,15 @@ def _compare(a, b) -> None:
     assert a.stats == b.stats
     assert a.app_counts == b.app_counts
     assert a.detected_domains == b.detected_domains
-    assert a.blocked_flows == b.blocked_flows
+    # Sorted, because the *order* of `blocked_flows` is determined by which
+    # worker detected the flow first, and the variants partition flows across
+    # workers differently -- single-process has one, staged has
+    # `num_load_balancers * fps_per_lb`. `DEC-05` changed that partitioning (both
+    # hash steps now key on the canonical flow key), which reshuffled the order
+    # while leaving every decision identical. The claim under test is "the same
+    # flows are blocked", not "in the same sequence", so comparing the sorted
+    # sequences asserts the claim and nothing weaker.
+    assert sorted(a.blocked_flows) == sorted(b.blocked_flows)
     assert (a.quic_packets, a.quic_undecryptable) == (b.quic_packets, b.quic_undecryptable)
     assert a.global_stats.total_active_connections == b.global_stats.total_active_connections
     assert a.global_stats.app_distribution == b.global_stats.app_distribution
@@ -122,25 +130,38 @@ def _yt_rules() -> RuleManager:
 
 def test_every_flow_lands_on_exactly_one_fast_path(tmp_path: Path) -> None:
     """The regression test for the round-robin bug: the sum of per-fast-path
-    connection counts must equal the number of distinct five-tuples, not exceed
-    it. (The buggy version produced 61 tracked flows for 43 real ones.)"""
-    from dpi_engine.load_balancer import _SALT_TIER_2, hash_select
+    connection counts must equal the number of distinct flows, not exceed it.
+    (The buggy version produced 61 tracked flows for 43 real ones.)
 
-    distinct: set[FiveTuple] = set()
+    "Distinct flow" is `DEC-05`'s canonical key, not the packet's own tuple: the
+    engine tracks one `Connection` per conversation, so a forward tuple and its
+    reverse are one flow and are counted once. Counting raw five-tuples here
+    would assert that folding *doesn't* happen, which is the opposite of what is
+    wanted -- and it would silently re-break the moment the partitioning changed
+    again.
+    """
+    from dpi_engine.load_balancer import _SALT_TIER_2, hash_select
+    from dpi_engine.types import canonical_flow_key
+
+    raw_tuples: set[FiveTuple] = set()
     with PcapReader(TEST_DPI_PCAP) as reader:
         for raw in reader:
             parsed = _parse(raw)
             if parsed is not None and parsed.has_ip:
-                distinct.add(_tuple_of(parsed))
-    assert len(distinct) == 43
+                raw_tuples.add(_tuple_of(parsed))
+    # The fixture still has 43 distinct five-tuples; folding is what makes the
+    # number of *flows* smaller than that.
+    assert len(raw_tuples) == 43
+    distinct = {canonical_flow_key(t) for t in raw_tuples}
+    assert len(distinct) < len(raw_tuples), "fixture should contain a bidirectional pair"
 
     staged = run_pipeline_staged(
         TEST_DPI_PCAP, tmp_path / "out.pcap", num_load_balancers=2, fps_per_lb=2
     )
     assert staged.global_stats.total_active_connections == len(distinct)
 
-    # And in the two-level scheme, each five-tuple resolves to exactly one
-    # (load balancer, fast path) pair.
+    # And in the two-level scheme, each flow resolves to exactly one
+    # (load balancer, fast path) pair -- keyed the same way the pipeline keys it.
     num_lbs, fps_per_lb = 2, 2
     owners = {
         (

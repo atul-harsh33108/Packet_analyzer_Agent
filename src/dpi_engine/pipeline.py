@@ -75,7 +75,6 @@ from dpi_engine.connection_tracker import (
     ConnectionTracker,
     GlobalStats,
     TrackerStats,
-    canonical_flow_key,
     combine_tracker_reports,
 )
 from dpi_engine.events import (
@@ -86,6 +85,7 @@ from dpi_engine.events import (
     FlowBlocked,
     FlowClassified,
     FlowCreated,
+    FlowEvicted,
     LimitExceeded,
     LoadBalancerFinished,
     PacketParsed,
@@ -109,7 +109,14 @@ from dpi_engine.pcap_io import (
     RawPacket,
 )
 from dpi_engine.rule_manager import RuleManager, RuleSnapshot
-from dpi_engine.types import AppType, Connection, ConnectionState, DPIStats, FiveTuple
+from dpi_engine.types import (
+    AppType,
+    Connection,
+    ConnectionState,
+    DPIStats,
+    FiveTuple,
+    canonical_flow_key,
+)
 from dpi_engine.worker import (
     FixedRuleSource,
     FlowProcessor,
@@ -404,6 +411,8 @@ class _FlowEngine:
         reap_interval_packets: int = DEFAULT_REAP_INTERVAL_PACKETS,
         enable_quic: bool = True,
         context_id: int = 0,
+        fold_bidirectional: bool = True,
+        on_evicted: Callable[[FiveTuple], None] | None = None,
     ) -> None:
         self.processor = FlowProcessor(
             tracker=ConnectionTracker(
@@ -411,10 +420,16 @@ class _FlowEngine:
                 max_connections=max_connections,
                 stale_timeout_seconds=stale_timeout_seconds,
                 reap_interval_packets=reap_interval_packets,
+                fold_bidirectional=fold_bidirectional,
+                on_evicted=on_evicted,
             ),
             rule_source=rule_source,
             enable_quic=enable_quic,
             fp_id=context_id,
+            # Must match the tracker's, or the side tables would key differently
+            # from the flow table -- a blocked flow's reverse direction would then
+            # look unblocked to `blocked_tuples`.
+            fold_bidirectional=fold_bidirectional,
         )
 
     def submit(self, item: WorkItem) -> bool:
@@ -616,6 +631,7 @@ def run_pipeline(
     with_global_stats: bool = True,
     rule_broadcaster: RuleBroadcaster | None = None,
     bus: EventBus | None = None,
+    fold_bidirectional: bool = True,
 ) -> PipelineResult:
     """Runs the full pipeline in one process, with no IPC.
 
@@ -652,6 +668,15 @@ def run_pipeline(
         stale_timeout_seconds=stale_timeout_seconds,
         reap_interval_packets=reap_interval_packets,
         enable_quic=enable_quic,
+        fold_bidirectional=fold_bidirectional,
+        # `FlowEvicted` is published from the tracker's departure hook rather
+        # than by polling it afterwards, so the tracker stays ignorant of the
+        # event vocabulary and eviction costs one truthiness check when no bus is
+        # attached. A closure over `bus` rather than a method, so `_FlowEngine`
+        # never has to learn what an event is.
+        on_evicted=(
+            (lambda t: bus.emit(FlowEvicted(five_tuple=t))) if bus is not None else None
+        ),
     )
 
     stats = DPIStats()
@@ -673,8 +698,24 @@ def run_pipeline(
                 # for this exact tuple did not exist. The exact-tuple containment
                 # check is the one that means what "this flow is new" means.
                 conn_before = engine.processor.tracker.get_connection(tuple_)
+                # Both checks go through the tracker, which canonicalises under
+                # `DEC-05`, so a flow's reverse direction counts as already
+                # created and already tracked.
                 existed_before = tuple_ in engine.processor.tracker
-                was_blocked = tuple_ in engine.processor.blocked_tuples
+                # NOT bare `tuple_ in blocked_tuples`: that set is a plain
+                # `set[FiveTuple]`, so its membership test hashes the tuple
+                # itself and does *not* canonicalise the way
+                # `ConnectionTracker.__contains__` does. Probing it with the
+                # packet's own tuple reports "not blocked" for every
+                # reverse-direction packet of a flow whose canonical key is the
+                # forward one -- and then `conn.state is BLOCKED` is true and
+                # FlowBlocked fires again. That asymmetry produced three
+                # FlowBlocked events for one flow on the sample capture, which
+                # is what broke the fold's reproduction of `blocked_flows`.
+                was_blocked = (
+                    engine.processor.tracker.flow_key(tuple_)
+                    in engine.processor.blocked_tuples
+                )
                 forwarded = engine.submit(
                     WorkItem(
                         sequence_index=sequence_index,
@@ -1030,6 +1071,8 @@ def run_pipeline_staged(
     reap_interval_packets: int = DEFAULT_REAP_INTERVAL_PACKETS,
     enable_quic: bool = True,
     live_rules: bool = False,
+    fold_bidirectional: bool = True,
+    reorder_window: int | None = DEFAULT_REORDER_WINDOW,
 ) -> PipelineResult:
     """Two-tier staged pipeline: reader -> load balancers -> fast paths.
 
@@ -1083,10 +1126,15 @@ def run_pipeline_staged(
     broadcaster = RuleBroadcaster(manager) if live_rules else None
 
     lbs, all_fps = build_pipeline_graph(
-        num_load_balancers, fps_per_lb, queue_factory=_bounded_queue_factory
+        num_load_balancers,
+        fps_per_lb,
+        queue_factory=_bounded_queue_factory,
+        fold_bidirectional=fold_bidirectional,
     )
     lb_output_queue: Queue[_LoadBalancerResult] = mp.Queue()
-    fp_output_queue: Queue[WorkerResult] = mp.Queue()
+    # Typed as the union because streaming mode interleaves per-packet
+    # `PacketDecision`s with the fast paths' aggregates on this one queue.
+    fp_output_queue: Queue[WorkerMessage] = mp.Queue()
 
     # One control queue per *fast path*, not per load balancer: the workers that
     # read rules are the FPs, and the LB tier never touches a RuleSnapshot.
@@ -1098,6 +1146,15 @@ def run_pipeline_staged(
     if broadcaster is not None:
         for control_queue in control_queues:
             broadcaster.register(control_queue)
+
+    # Streaming mode is what makes the reorder window meaningful: without
+    # per-packet verdicts the parent has nothing to reorder and would have to
+    # fall back to the second input pass. Defined before the process list
+    # because the fast paths' kwargs reference it.
+    streaming = reorder_window is not None
+    # Per-packet decisions and the fast paths' aggregates share one queue, so
+    # this holds whichever aggregates arrived by the end of dispatch.
+    stream_results: list[WorkerResult] = []
 
     lb_processes = [
         mp.Process(
@@ -1117,6 +1174,8 @@ def run_pipeline_staged(
                 "reap_interval_packets": reap_interval_packets,
                 "control_queue": control_queues[fp.fp_id] if live_rules else None,
                 "enable_quic": enable_quic,
+                "emit_decisions": streaming,
+                "fold_bidirectional": fold_bidirectional,
             },
             name=f"dpi-fp-{fp.fp_id}",
         )
@@ -1128,17 +1187,44 @@ def run_pipeline_staged(
 
     stats = DPIStats()
     dispatch_succeeded = False
+    reorder_buffer: ReorderBuffer | None = None
 
     try:
         with PcapReader(
             input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
-        ) as reader:
-            for sequence_index, raw, parsed, tuple_ in _iter_inspectable(reader, stats):
+        ) as reader, PcapWriter(output_path, source_path=input_path) as writer:
+            # `streaming` is defined above the process list: the fast paths'
+            # kwargs need it before this point.
+            reorder_buffer = (
+                ReorderBuffer(writer, reorder_window) if reorder_window is not None else None
+            )
+            for sequence_index, raw, parsed, tuple_ in _iter_inspectable(
+                reader,
+                stats,
+                on_skipped=reorder_buffer.offer_skipped if reorder_buffer is not None else None,
+            ):
                 if broadcaster is not None:
                     broadcaster.publish()
-                # OSC's first hash step: pick the owning load balancer from the
-                # five-tuple, so all of a flow's packets go to the same shard.
-                lb_id = hash_select(tuple_, num_load_balancers)
+                if reorder_buffer is not None:
+                    # The fast paths publish verdicts on `fp_output_queue`
+                    # directly -- the load-balancer tier only forwards *input*,
+                    # so streaming needs no changes below this point.
+                    _pump_worker_messages(fp_output_queue, reorder_buffer, stream_results)
+                    while reorder_buffer.full():
+                        _await_space(
+                            fp_output_queue,
+                            reorder_buffer,
+                            stream_results,
+                            [*lb_processes, *fp_processes],
+                        )
+                    reorder_buffer.offer(sequence_index, raw)
+                # OSC's first hash step, over the canonical key (`DEC-05`). Both
+                # halves of a conversation are one flow, so both must reach the
+                # same load balancer -- otherwise the shard splits the flow
+                # before the fast path ever sees it.
+                lb_id = hash_select(
+                    canonical_flow_key(tuple_, fold_bidirectional), num_load_balancers
+                )
                 _put_bounded(
                     lbs[lb_id].input_queue,
                     WorkItem(
@@ -1149,77 +1235,96 @@ def run_pipeline_staged(
                     ),
                     process=lb_processes[lb_id],
                 )
-        dispatch_succeeded = True
-    finally:
-        if dispatch_succeeded:
+
+            # Everything has been dispatched, so the load balancers can be told to
+            # finish. Each drains its own queue to exhaustion first and only then
+            # sends the sentinel to the fast paths it feeds, which is what stops a
+            # fast path exiting while items are still in flight.
             for lb in lbs:
                 lb.input_queue.put(SHUTDOWN_SENTINEL)
-        else:
+            dispatch_succeeded = True
+
+            # Collection stays inside the `with`, because in streaming mode the
+            # buffer is still writing packets as verdicts arrive -- closing the
+            # writer first would have it writing to a closed file.
+            teardown_queues = [
+                *[lb.input_queue for lb in lbs],
+                *[fp.input_queue for fp in all_fps],
+                *control_queues,
+                lb_output_queue,
+                fp_output_queue,
+            ]
+            all_processes = [*lb_processes, *fp_processes]
+            try:
+                # A fast path puts each decision on the queue as it makes it and
+                # its aggregate last, so once all `len(all_fps)` aggregates are in
+                # every decision is in too and the final flush is safe.
+                fp_results = _collect_streaming(
+                    fp_output_queue, len(all_fps), reorder_buffer, stream_results, all_processes
+                )
+                lb_results = _collect(lb_output_queue, num_load_balancers)
+                for p in all_processes:
+                    p.join()
+            finally:
+                _terminate(all_processes, teardown_queues)
+
+            fp_results.sort(key=lambda r: r.worker_id)
+            stats.tcp_packets = sum(r.tcp_count for r in fp_results)
+            stats.udp_packets = sum(r.udp_count for r in fp_results)
+            (
+                app_counts,
+                detected_domains,
+                blocked_flows,
+                global_stats,
+                quic_packets,
+                quic_undecryptable,
+            ) = _accumulate(stats, fp_results)
+
+            if reorder_buffer is not None:
+                # Written during dispatch, so there is no second pass to run.
+                stats.forwarded_packets = reorder_buffer.forwarded_packets
+                stats.dropped_packets = reorder_buffer.dropped_packets
+            else:
+                # Legacy path: no per-packet verdicts were emitted, so the
+                # decisions exist only as the fast paths' bitmaps and the packets
+                # have to be re-read in order to be written.
+                _write_forwarded(
+                    stats,
+                    fp_results,
+                    writer,
+                    input_path,
+                    max_packet_size=max_packet_size,
+                    max_total_packets=max_total_packets,
+                )
+
+            lb_stats = LoadBalancerStats().combine([r.stats for r in lb_results])
+
+            return PipelineResult(
+                stats=stats,
+                app_counts=app_counts,
+                detected_domains=detected_domains,
+                blocked_flows=blocked_flows,
+                per_worker_packet_counts=[r.stats.packets_dispatched for r in lb_results],
+                fast_path_stats=_combine_fast_path_stats(fp_results),
+                load_balancer_stats=lb_stats,
+                quic_packets=quic_packets,
+                quic_undecryptable=quic_undecryptable,
+                global_stats=global_stats,
+            )
+    finally:
+        # Teardown must be unconditional (D-12). `_collect` raises `RuntimeError`
+        # on a tier that never reports, and `_accumulate` / `PcapWriter` /
+        # `_write_forwarded` can raise after it; any of those used to leave LB and
+        # FP processes alive and queues unclosed. On the happy path both tiers
+        # have already been joined and terminated inside the `with`, so this is a
+        # no-op.
+        if not dispatch_succeeded:
             _terminate(
                 [*lb_processes, *fp_processes],
                 [lb.input_queue for lb in lbs]
                 + [fp.input_queue for fp in all_fps]
                 + [*control_queues, lb_output_queue, fp_output_queue],
             )
-
-    if not dispatch_succeeded:
-        raise AssertionError("unreachable: dispatch failure must propagate its exception")
-
-    # Unconditional teardown, for the same reason as the single-tier path above
-    # (D-12): `_collect` raises `RuntimeError` on a tier that never reports, and
-    # `_accumulate` / `PcapWriter` / `_write_forwarded` can raise after it. Any
-    # of those used to leave LB and FP processes alive and queues unclosed.
-    teardown_queues = [
-        *[lb.input_queue for lb in lbs],
-        *[fp.input_queue for fp in all_fps],
-        *control_queues,
-        lb_output_queue,
-        fp_output_queue,
-    ]
-    try:
-        lb_results = _collect(lb_output_queue, num_load_balancers)
-        fp_results = _collect(fp_output_queue, len(all_fps))
-        for p in [*lb_processes, *fp_processes]:
-            p.join()
-    finally:
-        _terminate([*lb_processes, *fp_processes], teardown_queues)
-
-    fp_results.sort(key=lambda r: r.worker_id)
-    stats.tcp_packets = sum(r.tcp_count for r in fp_results)
-    stats.udp_packets = sum(r.udp_count for r in fp_results)
-    (
-        app_counts,
-        detected_domains,
-        blocked_flows,
-        global_stats,
-        quic_packets,
-        quic_undecryptable,
-    ) = _accumulate(stats, fp_results)
-
-    with PcapWriter(output_path, source_path=input_path) as writer:
-        _write_forwarded(
-            stats,
-            fp_results,
-            writer,
-            input_path,
-            max_packet_size=max_packet_size,
-            max_total_packets=max_total_packets,
-        )
-
-    lb_stats = LoadBalancerStats().combine([r.stats for r in lb_results])
-
-    return PipelineResult(
-        stats=stats,
-        app_counts=app_counts,
-        detected_domains=detected_domains,
-        blocked_flows=blocked_flows,
-        per_worker_packet_counts=[r.stats.packets_dispatched for r in lb_results],
-        fast_path_stats=_combine_fast_path_stats(fp_results),
-        load_balancer_stats=lb_stats,
-        quic_packets=quic_packets,
-        quic_undecryptable=quic_undecryptable,
-        global_stats=global_stats,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1246,6 +1351,12 @@ class _Pending:
     #: from `total_packets - other_packets` exactly as `_write_forwarded` derives
     #: it -- counting it here too would double-subtract it.
     offered: bool
+    #: Set once the packet has gone out from under `next_expected`, i.e. it was
+    #: emitted while an *earlier* packet was still undecided. The entry is kept
+    #: (without its bytes) precisely so `_advance` can step over the hole it
+    #: leaves; dropping it outright would strand `next_expected` there forever
+    #: and turn every later packet into an out-of-order emission.
+    emitted: bool = False
 
 
 class ReorderBuffer:
@@ -1330,9 +1441,14 @@ class ReorderBuffer:
         Resolved immediately, since nothing will decide it: it is neither
         written nor counted. It still has to occupy its index, or `next_expected`
         would stall forever on a hole no worker is ever going to fill.
+
+        Deliberately does *not* advance the cursor itself. A skipped entry is
+        already resolved, so the next `decide` or the final `finish` will step
+        over it in the same way it steps over anything else resolved -- calling
+        `_advance` here would be unobservable, and a line no test can make fail
+        is a line nobody will notice rotting.
         """
         self._store[sequence_index] = _Pending(raw=None, forwarded=False, offered=False)
-        self._advance()
 
     def decide(self, sequence_index: int, forwarded: bool) -> None:
         """Applies one worker's verdict, flushing whatever that unblocks."""
@@ -1371,14 +1487,19 @@ class ReorderBuffer:
         """
         for index in sorted(self._store):
             pending = self._store[index]
-            if pending.forwarded is None:
+            if pending.forwarded is None or pending.emitted:
                 continue
-            if index == self.next_expected:
-                # Contiguous: `_advance` will take it as soon as it is called,
-                # and emitting it here would skip the others in between.
-                return False
-            del self._store[index]
+            # No `index == next_expected` case to exclude: `decide` and
+            # `offer_skipped` both call `_advance` before returning, and it
+            # drains every decided entry from `next_expected` upward. A decided
+            # packet at the cursor cannot therefore still be in the store here,
+            # so there is nothing to skip over and no reason to special-case it.
             self._emit(pending)
+            # The entry is kept as a tombstone but its bytes are released: the
+            # slot it held against the window is what the caller was trying to
+            # free, and `_advance` needs the marker to step over the hole.
+            pending.emitted = True
+            pending.raw = None
             self.out_of_order_emissions += 1
             return True
         return False
@@ -1392,13 +1513,22 @@ class ReorderBuffer:
     # -- internals --------------------------------------------------------
 
     def _advance(self) -> None:
-        """Emits the contiguous run of resolved packets from `next_expected`."""
+        """Emits the contiguous run of resolved packets from `next_expected`.
+
+        Steps *over* entries that were already emitted out of order rather than
+        stopping at them. Such an entry leaves a hole, and `next_expected` has to
+        move past it: otherwise the straggler that finally resolves it leaves the
+        cursor stranded one short, and every subsequent packet is treated as
+        stuck behind something that left long ago -- silently degrading the whole
+        rest of the capture to out-of-order emission.
+        """
         while True:
             pending = self._store.get(self.next_expected)
             if pending is None or pending.forwarded is None:
                 return
             del self._store[self.next_expected]
-            self._emit(pending)
+            if not pending.emitted:
+                self._emit(pending)
             self.next_expected += 1
 
     def _emit(self, pending: _Pending) -> None:

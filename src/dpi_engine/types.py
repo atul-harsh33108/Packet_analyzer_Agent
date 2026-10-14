@@ -84,6 +84,34 @@ class FiveTuple(NamedTuple):
         )
 
 
+def canonical_flow_key(tuple_: FiveTuple, fold_bidirectional: bool = True) -> FiveTuple:
+    """The key a flow is stored under, as a plain function. `DEC-05`.
+
+    Lives here, next to `FiveTuple`, because it is a pure function over one and
+    this module is the dependency-free leaf: `load_balancer` and
+    `connection_tracker` both need it, and either importing the other for it
+    would be a cycle.
+
+    Canonicalising by taking the lexicographically smaller of the tuple and its
+    reverse makes the mapping a *projection*: both directions of a conversation
+    land on one key, and `min` over a `NamedTuple` compares field by field, so
+    the winner is the same on every call and in every process.
+
+    That stability is the whole requirement. Three call sites depend on them all
+    agreeing: `ConnectionTracker` keys its table by it, `worker.FlowProcessor`
+    keys its per-flow side tables by it, and the two hash steps that route a
+    packet to a worker hash it too. Two implementations of this mapping would be
+    a silent correctness hazard, so there is exactly one and it is here.
+
+    With `fold_bidirectional=False` this is the identity and the engine behaves
+    as the C++ original does, which is what differential mode pins.
+    """
+    if not fold_bidirectional:
+        return tuple_
+    reverse = tuple_.reverse()
+    return reverse if reverse < tuple_ else tuple_
+
+
 def _ip_to_str(ip: int) -> str:
     return ".".join(str((ip >> shift) & 0xFF) for shift in (24, 16, 8, 0))
 

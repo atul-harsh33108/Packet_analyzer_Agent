@@ -42,6 +42,25 @@ def result(tmp_path_factory):
     return run_pipeline(TEST_DPI_PCAP, out)
 
 
+@pytest.fixture(scope="module")
+def unfolded_result(tmp_path_factory):
+    """The same capture with `DEC-05` flow folding disabled.
+
+    Folding merges a flow with its reverse direction, so the fixture's 43
+    five-tuples collapse into 27 conversations -- and every conversation whose
+    reverse packet carried the SNI gets classified, which removes the last
+    UNKNOWN flows and the last NEW-state connections from the report. The
+    renderer is the same either way; what changes is what it has to render.
+
+    A few assertions below need a report that still *contains* those states, so
+    they run against this rather than against the folded default. The folded
+    distribution is covered by the equivalence tests in
+    tests/test_staged_pipeline.py and tests/test_worker.py.
+    """
+    out = tmp_path_factory.mktemp("report-unfolded") / "out.pcap"
+    return run_pipeline(TEST_DPI_PCAP, out, fold_bidirectional=False)
+
+
 # ---------------------------------------------------------------------------
 # Sections
 # ---------------------------------------------------------------------------
@@ -139,8 +158,8 @@ def test_bar_never_overflows_its_column() -> None:
     assert _bar(50.0) == "#" * 10
 
 
-def test_flow_states_reports_a_histogram(result) -> None:
-    text = render_flow_states(result.global_stats)
+def test_flow_states_reports_a_histogram(unfolded_result) -> None:
+    text = render_flow_states(unfolded_result.global_stats)
     assert "CLASSIFIED" in text
     assert "NEW" in text
     assert "TOTAL" in text
@@ -224,9 +243,13 @@ def test_result_to_dict_is_fully_serialisable(result) -> None:
     assert payload["quic"]["sni_extraction_supported"] in (True, False)
 
 
-def test_result_to_dict_uses_display_names_not_enum_reprs(result) -> None:
-    payload = result_to_dict(result)
+def test_result_to_dict_uses_display_names_not_enum_reprs(unfolded_result) -> None:
+    payload = result_to_dict(unfolded_result)
     assert "Google" in payload["app_counts"]
+    # Needs the unfolded run: folding gives every flow a reverse-direction
+    # packet, which is what carries the SNI, so under folding nothing is left
+    # UNKNOWN and this key would be absent for a reason unrelated to display
+    # names.
     assert "Unknown" in payload["app_counts"]
     for name in payload["app_counts"]:
         assert "." not in name
@@ -234,11 +257,18 @@ def test_result_to_dict_uses_display_names_not_enum_reprs(result) -> None:
         assert "." not in entry
 
 
-def test_result_to_dict_includes_the_previously_dead_global_report(result) -> None:
+def test_result_to_dict_includes_the_previously_dead_global_report(
+    unfolded_result,
+) -> None:
     """OSC built a GlobalConnectionTable with a full report renderer and never
     called it. These keys are how that dead capability became live."""
-    payload = result_to_dict(result)
+    payload = result_to_dict(unfolded_result)
     flows = payload["flows"]
+    # 43 is the number of distinct *five-tuples* in the fixture, which is what
+    # the engine tracked per flow before `DEC-05`. Folding merges each flow with
+    # its reverse direction, so the folded figure is lower; the point of this
+    # test is that the key exists and is populated, so it pins the value on the
+    # run where that figure is the fixture's own.
     assert flows["active"] == 43
     assert flows["top_domains"]
     assert "CLASSIFIED" in flows["states"]

@@ -142,12 +142,21 @@ class FlowBlocked(Event):
 class FlowEvicted(Event):
     """A flow left the flow table, by LRU pressure or staleness.
 
-    **Defined but not emitted.** Eviction is a `ConnectionTracker` judgement, and
-    the tracker deliberately knows nothing about events -- adding the dependency
-    would make the innermost hot loop depend on the reporting layer. It is in the
-    vocabulary because a live view will need it, and emitting it is a
-    `T1-03` concern; the fold does not read it, so its absence costs nothing
-    here.
+    Published by `ConnectionTracker`'s `on_evicted` hook rather than by the
+    tracker importing the event vocabulary -- the innermost hot loop must not
+    depend on the reporting layer, so the tracker only calls a callback and the
+    pipeline decides what a departure means. With no bus attached the hook is
+    `None` and eviction costs a single truthiness check.
+
+    Both departure mechanisms funnel through the same hook, so a subscriber sees
+    every eviction exactly once and cannot tell LRU pressure from the stale
+    sweep. That indistinguishability is deliberate: from a live view's
+    perspective a flow leaving the table is one event with two causes, and
+    splitting it would force consumers to reimplement the tracker's policy.
+
+    The fold deliberately does **not** read this. `active_connections` and
+    `flows_reaped` come from the tracker's own reports, which are authoritative
+    in the batch path and have no second source in the stream.
     """
 
     five_tuple: FiveTuple

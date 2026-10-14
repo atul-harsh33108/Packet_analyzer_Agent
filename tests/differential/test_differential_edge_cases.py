@@ -19,8 +19,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from conftest import DIFFERENTIAL_FIXTURES as FIXTURES
-from dpi_engine.pipeline import run_pipeline
 
+from .conftest import run_pipeline
 from .cpp_reference import run_cpp_reference
 
 
