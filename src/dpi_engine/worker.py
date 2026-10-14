@@ -471,6 +471,10 @@ class FlowProcessor:
                     dst_port=parsed.dst_port,
                     app=conn.app_type,
                     domain=conn.sni,
+                    # Without this the whole of `D-21` would remain open:
+                    # `should_block` can only fire on the destination if it is
+                    # handed one, and this is the only call site that knows it.
+                    dst_ip=parsed.dst_ip,
                 )
                 if reason is not None:
                     self.blocked_tuples.add(key)

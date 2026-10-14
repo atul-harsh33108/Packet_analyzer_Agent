@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 
 from dpi_engine.connection_tracker import (
     DEFAULT_MAX_CONNECTIONS,
@@ -249,10 +250,29 @@ def _cmd_dump(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _load_rules_with_notices(path: str) -> RuleManager:
+    """Loads a rules file, printing any deprecation warnings it raises.
+
+    Python suppresses `DeprecationWarning` unless it is raised in `__main__`,
+    so `DEC-04`'s display-name alias would otherwise load a legacy rules file
+    with no visible sign that anything is outdated. A deprecation nobody can
+    see migrates nobody, which would make the "deprecation path" in the
+    decision a formality rather than a migration. Both CLI call sites load
+    through here so the notice cannot be forgotten at one of them.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        manager = RuleManager.load_rules(path)
+    for notice in caught:
+        if issubclass(notice.category, DeprecationWarning):
+            print(f"warning: {notice.message}", file=sys.stderr)
+    return manager
+
+
 def _cmd_rules(args: argparse.Namespace) -> int:
     try:
         if args.load_rules:
-            manager = RuleManager.load_rules(args.load_rules)
+            manager = _load_rules_with_notices(args.load_rules)
             print(f"Loaded rules from: {args.load_rules}")
         else:
             manager = RuleManager()
@@ -314,7 +334,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     rules = RuleManager()
     try:
         if args.load_rules:
-            rules = RuleManager.load_rules(args.load_rules)
+            rules = _load_rules_with_notices(args.load_rules)
         _apply_rule_args(rules, args)
         if args.save_rules:
             rules.save_rules(args.save_rules)

@@ -83,7 +83,7 @@ def test_run_save_rules_writes_the_effective_rule_set(tmp_path: Path) -> None:
     assert rules_path.exists()
 
     saved = json.loads(rules_path.read_text(encoding="utf-8"))
-    assert saved["blocked_apps"] == ["YouTube"]
+    assert saved["blocked_apps"] == ["YOUTUBE"]
 
 
 def test_version_flag(capsys) -> None:

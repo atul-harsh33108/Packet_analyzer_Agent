@@ -473,7 +473,10 @@ def test_snapshot_to_dict_is_stable_and_complete() -> None:
 
     payload = RuleSnapshot(version=rules.version, state=rules.snapshot().state).to_dict()
     assert payload["blocked_ips"] == ["10.0.0.1"]
-    assert payload["blocked_apps"] == ["Zoom"]
+    # "Stable" is the point of `D-16`: the key has to be `AppType.name`, an
+    # identifier, not "Zoom" -- a display string that changes whenever the
+    # product is reworded, which would silently invalidate this document.
+    assert payload["blocked_apps"] == ["ZOOM"]
     assert payload["blocked_domains"] == ["a.example"]
     assert payload["domain_patterns"] == ["*.b.example"]
     assert payload["blocked_ports"] == [53]

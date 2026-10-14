@@ -72,6 +72,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import threading
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum, auto
@@ -226,12 +227,22 @@ class _RuleState:
     exact_domains: frozenset[str] = frozenset()
     patterns: tuple[DomainPattern, ...] = ()
     ports: frozenset[int] = frozenset()
+    #: `(prefix_length, {network_bits})` pairs, sorted by prefix length and
+    #: **grouped by prefix length** (`D-20`). Matching is one right-shift and a
+    #: set lookup per *distinct prefix length present* -- at most 33 -- rather
+    #: than one `ipaddress` membership test per registered network. A rule set
+    #: with a thousand subnets therefore costs about what one with a handful
+    #: costs, which is the difference between a rule feature and a throughput
+    #: bug. A tuple of tuples rather than a dict so the state stays hashable
+    #: and picklable like every other field here.
+    networks: tuple[tuple[int, frozenset[int]], ...] = ()
 
     def stats(self) -> RuleStats:
         # Mirrors OSC's getStats(): blocked_domains counts exact rules plus
-        # wildcard patterns.
+        # wildcard patterns. A CIDR rule is an IP rule from the operator's
+        # point of view, so subnet rules count toward blocked_ips too.
         return RuleStats(
-            blocked_ips=len(self.ips),
+            blocked_ips=len(self.ips) + sum(len(prefixes) for _, prefixes in self.networks),
             blocked_apps=len(self.apps),
             blocked_domains=len(self.exact_domains) + len(self.patterns),
             blocked_ports=len(self.ports),
@@ -262,6 +273,8 @@ class RuleSnapshot:
         dst_port: int,
         app: AppType,
         domain: str = "",
+        *,
+        dst_ip: IPLike | None = None,
     ) -> BlockReason | None:
         """Returns the first matching rule, or None.
 
@@ -273,12 +286,24 @@ class RuleSnapshot:
         `src_ip` may be an int (host-order uint32, as the packet parser
         produces) or a string. The int form is preferred on hot paths; the
         string form validates and raises `RuleManagerError` if malformed.
+
+        `dst_ip` is optional and checked **after** the source address but still
+        within the IP category, so adding the destination can never demote an
+        IP match to a lower-priority reason (`DEC-06`). The C++ original only
+        ever considered the source, which meant a rule written to block an IP
+        was inert whenever that IP was the destination -- `D-21`.
         """
         state = self.state
 
         ip_int = _coerce_ip_int(src_ip)
         if ip_int in state.ips:
             return BlockReason(BlockReasonType.IP, _int_to_ip_str(ip_int))
+        if _network_match(state.networks, ip_int):
+            return BlockReason(BlockReasonType.IP, _int_to_ip_str(ip_int))
+        if dst_ip is not None:
+            dst_int = _coerce_ip_int(dst_ip)
+            if dst_int in state.ips or _network_match(state.networks, dst_int):
+                return BlockReason(BlockReasonType.IP, _int_to_ip_str(dst_int))
 
         if dst_port in state.ports:
             return BlockReason(BlockReasonType.PORT, str(dst_port))
@@ -296,7 +321,8 @@ class RuleSnapshot:
         return None
 
     def is_ip_blocked(self, src_ip: IPLike) -> bool:
-        return _coerce_ip_int(src_ip) in self.state.ips
+        ip_int = _coerce_ip_int(src_ip)
+        return ip_int in self.state.ips or _network_match(self.state.networks, ip_int)
 
     def is_app_blocked(self, app: AppType) -> bool:
         return app in self.state.apps
@@ -320,7 +346,14 @@ class RuleSnapshot:
         return {
             "version": self.version,
             "blocked_ips": [_int_to_ip_str(ip) for ip in sorted(state.ips)],
-            "blocked_apps": sorted(_TYPE_TO_APP_NAME[a] for a in state.apps),
+            # `AppType.name`, not the display string (`D-16`/`DEC-04`): the
+            # display name is presentation and changes whenever the product is
+            # reworded, so keying a saved file on it means renaming "Twitter/X"
+            # silently zeroes every app rule a user has ever saved. The enum
+            # name is an identifier by construction. Display names remain
+            # accepted on input as a deprecated alias.
+            "blocked_apps": sorted(app.name for app in state.apps),
+            "blocked_cidrs": self.blocked_cidrs,
             "blocked_domains": sorted(state.exact_domains),
             "domain_patterns": [p.raw for p in state.patterns],
             "blocked_ports": sorted(state.ports),
@@ -329,6 +362,20 @@ class RuleSnapshot:
     @property
     def blocked_ips(self) -> list[str]:
         return [_int_to_ip_str(ip) for ip in sorted(self.state.ips)]
+
+    @property
+    def blocked_cidrs(self) -> list[str]:
+        """Canonical `address/length` strings in sorted order.
+
+        Sorted and reconstructed from the significant bits rather than echoing
+        back whatever the user typed, so a rules file written twice is
+        byte-identical no matter which order the rules were added in.
+        """
+        return [
+            f"{_int_to_ip_str(prefix_bits << (32 - prefix_length))}/{prefix_length}"
+            for prefix_length, prefixes in sorted(self.state.networks)
+            for prefix_bits in sorted(prefixes)
+        ]
 
     @property
     def blocked_apps(self) -> list[AppType]:
@@ -351,6 +398,63 @@ STATIC_RULES = RuleSnapshot(version=0, state=_RuleState())
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
+
+
+def _parse_cidr(text: str) -> tuple[int, int]:
+    """Parses `a.b.c.d/len` into `(prefix_length, network_bits)`.
+
+    `network_bits` is the network address shifted down past its host bits, so
+    it holds only the significant part. Matching is then
+    `ip >> (32 - prefix_length) == network_bits`: two integer operations, with
+    no `ipaddress` object constructed on the packet path.
+
+    Raises `RuleManagerError` rather than leaking a `ValueError`, matching
+    `_coerce_ip_int` -- a malformed rule is user input, and the CLI reports
+    `RuleManagerError` by name.
+
+    Host bits are rejected rather than silently masked (`10.1.2.3/8` means the
+    user wanted a /8 for one address, and quietly widening it to 10/8 would
+    apply a rule far broader than the one written).
+    """
+    if not isinstance(text, str) or "/" not in text:
+        raise RuleManagerError(f"Invalid CIDR '{text}': expected address/prefix-length")
+    address, _, prefix = text.rpartition("/")
+    try:
+        prefix_length = int(prefix)
+    except ValueError as exc:
+        raise RuleManagerError(
+            f"Invalid CIDR '{text}': prefix length '{prefix}' is not a number"
+        ) from exc
+    if not 0 <= prefix_length <= 32:
+        raise RuleManagerError(
+            f"Invalid CIDR '{text}': prefix length must be 0-32, got {prefix_length}"
+        )
+    try:
+        network = ipaddress.IPv4Network(f"{address}/{prefix_length}", strict=True)
+    except (ipaddress.AddressValueError, ipaddress.NetmaskValueError, ValueError) as exc:
+        raise RuleManagerError(f"Invalid CIDR '{text}': {exc}") from exc
+    return prefix_length, int(network.network_address) >> (32 - prefix_length)
+
+
+def _network_match(
+    networks: tuple[tuple[int, frozenset[int]], ...], ip: int
+) -> bool:
+    """True if `ip` falls inside any registered subnet.
+
+    Walks the grouped-by-prefix-length table: one shift and one `in` per
+    distinct prefix length, independent of how many networks share it.
+    `prefix_length == 0` is `ip >> 32`, which is 0 for any 32-bit address --
+    matching everything, which is what `/0` means.
+
+    The parens around `32 - prefix_length` are deliberate. `-` binds tighter
+    than `>>` in Python, so `ip >> 32 - prefix_length` parses as the same
+    expression -- but nothing about that spelling says so, and getting it wrong
+    silently shifts the wrong amount rather than failing loudly.
+    """
+    return any(
+        (ip >> (32 - prefix_length)) in network_bits
+        for prefix_length, network_bits in networks
+    )
 
 
 def _coerce_ip_int(ip: IPLike) -> int:
@@ -397,11 +501,50 @@ def resolve_app_name(name: str) -> AppType:
     lowercased lookup keys -- a user needs to see the same spelling the rest
     of the tool prints, and case-insensitive matching means the lowercase form
     would work but is not what they should be copying.
+
+    This is the **display-name** vocabulary. `resolve_app_key` is what rules
+    files go through, and it prefers the stable enum name.
     """
     app = _APP_NAME_TO_TYPE.get(name) or _APP_NAME_TO_TYPE_LOOKUP.get(name.strip().lower())
     if app is None:
         valid = ", ".join(sorted(_APP_NAME_TO_TYPE))
         raise RuleManagerError(f"Unknown app name '{name}'. Valid names: {valid}")
+    return app
+
+
+def resolve_app_key(name: str) -> AppType:
+    """Resolves an app name **from a rules file**, preferring `AppType.name`.
+
+    Two vocabularies exist and they only look alike:
+
+    * `AppType.name` -- an identifier (`YOUTUBE`, `TWITTER`). Stable: renaming
+      it is a code change with a compiler behind it.
+    * the display name (`YouTube`, `Twitter/X`) -- presentation copy, which
+      changes whenever the product is reworded.
+
+    Rules files used to be keyed on the display name, so every saved file
+    already speaks that dialect and it must keep loading (`D-16`). But it is
+    now an **input-only alias with a deprecation path**: loading one warns and
+      names the canonical key to switch to, so the vocabulary can actually
+      migrate instead of merely being documented as deprecated.
+
+    The check is the exact, case-sensitive enum name -- deliberately *not*
+    case-insensitive. `YouTube` uppercases to `YOUTUBE`, which is a valid enum
+    name, so a case-insensitive canonical check could never tell a display name
+    from an identifier and the warning would never fire.
+    """
+    stripped = name.strip()
+    app = AppType.__members__.get(stripped)
+    if app is not None:
+        return app
+    app = resolve_app_name(stripped)
+    warnings.warn(
+        f"App rule '{stripped}' in a rules file is a display name; it is an "
+        f"input-only alias and the persisted key is '{app.name}'. "
+        f"Update the file to use '{app.name}'.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return app
 
 
@@ -467,6 +610,12 @@ class RuleManager:
     # ---------- IP blocking ----------
 
     def block_ip(self, ip: IPLike) -> None:
+        if isinstance(ip, str) and "/" in ip:
+            # `--block-ip 10.0.0.0/8` is how most people will reach subnet
+            # rules, so accept it here rather than rejecting a perfectly valid
+            # CIDR on a flag named after IPs.
+            self.block_cidr(ip)
+            return
         ip_int = _coerce_ip_int(ip)
         with self._lock:
             if ip_int in self._state.ips:
@@ -474,6 +623,9 @@ class RuleManager:
             self._mutate(ips=self._state.ips | {ip_int})
 
     def unblock_ip(self, ip: IPLike) -> None:
+        if isinstance(ip, str) and "/" in ip:
+            self.unblock_cidr(ip)
+            return
         ip_int = _coerce_ip_int(ip)
         with self._lock:
             if ip_int not in self._state.ips:
@@ -485,6 +637,53 @@ class RuleManager:
 
     def get_blocked_ips(self) -> list[str]:
         return self.snapshot().blocked_ips
+
+    # ---------- CIDR / subnet blocking (D-20) ----------
+
+    def block_cidr(self, cidr: str) -> None:
+        """Blocks every address in `a.b.c.d/len`, as one rule.
+
+        Grouped by prefix length rather than held as `ipaddress` objects, so
+        matching on the packet path is a shift plus a set lookup per distinct
+        prefix length present -- independent of how many networks are
+        registered. See `_network_match`.
+
+        Idempotent: re-registering a subnet that is already present leaves the
+        state untouched, so it does not bump the snapshot version and does not
+        spuriously wake a live-rules consumer.
+        """
+        prefix_length, network_bits = _parse_cidr(cidr)
+        with self._lock:
+            grouped = dict(self._state.networks)
+            existing = grouped.get(prefix_length, frozenset())
+            if network_bits in existing:
+                return
+            grouped[prefix_length] = existing | {network_bits}
+            self._mutate(networks=tuple(sorted(grouped.items())))
+
+    def unblock_cidr(self, cidr: str) -> None:
+        prefix_length, network_bits = _parse_cidr(cidr)
+        with self._lock:
+            grouped = dict(self._state.networks)
+            existing = grouped.get(prefix_length)
+            if not existing or network_bits not in existing:
+                return
+            remaining = existing - {network_bits}
+            if remaining:
+                grouped[prefix_length] = remaining
+            else:
+                # Drop the prefix-length bucket entirely when it empties, so a
+                # lookup never walks a key that would only ever miss.
+                del grouped[prefix_length]
+            self._mutate(networks=tuple(sorted(grouped.items())))
+
+    def is_cidr_blocked(self, cidr: str) -> bool:
+        prefix_length, network_bits = _parse_cidr(cidr)
+        grouped = dict(self.snapshot().state.networks)
+        return network_bits in grouped.get(prefix_length, frozenset())
+
+    def get_blocked_cidrs(self) -> list[str]:
+        return self.snapshot().blocked_cidrs
 
     # ---------- App blocking ----------
 
@@ -574,8 +773,15 @@ class RuleManager:
         dst_port: int,
         app: AppType,
         domain: str = "",
+        *,
+        dst_ip: IPLike | None = None,
     ) -> BlockReason | None:
-        return self.snapshot().should_block(src_ip, dst_port, app, domain)
+        # A second copy of this signature, and the one `worker.process` actually
+        # calls. Adding a parameter to only the snapshot-level method would have
+        # left `D-21` open in every real run while the unit tests, which go
+        # through `RuleManager` directly, reported it fixed -- so both are
+        # declared and this forwards.
+        return self.snapshot().should_block(src_ip, dst_port, app, domain, dst_ip=dst_ip)
 
     # ---------- Bulk operations ----------
 
@@ -723,7 +929,9 @@ class RuleManager:
             manager.apply_delta(
                 {
                     "ips": {ip: True for ip in data.get("blocked_ips", [])},
-                    "apps": {resolve_app_name(name): True for name in data.get("blocked_apps", [])},
+                    "apps": {
+                        resolve_app_key(name): True for name in data.get("blocked_apps", [])
+                    },
                     "domains": {d: True for d in data.get("blocked_domains", [])},
                     "ports": {port: True for port in data.get("blocked_ports", [])},
                 }
@@ -733,6 +941,12 @@ class RuleManager:
             manager.apply_delta(
                 {"domains": {p: True for p in data.get("domain_patterns", [])}}
             )
+            # Subnets are their own key because a /8 is not an address, and
+            # they go through `block_cidr` so there is exactly one CIDR parser
+            # (`D-20`). Absent from every file written before this existed,
+            # which is why it is a `get` rather than a required field.
+            for cidr in data.get("blocked_cidrs", []):
+                manager.block_cidr(str(cidr))
         except RuleManagerError as exc:
             raise RuleManagerError(f"Rules file '{source}': {exc}") from exc
         return manager

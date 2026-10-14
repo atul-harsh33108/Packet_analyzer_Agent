@@ -77,6 +77,15 @@ port" and "Differential testing findings" for full detail:
    and reports the inner protocol, where the original treated the whole thing as
    a non-IP frame and counted it as such. Only reachable on captures that carry
    VLAN tags, which none of the committed fixtures do.
+8. **IP rules match either endpoint (`DEC-06`).** `should_block` in the original
+   takes the *source* address only, so a rule written to block an IP never fired
+   when that IP was the destination (`D-21`). The port checks source and then
+   destination within the IP category, so a blocked address is blocked in both
+   directions. The difference only surfaces on a fixture that carries an IP rule
+   *and* a packet flowing toward a blocked address; the committed fixtures carry
+   no IP rules at all, so this is recorded rather than observed. There is no
+   opt-out switch: unlike `DEC-05`'s flow folding, a source-only IP rule is not a
+   behaviour anyone would want to select deliberately.
 
 ## Sweep tests
 
