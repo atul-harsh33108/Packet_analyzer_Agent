@@ -15,7 +15,8 @@ from pathlib import Path
 from conftest import DIFFERENTIAL_FIXTURES as DIFF_FIXTURES
 from conftest import TEST_DPI_PCAP
 from dpi_engine.pcap_io import PcapReader
-from dpi_engine.pipeline import run_pipeline, run_pipeline_multiprocess
+
+from .conftest import run_pipeline, run_pipeline_multiprocess
 
 EDGE_CASE_FIXTURES = [
     "control_normal_capture.pcap",

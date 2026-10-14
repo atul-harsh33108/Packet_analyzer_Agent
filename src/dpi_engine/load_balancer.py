@@ -64,7 +64,7 @@ from dataclasses import dataclass, field
 from multiprocessing import Queue
 from typing import Any
 
-from dpi_engine.types import FiveTuple
+from dpi_engine.types import FiveTuple, canonical_flow_key
 
 #: Sentinel pushed onto a queue to mean "no more input; drain and finish".
 #: A bare ``None`` is used (never a WorkItem) so it is unambiguous and pickles
@@ -258,6 +258,12 @@ class LoadBalancer:
     input_queue: Queue[Any]
     fps: list[FastPath] = field(default_factory=list)
     fps_per_lb: int = 0
+    #: `DEC-05`. Kept here rather than threaded through `select_fp` because it
+    #: is part of the *wiring*: the parent's first hash step and this one must
+    #: use the same key, or a flow's two directions can be split across the LB
+    #: tier and then split again inside it -- the staged path's version of the
+    #: single-tier dispatch bug.
+    fold_bidirectional: bool = True
 
     def __post_init__(self) -> None:
         if not self.fps:
@@ -272,8 +278,20 @@ class LoadBalancer:
         Uses the second-level salt so this decision is independent of the
         first-level (load-balancer) selection -- see `_SALT_TIER_2` for why
         reusing one hash at both levels is a bug.
+
+        `DEC-05`: hashes the *canonical* flow key, not `tuple_` itself. Both
+        hash steps have to agree, or a conversation's two directions reach
+        different fast-paths and each holds only half the flow's state -- which
+        is exactly the split the sharding exists to prevent, reintroduced one
+        tier down.
         """
-        return self.fps[hash_select(tuple_, self.fps_per_lb, salt=_SALT_TIER_2)]
+        return self.fps[
+            hash_select(
+                canonical_flow_key(tuple_, self.fold_bidirectional),
+                self.fps_per_lb,
+                salt=_SALT_TIER_2,
+            )
+        ]
 
     def queue_for(self, tuple_: FiveTuple) -> Queue[Any]:
         return self.select_fp(tuple_).input_queue
@@ -283,12 +301,16 @@ def build_pipeline_graph(
     num_load_balancers: int,
     fps_per_lb: int,
     queue_factory: Callable[[], Any],
+    fold_bidirectional: bool = True,
 ) -> tuple[list[LoadBalancer], list[FastPath]]:
     """Builds the LB -> FP wiring graph without starting anything.
 
     `queue_factory()` must return a fresh, unstarted queue. Fast-paths are
     numbered `lb_id * fps_per_lb + i`, so a fast-path's id says which stage fed
     it -- which is what makes the per-stage reports readable.
+
+    `fold_bidirectional` is stamped onto every load balancer so that both hash
+    steps in the graph key on the same flow identity (`DEC-05`).
 
     Returns (load_balancers, all_fast_paths).
     """
@@ -311,6 +333,7 @@ def build_pipeline_graph(
                 lb_id=lb_id,
                 input_queue=queue_factory(),
                 fps=fps,
+                fold_bidirectional=fold_bidirectional,
             )
         )
 

@@ -148,29 +148,53 @@ def test_many_tiny_flows_completes_within_generous_time_bound(tmp_path: Path) ->
 def _worker_result_pickle_bytes(pcap: Path, tmp_path: Path, **kwargs: object) -> int:
     """Total pickled bytes of every WorkerResult the pipeline collects.
 
-    `_collect` is the single point where the parent receives results, so
-    hooking it captures them without changing pipeline behaviour.
+    Hooks `_collect_streaming`, the single point where the parent receives
+    results in streaming mode (`_collect` when `reorder_window=None`).
+
+    The `assert captured` at the end is load-bearing, not belt-and-braces. This
+    helper used to hook `_collect`, which streaming mode stopped calling -- so
+    it captured nothing, `sum([])` was `0`, and the caller compared `0 == 0` and
+    passed. A measuring instrument that silently reads zero is worse than no
+    instrument, because it reports success. It now fails loudly if its hook
+    misses, so a future change to where results are collected surfaces here
+    rather than passing vacuously.
     """
     import pickle
 
     import dpi_engine.pipeline as pipeline_module
 
     captured: list[int] = []
-    original = pipeline_module._collect
 
-    def _spy(output_queue: object, expected: int) -> list[object]:
-        results = original(output_queue, expected)  # type: ignore[arg-type]
+    def _record(results: list[object]) -> list[object]:
         captured.extend(len(pickle.dumps(r)) for r in results)
         return results
 
-    pipeline_module._collect = _spy  # type: ignore[assignment]
+    original_collect = pipeline_module._collect
+    original_streaming = pipeline_module._collect_streaming
+
+    def _spy_collect(output_queue: object, expected: int) -> list[object]:
+        return _record(original_collect(output_queue, expected))  # type: ignore[arg-type]
+
+    def _spy_streaming(
+        output_queue: object,
+        expected: int,
+        buffer: object,
+        results: list[object],
+        processes: object,
+    ) -> list[object]:
+        return _record(original_streaming(output_queue, expected, buffer, results, processes))  # type: ignore[arg-type]
+
+    pipeline_module._collect = _spy_collect  # type: ignore[assignment]
+    pipeline_module._collect_streaming = _spy_streaming  # type: ignore[assignment]
     try:
         pipeline_module.run_pipeline_multiprocess(
             pcap, tmp_path / "out.pcap", num_workers=2, **kwargs
         )
     finally:
-        pipeline_module._collect = original  # type: ignore[assignment]
+        pipeline_module._collect = original_collect  # type: ignore[assignment]
+        pipeline_module._collect_streaming = original_streaming  # type: ignore[assignment]
 
+    assert captured, "the hook captured no WorkerResults, so nothing was measured"
     return sum(captured)
 
 
@@ -346,7 +370,10 @@ def test_blocked_flow_is_still_dropped_after_its_tuple_is_pruned() -> None:
 
     first, tuple_ = send(0)
     assert first is False, "the rule set should have blocked this flow"
-    assert tuple_ in processor.blocked_tuples
+    # Keyed by `DEC-05`'s canonical flow key, like the cache itself: the packet's
+    # own tuple would miss whenever it is not the lexicographically smaller
+    # direction of its conversation.
+    assert processor.tracker.flow_key(tuple_) in processor.blocked_tuples
 
     # Simulate the state a prune produces for a flow the tracker still holds.
     processor.blocked_tuples.clear()

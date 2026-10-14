@@ -35,13 +35,14 @@ from dpi_engine.events import (
     FlowBlocked,
     FlowClassified,
     FlowCreated,
+    FlowEvicted,
     LimitExceeded,
     PacketParsed,
     Recorder,
     WorkerFinished,
 )
 from dpi_engine.rule_manager import RuleManager
-from dpi_engine.types import AppType, FiveTuple
+from dpi_engine.types import AppType, FiveTuple, canonical_flow_key
 
 
 def _summary(result: pipeline.PipelineResult) -> dict:
@@ -191,6 +192,17 @@ def test_flow_created_precedes_flow_classified(tmp_path: Path) -> None:
     classification for a flow it has not been told exists. This is the
     invariant the earlier emission bug broke: a new flow emitted `FlowCreated`
     and *returned*, so its `FlowClassified` never came.
+
+    Keyed on `DEC-05`'s canonical flow identity, not on the packet's own tuple.
+    With folding, a flow and its reverse direction are one flow: the first
+    packet emits `FlowCreated` carrying *its* tuple, and every later packet --
+    in either direction -- emits `FlowClassified` carrying its own. Requiring an
+    exact-tuple match would demand a second `FlowCreated` for the reverse
+    direction, which is precisely the duplication folding exists to remove.
+
+    It still bites for the bug it was written against: the first packet of a new
+    flow is in the flow's canonical direction, so a missing `FlowClassified`
+    after that `FlowCreated` fails here.
     """
     bus = EventBus()
     recording = Recorder()
@@ -200,17 +212,50 @@ def test_flow_created_precedes_flow_classified(tmp_path: Path) -> None:
     created: set[FiveTuple] = set()
     for event in recording.events:
         if isinstance(event, FlowCreated):
-            assert event.five_tuple not in created, (
-                f"flow {event.five_tuple} was created twice"
-            )
-            created.add(event.five_tuple)
+            key = canonical_flow_key(event.five_tuple)
+            assert key not in created, f"flow {event.five_tuple} was created twice"
+            created.add(key)
         elif isinstance(event, FlowClassified):
-            assert event.five_tuple in created, (
+            assert canonical_flow_key(event.five_tuple) in created, (
                 f"flow {event.five_tuple} was classified before it was created"
             )
 
     assert created, "no FlowCreated events at all"
     assert len(created) <= len(recording.of(FlowClassified))
+
+
+def test_flow_evicted_is_emitted_when_the_table_evicts(tmp_path: Path) -> None:
+    """`FlowEvicted` must actually fire.
+
+    It was defined in the `T1-01` vocabulary but never emitted, because eviction
+    happens inside `ConnectionTracker` and the tracker deliberately knows nothing
+    about events. The `on_evicted` hook is what closes that gap without
+    reversing the dependency: the tracker calls a callback, the pipeline decides
+    what a departure means.
+
+    Driven by shrinking `max_connections` well below the capture's flow count, so
+    LRU eviction is guaranteed rather than incidental.
+    """
+    bus = EventBus()
+    recording = Recorder()
+    bus.subscribe(recording)
+
+    pipeline.run_pipeline(TEST_DPI_PCAP, tmp_path / "out.pcap", bus=bus, max_connections=4)
+
+    evicted = recording.of(FlowEvicted)
+    assert evicted, "flows were evicted but no FlowEvicted event was emitted"
+
+    created = {canonical_flow_key(e.five_tuple) for e in recording.of(FlowCreated)}
+    seen = []
+    for event in evicted:
+        key = canonical_flow_key(event.five_tuple)
+        assert key in created, f"flow {event.five_tuple} was evicted without ever being created"
+        seen.append(key)
+    assert len(seen) == len(set(seen)), "the same flow was evicted twice"
+
+    # The table really is bounded, which is what made them evict in the first
+    # place -- without this the test would pass on a capture that never evicted.
+    assert len(seen) > 0
 
 
 def test_every_flow_is_classified_at_least_once(tmp_path: Path) -> None:

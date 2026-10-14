@@ -205,6 +205,11 @@ class FlowProcessor:
     rule_source: RuleSource
     enable_quic: bool = True
     fp_id: int = 0
+    #: `DEC-05`. Must match the tracker's own setting, because the side tables
+    #: below are keyed by `tracker.flow_key(...)` and a mismatch would mean a
+    #: flow folded in the tracker but not in the cache -- the cache would then
+    #: report a blocked flow as unblocked for its reverse direction.
+    fold_bidirectional: bool = True
     #: The rule snapshot currently in force. Rebound (never mutated) when a
     #: newer snapshot arrives, so the hot path is one attribute read.
     _rules: RuleSnapshot = field(init=False)
@@ -324,10 +329,16 @@ class FlowProcessor:
             self.quic_packets += 1
             found = None
             if is_quic_initial(payload):
-                inspector = self._quic_inspectors.get(tuple_)
+                # Keyed by the canonical flow key, not the packet's own tuple:
+                # a QUIC Initial and its handshake reply arrive in opposite
+                # directions, and reassembly state has to be shared between
+                # them or the second direction starts a fresh inspector and
+                # every flow appears undecryptable.
+                inspector_key = self.tracker.flow_key(tuple_)
+                inspector = self._quic_inspectors.get(inspector_key)
                 if inspector is None:
                     inspector = QuicFlowInspector()
-                    self._quic_inspectors[tuple_] = inspector
+                    self._quic_inspectors[inspector_key] = inspector
                 # `feed_counted`, not `feed` plus a check of
                 # `undecryptable_packets`: that counter is cumulative, so
                 # testing it directly counted every later Initial on a flow as
@@ -410,6 +421,13 @@ class FlowProcessor:
             self.stats.udp_packets += 1
 
         conn = tracker.get_or_create_connection(tuple_)
+        # `DEC-05`. Everything flow-keyed below uses the canonical key, never
+        # the packet's own tuple, so both directions of a conversation share
+        # one cache entry. Keying these by the raw tuple while the tracker folds
+        # would be the worst of both: the cache would report a blocked flow's
+        # reverse direction as unblocked, and only the `or conn.state` term
+        # below would save it.
+        key = tracker.flow_key(tuple_)
         # `len(data)`, not `raw.orig_len`. Byte counters report what was *read*
         # from the capture, which is the captured length (incl_len). The C++
         # original does the same -- `flow.bytes += raw.data.size()`
@@ -417,7 +435,16 @@ class FlowProcessor:
         # differential suite. `orig_len` is the on-wire length and is larger on
         # a snaplen-truncated capture, so using it here would silently change
         # every byte total relative to the reference.
-        tracker.update_connection(conn, len(item.raw.data), is_outbound=True)
+        #
+        # `D-25`. Before `DEC-05` this was hardcoded `True`, so `packets_in`
+        # and `bytes_in` were permanently zero -- a documented reservation
+        # presented as a real counter. With folding on, `conn.tuple` is the
+        # canonical key and this packet's own tuple says which side of the
+        # conversation it belongs to, so the split is free. With folding off
+        # there is no shared object to attribute the second direction to,
+        # every packet counts as outbound, and both counters stay zero exactly
+        # as the C++ original leaves them.
+        tracker.update_connection(conn, len(item.raw.data), is_outbound=tuple_ == conn.tuple)
 
         if parsed.has_tcp:
             tracker.update_tcp_state(conn, parsed.tcp_flags)
@@ -428,7 +455,7 @@ class FlowProcessor:
         # rule check below is skipped entirely once `conn.state` is BLOCKED --
         # so if a pruned tuple's flow came back while the tracker still held it,
         # reading only the cache would forward a blocked flow's packets (D-22).
-        blocked = tuple_ in self.blocked_tuples or conn.state is ConnectionState.BLOCKED
+        blocked = key in self.blocked_tuples or conn.state is ConnectionState.BLOCKED
 
         if conn.state is not ConnectionState.BLOCKED:
             if conn.state is not ConnectionState.CLOSED:
@@ -446,7 +473,7 @@ class FlowProcessor:
                     domain=conn.sni,
                 )
                 if reason is not None:
-                    self.blocked_tuples.add(tuple_)
+                    self.blocked_tuples.add(key)
                     tracker.block_connection(conn)
                     self.blocked_flows.append((tuple_, conn.app_type, conn.sni))
                     blocked = True
@@ -564,10 +591,38 @@ class WorkerResult:
         return self.fp_stats.udp_packets
 
 
+@dataclass(slots=True)
+class PacketDecision:
+    """One packet's forward/drop decision, sent the moment it is made.
+
+    Streaming mode's counterpart to the `forwarded_bits` bitmap. The bitmap
+    still ships at the end with the `WorkerResult`, because the fold and the
+    legacy second pass both read it; this message exists so the parent can
+    *emit* a packet before the whole capture has been dispatched.
+
+    Deliberately carries only the index and the verdict -- never the packet's
+    bytes. The parent already has them and holding them twice is exactly the
+    accumulation `D-01` removed.
+
+    `worker_id` is so a parent draining one shared queue across many workers can
+    attribute decisions and, if it ever needs to, tell a stalled worker apart
+    from a slow one.
+    """
+
+    sequence_index: int
+    worker_id: int
+    forwarded: bool
+
+
+#: What a worker puts on its output queue. Per-packet decisions in streaming
+#: mode, the aggregate `WorkerResult` at the end either way.
+WorkerMessage = PacketDecision | WorkerResult
+
+
 def worker_main(
     worker_id: int,
     input_queue: Queue[WorkItem | None],
-    output_queue: Queue[WorkerResult],
+    output_queue: Queue[WorkerMessage],
     rule_source: RuleSource,
     max_connections: int,
     *,
@@ -575,12 +630,25 @@ def worker_main(
     reap_interval_packets: int = DEFAULT_REAP_INTERVAL_PACKETS,
     control_queue: Queue[RuleSnapshot | None] | None = None,
     enable_quic: bool = True,
+    emit_decisions: bool = False,
+    fold_bidirectional: bool = True,
 ) -> None:
     """`multiprocessing.Process` target for a single-tier fast-path worker.
 
     Pulls WorkItems off `input_queue` until it receives the sentinel,
     processes each, and puts a single `WorkerResult` on `output_queue` before
     exiting.
+
+    `emit_decisions=True` additionally puts a `PacketDecision` on `output_queue`
+    after *each* packet rather than only the aggregate at the end. That is what
+    makes streaming output possible: the parent can write packet N as soon as
+    worker N decides it, instead of waiting for the entire capture to finish.
+    Off by default so the non-streaming paths pay nothing for a channel they
+    never read.
+
+    `fold_bidirectional` selects `DEC-05`'s canonical flow keying. It is passed
+    through rather than fixed, because differential mode needs the unfolded
+    (exact-tuple) behaviour to hold parity with the C++ original.
 
     `control_queue` (optional) carries `RuleSnapshot` messages that replace the
     active rules mid-run. It is drained non-blockingly between packets, so a
@@ -596,10 +664,12 @@ def worker_main(
             max_connections=max_connections,
             stale_timeout_seconds=stale_timeout_seconds,
             reap_interval_packets=reap_interval_packets,
+            fold_bidirectional=fold_bidirectional,
         ),
         rule_source=rule_source,
         enable_quic=enable_quic,
         fp_id=worker_id,
+        fold_bidirectional=fold_bidirectional,
     )
 
     forwarded_bits = bytearray()
@@ -614,8 +684,17 @@ def worker_main(
         assert item is not None  # sentinel handled above; narrows for the type checker
         if _TEST_DELAY_SECONDS:
             time.sleep(_TEST_DELAY_SECONDS)
-        if processor.process(item):
+        forwarded = processor.process(item)
+        if forwarded:
             set_forwarded(forwarded_bits, item.sequence_index)
+        if emit_decisions:
+            output_queue.put(
+                PacketDecision(
+                    sequence_index=item.sequence_index,
+                    worker_id=worker_id,
+                    forwarded=forwarded,
+                )
+            )
 
     result = processor.finalize()
     result.forwarded_bits = forwarded_bits

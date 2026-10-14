@@ -62,6 +62,22 @@ port" and "Differential testing findings" for full detail:
    `test_bare_domain_rule_blocks_less_than_the_cpp_substring_match` and
    `test_wildcard_domain_rule_matches_the_cpp_substring_result`.
 
+6. **Bidirectional flow folding (`DEC-05`).** The Python port keys each flow by a
+   canonical five-tuple (the lexicographically smaller of a tuple and its
+   reverse), so a connection and its reverse direction are one `Connection`. The
+   C++ original keys each direction separately. Consequences on any fixture with
+   bidirectional traffic: a *lower* active-flow count, per-flow packet/byte totals
+   combined rather than split, and populated `packets_in`/`bytes_in` where the
+   original reports zero. This is a deliberate parity break (`D-25`, `DEC-05`).
+   The differential suite therefore runs with `fold_bidirectional=False`, pinned
+   in `tests/differential/conftest.py` rather than at each call site, so adding a
+   new differential test cannot silently reintroduce folding. `--exact-tuple-flows`
+   selects the reference behaviour from the CLI.
+7. **VLAN-tagged frames (`T05-01`).** The port peels an 802.1Q tag before parsing
+   and reports the inner protocol, where the original treated the whole thing as
+   a non-IP frame and counted it as such. Only reachable on captures that carry
+   VLAN tags, which none of the committed fixtures do.
+
 ## Sweep tests
 
 Beyond the specific allowlist items, two tests assert *no other* difference crept in:

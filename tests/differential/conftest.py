@@ -28,6 +28,39 @@ if TYPE_CHECKING:
 # because `tests` is not itself a package.)
 from conftest import TEST_DPI_PCAP
 
+__all__ = ["run_pipeline", "run_pipeline_multiprocess"]
+
+
+def run_pipeline(*args: object, **kwargs: object) -> object:
+    """`dpi_engine.pipeline.run_pipeline`, pinned to the C++ reference behaviour.
+
+    `DEC-05` folds each flow together with its reverse direction by default.
+    The C++ original never does -- it keys every direction separately -- so
+    leaving folding on here would show up as a lower active-flow count, combined
+    per-flow byte totals, and a populated `packets_in`/`bytes_in` on *every*
+    fixture with bidirectional traffic. That would drown the real signal this
+    suite exists to detect.
+
+    Differential mode is where parity is the entire point, so it opts out. Every
+    other suite should exercise the default (folding on): the product-correct
+    behaviour needs coverage too, and `tests/test_staged_pipeline.py` and
+    `tests/test_worker.py` supply it.
+    """
+    kwargs.setdefault("fold_bidirectional", False)
+    from dpi_engine.pipeline import run_pipeline as _run_pipeline
+
+    return _run_pipeline(*args, **kwargs)  # type: ignore[arg-type]
+
+
+def run_pipeline_multiprocess(*args: object, **kwargs: object) -> object:
+    """As `run_pipeline`, for the multiprocessing variant -- the differential
+    suite dispatches on the same canonical key, so folding would skew which
+    worker sees which flow as well as the counts."""
+    kwargs.setdefault("fold_bidirectional", False)
+    from dpi_engine.pipeline import run_pipeline_multiprocess as _run_mp
+
+    return _run_mp(*args, **kwargs)  # type: ignore[arg-type]
+
 
 @pytest.fixture(scope="session")
 def cpp_available() -> Iterator[None]:
