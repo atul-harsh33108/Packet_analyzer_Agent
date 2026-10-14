@@ -4,10 +4,10 @@ status: active
 phase: 0
 current_task: R-05
 next_action: Bound the HTTP Host: scan to the header block, require a line start, strip a port only after a closing bracket, add CONNECT/TRACE; update the differential allowlist and pin the new behaviour
-blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); Phase 0 and 0.5 complete; Phase 1 0/9]
+blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); DEC-06 decided 2026-10-13 (parity break, allowlist entry 8); Phase 0 and 0.5 complete; Phase 1 4/9 (T1-01, T1-03, T1-05, T1-09)]
 last_updated: 2026-10-03
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_03
+session: ses_t1_05
 ---
 
 # Task Tracker — `dpi-engine`
@@ -41,13 +41,13 @@ session workflow — what to read, in what order, when to stop — read
 |---|---|
 | **Phase** | 0 — Harden |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: **2/2 complete** |
-| **Current task** | `T1-03` — streaming output (**done**, awaiting commit) |
+| **Current task** | `T1-09` - SNI / DNS parser correctness (**done**, uncommitted) |
 | **Next action** | In `extract_http_host`: stop the `Host:` scan at the header block (`\r\n\r\n`), require the match to begin at a line start, strip a port only after a closing `]`, add `CONNECT`/`TRACE`; update the differential allowlist and pin the new behaviour |
 | **Blocked by** | nothing — all five decisions recorded 2026-10-12 |
 | **Open decisions** | **none.** All five decided 2026-10-12; `DEC-01`, `DEC-03`, `DEC-04`, `DEC-05` by the user, `DEC-02` ratified in `T05-02` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` has no owning task; dead-code items from `S-03` have no IDs yet |
-| **Session** | `ses_t1_03` — `T1-03` complete |
+| **Session** | `ses_t1_05` - `T1-05` + `T1-09` done, **both uncommitted and interleaved** |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -64,8 +64,9 @@ without a new `DEC-##` row superseding it.
 | `DEC-01` | Output-ordering guarantee under streaming | **decided** | Bounded reorder window (`T1-01`/`T1-03`) | user | 2026-10-12 | `T0-11`, `T1-01`, `T1-03` | `T0-11` (done), `T1-01`, `T1-03` 
 | `DEC-02` | pcapng: full reader or precise diagnostic? | **decided** | Option 2: precise diagnostic, not a reader (`T05-02`) | claude (ratified from the recommendation) | 2026-10-12 | `T05-02` | `T05-02` (done) 
 | `DEC-03` | scapy: implement the cross-check or delete the dep? | **decided** | Implement the scapy cross-check (`T1-07`) | user | 2026-10-12 | `T1-07` | `T1-07` 
-| `DEC-04` | Rule-file persistence key migration | **decided** | (a) Persist `AppType.name` + migration (`T1-05`) | user | 2026-10-12 | `T1-05` | `T1-05` 
-| `DEC-05` | Bidirectional flow folding: default on or off? | **decided** | Bidirectional flow folding: default ON (`T1-03`) | user | 2026-10-12 | `T1-03` | `T1-03`, plus unblocks `D-25` 
+| `DEC-04` | Rule-file persistence key migration | **decided** | (a) Persist `AppType.name` + migration (`T1-05`) | user | 2026-10-12 | `T1-05` | `T1-05` (done) 
+| `DEC-05` | Bidirectional flow folding: default on or off? | **decided** | Bidirectional flow folding: default ON (`T1-03`) | user | 2026-10-12 | `T1-03` | `T1-03` (done), plus unblocks `D-25` 
+| `DEC-06` | IP rules: source only, either endpoint, or a separate destination set? | **decided** | Match **either endpoint** (`T1-05`) | user | 2026-10-13 | `T1-05` | `T1-05` (done) — parity break, differential allowlist entry 8 
 
 ### Detail
 
@@ -160,11 +161,11 @@ Status vocabulary is closed (7 values) — see
 | `T1-02` | `CapSource` abstraction | `A-01` | pending | — | 2 d |
 | `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | done | — | 3 d |
 | `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
-| `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | pending | — | 1 d |
+| `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | done | - | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | pending | — | 2 d |
 | `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | done | — | 2 d |
 | `T1-08` | Benchmark suite | `R-06` `P-15` | pending | — | 1 d |
-| `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` `D-19` | pending | — | 1 d |
+| `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` | done | - | 1 d |
 | `DOC-01` | `README.md` corrections | `M-01` | pending | — | 1 h |
 | `DOC-02` | `DESIGN_DECISIONS.md` corrections | `M-02` | done | - | 2 h | Now |
 | `DOC-03` | Rewrite `WORKFLOW.md` | `M-03` | done | - | 1 d | Now |
@@ -346,19 +347,20 @@ or `dropped` and say why.
 - **Notes:** this is the first task that could not be validated by comparing output bytes to `HEAD`, because the point is to change the shape of the data. The guarantee test replaces that check and is stronger: it asserts the two paths agree on every reported figure rather than on the bytes. Worth being explicit that it did its job twice — both emission bugs above were found by it and would have shipped silently without it, since `run_pipeline`'s own return value was unaffected in both cases.
 ### `T1-02` — `CapSource` abstraction
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
 - **Files:** `src/dpi_engine/cap_source.py` (new), `src/dpi_engine/pcap_io.py`
-- **Test added:** `WatchSource` over a temp directory picks up files as they appear; `StreamSource` round-trips byte-for-byte against `FileSource`
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q`
+- **Planned test:** `WatchSource` over a temp directory picks up files as they appear; `StreamSource` round-trips byte-for-byte against `FileSource`
+- **How it was tackled:** — · **Deviations:** — · **Verification:** —
 - **Closed findings:** — · **Follow-ups:** —
 - **Notes:** `PcapReader`/`PcapWriter` stay the only I/O boundary, so the safety invariant holds by construction
+- **Status correction (2026-10-13, ses_t1_05):** this block previously read **done**, claimed by `ses_t0_05`. That was **scaffolding, not work**: `src/dpi_engine/cap_source.py` does not exist and no `CapSource`, `WatchSource` or `StreamSource` symbol exists anywhere in `src/`. The summary table already said `pending`, and the table was right. Do not trust this block's status until the evidence line above is rewritten from real code.
 
 ### `T1-03` — Streaming output + reorder buffer
 - **Status:** done — **Blocked by:** — (DEC-01, DEC-05 decided 2026-10-12) — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_03
 - **Files:** `src/dpi_engine/{pipeline,worker,connection_tracker,types,load_balancer,cli,events}.py`, `tests/test_reorder_buffer.py`, `tests/test_{event_bus,report,resource_bounds,safety_constraints,staged_pipeline}.py`, `tests/differential/*`
 - **Scope (user decision, 2026-10-13):** all three pieces in one commit (A) bounded reorder buffer, (B) `DEC-05` flow folding, (C) the three `T1-01` follow-ups.
 - **Done (A):** `worker.PacketDecision` + `worker_main(emit_decisions=)` publish a verdict per packet; `pipeline.ReorderBuffer` holds up to *W* packets keyed on `sequence_index` and emits in input order within the window; `_pump_worker_messages`, `_await_space`, `_collect_streaming`; `DEFAULT_REORDER_WINDOW = 1024`. All **three** variants dispatch, drain and write in one interleaved pass; `reorder_window=None` still selects `T0-11`'s second pass for exact parity. End-to-end verified: streaming and second-pass outputs are **byte-identical** (same SHA-256) on `test_dpi.pcap`.
-- **Late-packet policy (documented in the class docstring):** order is preserved by default; out-of-order emission happens only when the window is full *and* the packet at `next_expected` has no verdict. The verdict itself is never guessed, dropped or forwarded early. `out_of_order_emissions` and `late_decisions` report every departure from input order. **Not yet ratified as a numbered decision** — worth raising as `DEC-06` if a consumer ever depends on it.
+- **Late-packet policy (documented in the class docstring):** order is preserved by default; out-of-order emission happens only when the window is full *and* the packet at `next_expected` has no verdict. The verdict itself is never guessed, dropped or forwarded early. `out_of_order_emissions` and `late_decisions` report every departure from input order. **Not yet ratified as a numbered decision** - worth raising as `DEC-07` if a consumer ever depends on it (`DEC-06` is taken by the `T1-05` endpoint-matching decision).
 - **Done (B):** `canonical_flow_key()` moved to `types.py` (the dependency-free leaf) so `load_balancer` can import it without a cycle with `connection_tracker`. Tracker keys, `blocked_tuples`, `_quic_inspectors` and both hash steps (parent dispatch *and* `LoadBalancer.select_fp`) key canonically. `worker.process` derives `is_outbound` from `tuple_ == conn.tuple`, which is what makes `packets_in`/`bytes_in` real for the first time (`D-25`). `fold_bidirectional` is now exposed on all three variants — including `run_pipeline`, which is the differential baseline and needed it.
 - **Done (C):** `FlowEvicted` is emitted via `ConnectionTracker(on_evicted=)`, firing on both the LRU and the stale sweep; the tracker still imports no event vocabulary, the pipeline decides what a departure means.
 - **CLI:** `--reorder-window W` (0 = legacy second pass) and `--exact-tuple-flows` (= `DEC-05` off, the C++ reference behaviour).
@@ -374,30 +376,39 @@ or `dropped` and say why.
 - **Follow-ups:** `D-13` (LB-death orphans its fast paths until the parent's 120 s timeout) is still unowned. The staged wiring did **not** need per-packet verdicts forwarded through the LB tier — each fast path publishes straight to the shared `fp_output_queue` the parent already reads, and the LB only forwards *input* — so `D-13` did not bite here. It will bite whenever an LB death has to be detected promptly rather than by timeout.
 ### `T1-04` — Rule DSL with provenance
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
 - **Files:** `src/dpi_engine/rule_manager.py`, new `rules/` subpackage
-- **Test added:** JSON round-trip preserves provenance; a rule without provenance cannot be auto-applied
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q`
+- **Planned test:** JSON round-trip preserves provenance; a rule without provenance cannot be auto-applied
+- **How it was tackled:** — · **Deviations:** — · **Verification:** —
 - **Closed findings:** — · **Follow-ups:** —
 - **Notes:** provenance is the precondition for any auto-apply tier in Phase 6
+- **Status correction (2026-10-13, ses_t1_05):** previously read **done** under `ses_t0_05` — scaffolding, not work. There is no `rules/` subpackage and `provenance` does not appear in `rule_manager.py`. Note that `T1-05` has since rewritten large parts of `rule_manager.py` (`_RuleState.networks`, `resolve_app_key`, the `dst_ip` parameter), so the rule schema this task planned around has moved on.
 
 ### `T1-05` — CIDR + destination-IP rules
 
-- **Status:** blocked · **Blocked by:** `DEC-04` · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `src/dpi_engine/rule_manager.py`
-- **Test added:** `10.0.0.0/8` blocks a host inside and not one outside; a migrated persistence key round-trips an old-format rules file with a deprecation warning
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest tests/test_rule_manager*.py -q`
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_05
+- **Files:** `src/dpi_engine/{rule_manager,worker,cli}.py`, `tests/test_rule_cidr_and_dst.py` (new), `tests/{test_cli_rules,test_cli_run,test_rule_manager_v2}.py`, `tests/differential/README.md`, `docs/DESIGN_DECISIONS.md`
+- **Scope:** three findings in one change, as planned — `D-20` (CIDR/subnet rules), `D-21` (destination-IP blocking), `D-16` (persistence keys; this implements `DEC-04`).
+- **Decision — `DEC-06` (user, 2026-10-13):** an IP rule matches **either endpoint**. `block_ip("8.8.8.8")` blocks traffic to *and* from it, rather than source-only as the C++ original did. Deliberate parity break, differential allowlist entry 8. Full rationale and the two rejected options are in `DESIGN_DECISIONS.md`.
+- **How it was tackled:** subnets are stored **grouped by prefix length** — `tuple[tuple[int, frozenset[int]], ...]`, not `ipaddress` objects — so matching is one right-shift and one set lookup per *distinct prefix length present*, at most 33, however many networks are registered. That is the whole reason `D-20` was a defect rather than an omission: a per-network `ipaddress` membership test would have made the packet path cost scale with the rule set. `/32` is kept in the subnet table rather than folded into the exact-address set, because a rule written with a prefix is a rule written with a prefix, and conflating the two would make `get_blocked_cidrs()` lie about what was registered. Host bits are **rejected**, not silently masked — `10.1.2.3/8` is almost certainly a mistake, and quietly widening it to `10/8` would apply a rule far broader than the one written.
+- **Deviations:** none from scope. One addition: `block_ip`/`unblock_ip` accept a CIDR string and route to `block_cidr`, because `--block-ip 10.0.0.0/8` is the natural spelling and rejecting a valid subnet on a flag named after addresses pushes users back toward enumerating 16,777,216 rules — the defect being fixed.
+- **Bugs found while implementing (both caught by the tests, not by review):**
+  1. **`RuleManager.should_block` is a second copy of the signature.** `worker.process` holds a `RuleSource` and calls `should_block` through it, which resolves to `RuleSnapshot.should_block` — the method I had edited — but `RuleManager` carries its own wrapper that forwards positionally. Adding the parameter to only one would have left `D-21` open in every real run while unit tests, which go through `RuleManager` directly, reported it fixed. Both now declare it and the wrapper forwards by keyword.
+  2. **My own load test was wrong.** It registered `10.{0..255}.0.0/16` and then asserted `10.0.0.1` was *unblocked* — but `i=0` covers exactly that address. Rewritten to `range(1, 256)` with a comment, since the exclusion is the point of the test.
+- **A warning nobody sees is not a migration:** `DEC-04` requires a deprecation path, but Python hides `DeprecationWarning` unless raised in `__main__`, so loading a legacy rules file through the CLI printed nothing at all. The alias would then never migrate anything and the decision would be half-implemented in practice while fully implemented in the unit tests. Both CLI load sites now go through `_load_rules_with_notices`, which surfaces the notices on stderr; two tests pin it in both directions, since an unconditional notice is one a user learns to ignore.
+- **Test re-derivation (not weakening):** three assertions pinned the format `D-16` calls defective — `blocked_apps == ["YouTube"]` in `test_cli_rules.py` and `test_cli_run.py`, `== ["Zoom"]` in `test_rule_manager_v2.py`. All three moved to the canonical enum name. `test_cli_rules.py` also asserts the *display* output still reads `"Blocked app: YouTube"`, which is the crux: two vocabularies, one persisted and one shown. `test_snapshot_to_dict_is_stable_and_complete` gained a comment tying its name to `D-16` — "stable" is precisely what a display-string key was not.
+- **Verification:** `ruff check .` clean · `mypy --strict` clean · `pytest -q` → **581 passed, 12 skipped** (was 554; +27 new). Mutation-checked against a hardened harness: **6 of 6 caught**. The first mutation run was **void** and had to be discarded — a syntax error from a bad edit made every test file fail to *collect*, so pytest exited non-zero for all six and the run read as a clean sweep. The harness now verifies the unmutated baseline is green first and counts only pytest exit code 1 as a catch, treating an exit code 2 as collection-error noise. Re-run clean: baseline 25 passed, and the six mutations fail 4, 9, 1, 1, 1 and 11 tests respectively — specific, not universal.
 - **Closed findings:** `D-20` `D-21` `D-16` · **Follow-ups:** —
-- **Notes:** do the `DEC-04` key migration in the same change — both touch the rule schema and `to_dict()`. `ipaddress` is already imported
 
 ### `T1-06` — `simulate_ruleset` counterfactual engine
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
 - **Files:** new `rules/simulator.py`, `src/dpi_engine/pipeline.py`
-- **Test added:** simulating a ruleset that would block 100% of flows is reported as such; a no-op change yields zero delta
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest -q`
+- **Planned test:** simulating a ruleset that would block 100% of flows is reported as such; a no-op change yields zero delta
+- **How it was tackled:** — · **Deviations:** — · **Verification:** —
 - **Closed findings:** `A-05` · **Follow-ups:** —
 - **Notes:** **the keystone component.** Implement by running the engine twice and diffing the decision bitmaps `T0-11` produces — nearly free, and exact rather than approximate. Every safety claim in `AGENTIC_ARCHITECTURE.md` Layers 3/7/8 reduces to this existing
+- **Status correction (2026-10-13, ses_t1_05):** previously read **done** under `ses_t0_05` — scaffolding, not work. Neither `rules/simulator.py` nor `src/dpi_engine/pipeline_sim.py` exists, and no `simulate_ruleset` symbol exists anywhere. The "keystone" note above is genuine planning and worth keeping; only the status was false.
 
 ### `T1-07` — Property tests + scapy cross-check
 - **Status:** done — both increments — **Blocked by:** — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t1_07b
@@ -410,29 +421,39 @@ or `dropped` and say why.
 - **Notes:** **all five roadmap decisions are now recorded** — `DEC-01` bounded reorder window, `DEC-02` precise pcapng diagnostic, `DEC-03` implement the cross-check, `DEC-04` `AppType.name` + migration, `DEC-05` flow folding default ON — so Phase 1's five blocked tasks are unblocked. `DEC-05` specifically unblocks `D-25`, which I had documented this session as *not cheaply solvable*: `packets_in`/`bytes_in` are permanently 0 because there is no folded flow to attribute the reverse direction to, and folding gives that state an owner. Next is `T1-01` (event bus), whose shape the `DEC-01` decision fixes.
 ### `T1-08` — Benchmark suite
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
-- **Files:** `tests/benchmarks/`
-- **Test added:** publish the baseline recorded in `T0-03`
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest tests/benchmarks -q`
-- **Closed findings:** `R-06` `P-15` · **Follow-ups:** —
+- **Status:** partial · **Claimed by:** — · **Session:** — · **Blocked by:** -
+- **Files:** benchmark tests **done** (`tests/benchmarks/test_end_to_end.py`, `test_micro_benchmarks.py`); published baseline **not started** (no `baseline.json`, no `BENCHMARKS.md`)
+- **Planned test:** publish the baseline recorded in `T0-03`
+- **How it was tackled:** — · **Deviations:** — · **Verification:** `uv run pytest tests/benchmarks/test_end_to_end.py --benchmark-enable`
+- **Closed findings:** — · **Follow-ups:** publish the baseline; re-measure against `D-23`
 - **Notes:** first honest measurement of whether the port is fast enough for real captures
+- **Status correction (2026-10-13, ses_t1_05):** previously read **done**, closing `R-06` and `P-15`. The truth is split, and the block was wrong about both findings even though the code exists:
+  - **What genuinely exists:** `tests/benchmarks/test_end_to_end.py` and `test_micro_benchmarks.py`, both real `pytest-benchmark` suites covering all three pipeline variants, tracked in git since `e9b8674`. The benchmark *tests* do not need rebuilding.
+  - **What does not exist:** the published baseline. There is no `tests/benchmarks/baseline.json`, no `BENCHMARKS.md`, no baseline anywhere. The task's whole point — publishing what `T0-03` measured — is undone.
+  - **Both claimed closures were wrong.** `R-06` was closed by `T0-03`, not by this task (see the `T0-03` row, status `done`). `P-15` is no longer an open finding at all: it was **measured and promoted to `D-23`** (multiprocess 4.7x slower, staged 6.2x). A task cannot close a finding that was already promoted out of the register.
+  - **Caveat carried forward:** `--benchmark-disable` is in the project's `addopts`, so `pytest tests/benchmarks` reports these as *passed* without executing them. A green run there does not mean the benchmarks ran — documented in both files, but worth remembering before trusting a green.
 
 ### `T1-09` — SNI / DNS parser correctness
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
-- **Files:** `src/dpi_engine/sni_extractor.py`
-- **Test added:** an SNI extension whose first name entry is not `host_name` but which contains a valid `server_name` later is now found; a 65535-byte claimed hostname is rejected; a compression-pointer loop terminates
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `pytest tests/test_sni_extractor.py -q`
-- **Closed findings:** `D-17` `D-18` `D-19` · **Follow-ups:** —
-- **Notes:** the `break`-should-be-`continue` bug is inherited from `sni_extractor.cpp:107,110,115`
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t1_05 · **Blocked by:** —
+- **Scope reduction (2026-10-13):** `D-19` (IPv6) is **out of scope** and is a follow-up. It belongs to the packet parser, not to SNI/DNS extraction, and the original block claimed to close it with no code path that could have.
+- **Files:** `src/dpi_engine/sni_extractor.py`, `tests/test_sni_correctness.py` (new), `tests/property/test_scapy_cross_check.py`
+- **Test added:** 19 tests in `tests/test_sni_correctness.py`, built on a new `_sni_extension` helper that can express an arbitrary server_name list — the existing `build_client_hello` fixture could only emit a single `host_name` entry, which is why `D-17` survived: nothing in the suite could construct the shape that triggers it.
+- **How it was tackled:** the server_name list is now walked entry by entry via `_hostname_from_sni_extension`, returning the first entry that is both type `host_name` **and** passes policy. A malformed or unfamiliar entry no longer ends the search, and an extension with no usable name falls through to the next extension rather than leaving the loop. `_validated_hostname` applies the policy `D-18` asked for: at most 253 octets, at most 63 per label, no empty labels, and only permitted characters.
+- **Deviations:** one, and it needed a decision. The scapy cross-check (`R-08`/`DEC-03`) requires our extractor to agree with scapy, which validates only the *format*. `D-18` requires us to refuse impossible hostnames. They collide, so the divergence is **pinned as a test** (`test_policy_invalid_hostnames_are_refused_while_scapy_still_parses_them`) asserting both halves — scapy returns the value, we return `None`. The corpus entry that triggered the collision was itself wrong: `"very-long-" + "z"*70 + ".example"` put 80 characters in one label while its comment claimed it was within DNS limits, so it was replaced with a genuinely legal 252-octet name. The cross-check compares *format* parsing; illegal names are pinned separately.
+- **Dead code removed, both proven by surviving mutations** (the same mechanism `T1-03` used): a `startswith(".")`/`endswith(".")` guard, because `split(".")` already yields an empty first/last element for those cases; and the `len(raw) >= 1` lower bound, because `"".split(".")` is `[""]` and the empty-label check catches it. A third guard — an explicit `decode("ascii")` — was also removed after reverting it to the old `latin-1` fallback changed no result in the suite: any non-ASCII byte decodes to a character above U+0080, which the permitted-character check rejects. One guard per condition, not two.
+- **Verification:** `ruff check .` clean · `mypy --strict` clean · `pytest -q` → **601 passed, 12 skipped** (was 581; +20 new). Mutation-checked: **6 of 7 caught**; the seventh targets the length lower bound, which no longer exists. Real-capture path re-verified end to end — 27 active flows, all names still extracted.
+- **Closed findings:** `D-17` `D-18` · **Follow-ups:** `D-19` (IPv6) — no task yet
+- **History:** this block previously read `done` under `ses_t0_05`, claiming all three findings closed. That was checked rather than trusted, and it was false: `D-17` and `D-18` were both live in the source and none of the planned tests existed. The evidence is preserved in the session log rather than restated here — the point is that the status was corrected *before* the work was done, not after.
 
 ### `DOC-01` — root `README.md` corrections
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
 - **Files:** `../README.md` (repository root — this file's own directory holds the docs)
-- **Change:** test count `377 + 14` → `390 + 14 = 404`; add pcapng, CIDR, dst-IP and HTTP-host limitations; **add an explicit note that the port is likely slower per packet than the C++ original**
-- **How it was tackled:** — · **Deviations:** — · **Verification:** manual read-through
+- **Change:** test count `377 + 14` → the current real count; add pcapng, CIDR, dst-IP and HTTP-host limitations; **add an explicit note that the port is likely slower per packet than the C++ original**
+- **How it was tackled:** — · **Deviations:** — · **Verification:** —
 - **Closed findings:** `M-01` · **Follow-ups:** — · **Notes:** independent of code work; do it now
+- **Status correction (2026-10-13, ses_t1_05):** previously read **done**, but the work is not present. README line 20 still reads `# 377 unit + 14 differential tests` — the real figure is now **581 passed, 12 skipped** — and the file mentions neither pcapng, CIDR, destination-IP nor the slower-per-packet caveat. Two notes for whoever picks this up: the planned figure `390 + 14 = 404` is already stale, so take the count from `uv run pytest -q` at the time of the edit rather than from here; and **do not hardcode the count again**, since it drifted by 177 in the time between this task being written and being checked.
 
 ### `DOC-02` — `DESIGN_DECISIONS.md` corrections
 
@@ -445,7 +466,7 @@ or `dropped` and say why.
 - **Closed findings:** `M-02` (a-f all) · **Follow-ups:** `M-02e`/`M-02f` were code docstrings and were fixed here rather than deferred to `T0-10`: `sni_extractor.py's module docstring claimed QUIC was "intentionally NOT implemented" while citing a resolved section, and `types.py:257` cited DESIGN_DECISIONS item 14 (dead-report cleanup) where items 7 and 11 were meant.
 - **Notes:** The document now opens with a status banner pointing at `AUDIT.md`, and states that the audit supersedes it on any disagreement.
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_2026-10-03 — **Blocked by:** -
 - **Files:** `DESIGN_DECISIONS.md`
 - **Change:** strike bug-list item 1's QUIC clause (contradicts item 16); fix the stale efficiency note; correct the "output left on disk" claim (MP variants leave an **empty** pcap, not a partial one); rewrite §Testing strategy as done-not-planned; add `quic.py`/`report.py` to the inventory
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual read-through
@@ -479,7 +500,7 @@ or `dropped` and say why.
 - **Closed findings:** `M-04` · **Follow-ups:** §1 and §2.1 are state snapshots and will go stale again - they should be re-derived from `AUDIT.md` rather than edited, per the one-home-per-fact rule
 - **Notes:** The document now opens with a dated correction banner naming the root cause (`AUDIT.md` §6: two sessions 2h15m apart with a refactor between them) and stating which parts were corrected and which were kept.
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_2026-10-03 — **Blocked by:** -
 - **Files:** `AGENTIC_ARCHITECTURE.md`
 - **Change:** rewrite §1–§3 from the stale-claim table in `AUDIT.md` §4.2; resequence §8 per `AUDIT.md` §4.6; **keep §4–§7 and §9 essentially verbatim**
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual
@@ -487,7 +508,7 @@ or `dropped` and say why.
 
 ### `DOC-05` — `OSC/` banners + CMake correction
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_batch1 — **Blocked by:** -
 - **Files:** `OSC/README.md`, `OSC/WINDOWS_SETUP.md`
 - **Change:** superseded banner pointing at the root `README.md`; correct the claim that `CMakeLists.txt` builds DPI binaries (it builds only `packet_analyzer` from three files, no `-pthread`)
 - **How it was tackled:** — · **Deviations:** — · **Verification:** manual
@@ -515,7 +536,7 @@ or `dropped` and say why.
 
 ### `DOC-08` — Gitignore / delete session transcripts
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_batch1 — **Blocked by:** -
 - **Files:** `.gitignore`
 - **Change:** `session-ses_*.md` are 453 KB of untracked transcript noise in the repo root — gitignore or delete
 - **How it was tackled:** — · **Deviations:** — · **Verification:** `git status --short` clean of them
@@ -531,11 +552,24 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **16** (`D-01`, `D-02`, `D-03`, `D-04`, `D-05`, `D-06`, `D-07`, `D-08`, `D-09`, `D-10`, `D-12`, `D-14`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 | 5 (`D-13`, `D-23`, `D-24`, `D-25`, `D-26`) |
+| `D-##` defects | 26 | **21** (`D-01`–`D-10`, `D-12`, `D-14`, `D-16`, `D-17`, `D-18`, `D-20`, `D-21`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 (`D-11`, `D-13`, `D-15`, `D-19`, `D-23`) | 2 (`D-13`, `D-23`) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
 | `A-##` agentic | 6 | 0 | 6 | 0 |
-| `M-##` documentation | 7 | **4** (`M-02`, `M-03`, `M-04`, `M-07`) | 3 (`M-01`, `M-05`, `M-06`) | 0 |
+| `M-##` documentation | 7 | **6** (`M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 1 (`M-01`) | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
+
+**Register corrections (2026-10-13, `ses_t1_05`)** — this table was wrong in both
+directions and was recomputed against the code rather than trusted:
+- `D-##` read "16 closed / 5 open / 5 unassigned", which cannot add up (26 total),
+  and listed `D-24`, `D-25` and `D-26` in **both** the closed and unassigned columns.
+  Recomputed: **19 closed, 7 open, 2 unassigned**. `D-16`, `D-20` and `D-21` closed
+  under `T1-05` and were absent from the closed list entirely.
+- `M-##` read "4 closed / 3 open", listing `M-05` and `M-06` as open. Both are
+  closed: `DOC-05` added the superseded banner to `OSC/README.md`, which is present
+  at line 1. The task record was right and the register was stale.
+- `D-15` is counted **open** because only its diagnostic half landed (`T05-02`);
+  the reader half has no task. `D-23` stays open and unowned by design — `T0-11`
+  has now landed, so it is finally re-measurable, which is what it was waiting for.
 
 **Rules:**
 - A finding is `closed` only when its owning task is `done` **and** a regression test exists that fails without the fix.
@@ -580,7 +614,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
-| 2026-10-13 | `ses_t1_03` | claude-opus-5[1m] | `T1-03` | done — reorder buffer in all three variants, `DEC-05` folded everywhere, `FlowEvicted` emitted; 554 green; 3 bugs + 2 dead lines found | `T1-02`/`T1-06`, or close `D-13` |
+| 2026-10-13 | `ses_t1_05` | claude-opus-5[1m] | `T1-05` `T1-09` + tracker integrity | `T1-05` done — CIDR rules (`D-20`), either-endpoint matching (`D-21`/`DEC-06`), stable rule keys (`D-16`/`DEC-04`); `T1-09` done — server_name list walked per entry (`D-17`), hostname policy (`D-18`). 601 green. **Both uncommitted.** Also corrected six task blocks that falsely read `done` (`T1-02`, `T1-04`, `T1-06`, `T1-08`, `T1-09`, `DOC-01`) and recomputed §6, which could not add up and listed three findings as both closed and unassigned | split into two commits, then `DOC-01` or `T1-02` |
 | 2026-10-12 | `ses_t1_01` | claude-opus-5[1m] | `T1-01` | event bus done — derived `PipelineResult` — guarantee test caught 2 emission bugs | `T1-03` |
 | 2026-10-12 | `ses_t1_07b` | claude-opus-5[1m] | `T1-07` | `R-05` + `R-08` closed — 45 tests, proven to bite | `T1-01` |
 | 2026-10-03 | `ses_t1_07` | claude-opus-5[1m] | `T1-07` | increment 1 — `R-05` closed, 20 property tests, proven to catch `D-05` | `T1-07` increment 2 (needs `DEC-03`) |
@@ -649,7 +683,7 @@ Copy into §5 when adding a task. Keep field order.
 ```markdown
 ### `T<n>-<nn>` — <title>
 
-- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_05 — **Blocked by:** -
+- **Status:** pending — **Claimed by:** <who> — **Session:** <session id> — **Blocked by:** <DEC-## or ->
 - **Files:** <paths>
 - **Test added:** <the specific test, or "none needed">
 - **How it was tackled:** <what actually happened>

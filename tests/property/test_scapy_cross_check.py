@@ -100,7 +100,15 @@ CORPUS = [
     "a-b-c.example",                           # hyphens
     "a_b_c.example",                           # underscore: legal in DNS, refused by many parsers
     "1.2.3.4.example",                         # numeric labels first
-    "very-long-" + "z" * 70 + ".example",      # long but within the 255-octet DNS limit
+    "very-long-" + "z" * 53 + "." + "y" * 63 + "." + "x" * 63 + "." + "d" * 60,
+    # Long, and genuinely within DNS limits: 252 octets total, every label
+    # <= 63. The previous entry here was "very-long-" + "z"*70 + ".example",
+    # which the comment described as "within the 255-octet DNS limit" -- true
+    # of the total, but it put 80 characters in a single label, which RFC 1035
+    # forbids. scapy parses the format and does not care, so it agreed; our
+    # extractor began refusing it the moment D-18's label check landed. The
+    # cross-check should compare *format* parsing, so its corpus has to hold
+    # legal names. Deliberately-illegal names are pinned separately, below.
 ]
 
 
@@ -151,6 +159,33 @@ def test_our_extractor_agrees_with_inputs_scapy_constructed(server_name: str) ->
         f"hand-rolled extractor failed on a ClientHello built by scapy: "
         f"expected {server_name!r}, got {ours!r}"
     )
+
+
+def test_policy_invalid_hostnames_are_refused_while_scapy_still_parses_them() -> None:
+    """A **documented divergence** (`D-18`), asserted in both directions.
+
+    scapy validates the *format*: any well-formed server_name entry is handed
+    back. We additionally apply hostname policy, because the value goes on to
+    be pattern-matched, stored on `Connection.sni` and pickled to a worker
+    process. On a syntactically parseable but impossible hostname the two
+    therefore disagree -- deliberately.
+
+    Without this test the disagreement would look like a cross-check failure
+    to the next person, and someone would "fix" it by relaxing the limit. The
+    point of pinning it is that the corpus above can then keep testing what it
+    was written to test: agreement on *legal* names.
+    """
+    from test_sni_extractor import build_client_hello
+
+    impossible = [
+        "z" * 80 + ".example",  # one label past the 63-octet limit
+        "a" * 300 + ".example",  # past the 253-octet full-name limit
+        "bad host.example",  # a space cannot appear in a hostname
+    ]
+    for hostname in impossible:
+        record = build_client_hello(sni_hostname=hostname.encode())
+        assert scapy_reads_our_fixture(record) == [hostname], hostname
+        assert extract_sni(record) is None, hostname
 
 
 def test_scapy_built_inputs_with_no_sni_extension_yield_none() -> None:

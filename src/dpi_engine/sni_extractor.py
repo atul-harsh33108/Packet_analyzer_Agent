@@ -56,6 +56,17 @@ _HANDSHAKE_HEADER_LEN = 4  # handshake type (1) + length (3)
 _CLIENT_VERSION_LEN = 2
 _RANDOM_LEN = 32
 
+_MAX_HOSTNAME_LEN = 253  # DNS limit on a full domain name
+_MAX_LABEL_LEN = 63  # DNS limit on a single label
+# Permitted hostname characters. Underscore is illegal per RFC 952 but
+# common in real deployments; rejecting it would misreport live traffic.
+_HOSTNAME_ALLOWED = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "-._"
+)
+
 
 def _read_u16be(data: bytes, offset: int) -> int:
     return (data[offset] << 8) | data[offset + 1]
@@ -180,35 +191,113 @@ def extract_sni(payload: bytes, length: int | None = None) -> str | None:
             break
 
         if extension_type == _EXTENSION_SNI:
-            if extension_length < 5:
-                break
-
-            sni_list_length = _read_u16be(payload, offset)
-            if sni_list_length < 3:
-                break
-
-            sni_type = payload[offset + 2]
-            sni_length = _read_u16be(payload, offset + 3)
-
-            if sni_type != _SNI_TYPE_HOSTNAME:
-                break
-            if sni_length > extension_length - 5:
-                break
-            # Belt-and-suspenders: extension_length was already validated to
-            # fit within extensions_end/length above, and sni_length was
-            # just validated against extension_length, so this slice cannot
-            # read out of bounds -- but Python slicing would simply return a
-            # short result rather than crash even if it somehow could.
-            sni_bytes = payload[offset + 5 : offset + 5 + sni_length]
-            try:
-                return sni_bytes.decode("ascii")
-            except UnicodeDecodeError:
-                return sni_bytes.decode("latin-1")
+            hostname = _hostname_from_sni_extension(payload, offset, extension_length)
+            if hostname is not None:
+                return hostname
+            # No usable host_name in this extension. Advance to the next one
+            # instead of leaving the loop -- a single extension without a
+            # usable name says nothing about the ones after it (D-17).
 
         offset += extension_length
 
     return None
 
+
+def _hostname_from_sni_extension(
+    payload: bytes, offset: int, extension_length: int
+) -> str | None:
+    """Returns the first usable `host_name` entry in one SNI extension.
+
+    The extension body is a **list** of server_name entries, each tagged with
+    a type, and RFC 6066 anticipates types other than `host_name`. The previous
+    code read only the first entry and, on an unfamiliar type, `break`-ed out
+    of the whole extension loop -- so a valid hostname sitting one entry later
+    was reported as absent and the flow was classified by port alone (`D-17`).
+    Every other early-out in `extract_sni` is scoped to the current extension;
+    this one had escaped that scope, which is what made it a defect rather
+    than a policy.
+    """
+    if extension_length < 2:
+        return None
+
+    sni_list_length = _read_u16be(payload, offset)
+    # Clamp the list to the extension rather than rejecting an oversized
+    # claim: the surrounding loop already tolerates a truncated extensions
+    # block, and every entry below is bounds-checked against `list_end`, so a
+    # clamped length cannot turn into an out-of-bounds read.
+    extension_end = offset + extension_length
+    list_end = offset + 2 + sni_list_length
+    if list_end > extension_end:
+        list_end = extension_end
+
+    entry = offset + 2
+    while entry + 3 <= list_end:
+        name_type = payload[entry]
+        name_length = _read_u16be(payload, entry + 1)
+        name_end = entry + 3 + name_length
+        if name_end > list_end:
+            # A truncated final entry. Nothing after it can be trusted, and
+            # the bytes that follow are the next extension's header, not
+            # server_name data.
+            return None
+        if name_type == _SNI_TYPE_HOSTNAME:
+            hostname = _validated_hostname(payload[entry + 3 : name_end])
+            if hostname is not None:
+                return hostname
+            # A malformed host_name entry does not license abandoning the
+            # extension either -- keep looking for a usable one.
+        entry = name_end
+
+    return None
+
+
+def _validated_hostname(raw: bytes) -> str | None:
+    """Decodes and checks a `host_name` value, returning None if unusable.
+
+    The returned name is scanned against the app pattern table, compared with
+    wildcard rules, stored on `Connection.sni` and pickled across a process
+    boundary. Without a cap, a client makes all of those do unbounded work by
+    claiming a 65535-byte name; without character checks it can put newlines
+    and NULs into the report and the log (`D-18`).
+
+    Rejected rather than repaired. Truncating or sanitising silently would
+    mean the flow is classified against a name the client never sent, and a
+    wrong classification is worse than no classification.
+
+    Underscores are allowed: illegal per RFC 952, but common enough in real
+    deployments that rejecting them would misreport live traffic.
+    """
+    # Upper bound only. A zero-length name is already rejected below: "" has
+    # no forbidden characters, but splitting it yields [""], and the empty-label
+    # check catches it. An explicit `len(raw) >= 1` was written first and
+    # proven redundant by a surviving mutation -- one guard for that case, not
+    # two.
+    if len(raw) > _MAX_HOSTNAME_LEN:
+        return None
+
+    # Decoded leniently rather than as ASCII. Any non-ASCII byte becomes a
+    # character at or above U+0080 under latin-1, and the permitted-character
+    # check below rejects those -- so an explicit `decode("ascii")` guard would
+    # be a second test for the same condition. It was written that way and
+    # proven equivalent by a surviving mutation: reverting it to the old
+    # latin-1 fallback changed no result in the suite. One guard, then.
+    # A compliant client sends punycode, which is pure ASCII, so nothing is
+    # lost by not distinguishing the two.
+    hostname = raw.decode("latin-1")
+
+    if any(char not in _HOSTNAME_ALLOWED for char in hostname):
+        return None
+
+    labels = hostname.split(".")
+    # A leading or trailing dot produces an empty first/last element here, so
+    # this one condition covers ".example.org", "example.org.", "." and ".."
+    # as well as the interior case. A separate startswith/endswith guard was
+    # written first and proven redundant by a surviving mutation -- every case
+    # it caught, `not label` caught too.
+    if any(not label or len(label) > _MAX_LABEL_LEN for label in labels):
+        return None
+
+    return hostname
 
 # --- HTTP Host header extraction ---------------------------------------------------
 
