@@ -3,7 +3,7 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: Phase 1 is COMPLETE (9/9) but exited CONDITIONALLY - the differential suite is 2 passed / 12 skipped because Docker is unavailable locally, so DEC-05 and DEC-06 are unverified divergences from the C++ original. Run `pytest tests/differential` with Docker before relying on parity. Then Phase 2 (eval harness) is unstarted.
+next_action: Phase 1 is COMPLETE and unconditionally exited - all five Appendix B criteria verified, 749 passed with 0 skipped including the Docker-gated differential suite. Start Phase 2 (eval harness), unstarted. Note: tests/differential and tests/benchmarks both report green while doing nothing unless Docker is up / --benchmark-enable is passed - do not trust either without them.
 blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete (9/9 in Phase 1); Phase 2 not started; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
@@ -39,10 +39,10 @@ session workflow — what to read, in what order, when to stop — read
 
 | Field | Value |
 |---|---|
-| **Phase** | 1 — Streaming core (**complete**, conditionally) |
+| **Phase** | 1 — Streaming core (**complete**) |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 9/9** (`T1-01`…`T1-09` all `done`) |
 | **Current task** | none — `T1-04` **done**, uncommitted |
-| **Next action** | Phase 1 is complete but **exited conditionally**: the differential suite is 2 passed / 12 skipped (no Docker), so `DEC-05`/`DEC-06` are unverified divergences. Run `pytest tests/differential` with Docker before relying on parity. Then Phase 2 (eval harness), unstarted |
+| **Next action** | Phase 1 complete. Start Phase 2 (eval harness), unstarted. Caveat: `tests/differential` and `tests/benchmarks` both report green while doing nothing unless Docker is up / `--benchmark-enable` is passed |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -50,8 +50,8 @@ session workflow — what to read, in what order, when to stop — read
 | **Documentation** | **all `M-01`–`M-07` closed, and `AUDIT.md` reconciled 2026-10-15.** The three-count contradiction (§2 heading said `D-01`…`D-22`, its intro said "twenty-one", the file held 26) is fixed, and `§0`/`§4.2` — both presented as current — had every numeric row stale, including five that asserted CI, coverage, timeout, property testing and `conftest.py` as *absent* when all five now exist |
 | **Session** | `ses_t1_04` - `T1-04` done, **Phase 1 complete (9/9)**, uncommitted |
 
-**Phase 1 is complete (`T1-04`, `ses_t1_04`) — 9/9 — but exited
-conditionally.** Four of Appendix B's five criteria are met and tested. The fifth,
+**Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
+`ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
 *memory bounded under a streaming run with a directory-watch source*, **had never
 been measured by anything**, so this session measured it and **it found a real
 defect**: `WatchSource` reads through one `PcapReader` per file and
@@ -67,10 +67,19 @@ both sizes fit in the buffer, so it was measuring "more packets fit". Re-measure
 with the input genuinely exceeding the window — 1078 → 4312 packets — peak is flat
 at ~1.62 MB.
 
-**Not verified: differential parity.** The suite is 2 passed / 12 skipped because
-Docker is unavailable here, so `DEC-05` and `DEC-06` remain documented but
-unverified divergences from the C++ original. That is the one criterion that could
-not be checked, and it is not evidence of success.
+**Differential parity verified (`ses_t1_04b`).** Once Docker was running the suite
+went from 2 passed / 12 skipped to **14 passed / 0 skipped**, and the whole project to
+**749 passed with nothing skipped** — the first fully-verified run it has had. The 12
+cover total/dropped counts under three rule regimes, detected domains modulo the
+documented C++ misclassifications, domain-rule semantics, app-name resolution, three
+malformed-input fixtures and two multiprocess-parity runs. `DEC-05`/`DEC-06` remain
+deliberate allowlisted divergences; `tests/test_parity_breaks.py` (5 tests) verifies
+the port side of each claim, which the differential suite cannot do because it pins
+folding off to preserve parity.
+
+**Standing caveat:** `tests/differential` reports 12 skips when Docker is down, and
+`tests/benchmarks` reports passed without executing unless `--benchmark-enable` is
+passed. Both look green while doing nothing. Do not trust either without them.
 
 **`CapSource` landed (`T1-02`, `ses_t1_02`).** A source is just an iterable of
 `RawPacket` — the shape `_iter_inspectable` already consumed — so no pipeline
@@ -181,7 +190,7 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 |---|---|---|---|---|---|---|---|---|
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
-| **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met, conditionally** (differential parity unverified - no Docker) |
+| **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
@@ -449,7 +458,7 @@ or `dropped` and say why.
 - **Phase 1 exit criteria verified 2026-10-15, `ses_t1_04` (Appendix B):**
   1. *all existing tests pass unchanged* — **727** at the time of the check, later **732** with the memory suite; no reduction at any point.
   2. *streaming output deterministic under `DEC-01`* — `tests/test_reorder_buffer.py`, 15 passed.
-  3. *differential parity with the C++ reference intact* — **2 passed, 12 skipped.** **Not verifiable locally**: the 12 need Docker, which is unavailable. Allowlist entries 6 (`DEC-05`) and 8 (`DEC-06`) are unverified divergences. **This is the one Phase 1 criterion that could not be checked, and it is not evidence of success.**
+  3. *differential parity with the C++ reference intact* - **14 passed, 0 skipped** (verified 2026-10-15 with Docker running). All 12 previously-skipped tests now execute: total/dropped counts match for no-rules, blocking-IP, the DNS scope improvement, detected domains modulo the documented C++ misclassifications, bare-domain vs wildcard rule behaviour, app-name resolution, three edge-case fixtures (truncated ClientHello, truncated TCP header, oversized declared lengths) and two multiprocess-parity runs. `DEC-05` and `DEC-06` remain **allowlisted divergences** — the suite pins `fold_bidirectional=False` so parity holds for everything else, which *excludes* those two from the parity check rather than verifying them by it. `tests/test_parity_breaks.py` (5 tests) now verifies the **port side** of each claim, so together the two suites say what they intend to.
   4. *`simulate_ruleset` working and exercised* — 22 tests.
   5. *memory bounded under a streaming run with a directory-watch source* — **was not measured by anything.** Flow reaping is covered and the reorder window is covered, but neither ran against a `WatchSource` and neither asserted peak memory. Added `tests/test_streaming_memory_bound.py`, and **it found a real bug** — see Deviations.
 - **Files:** `src/dpi_engine/rule_manager.py`, `src/dpi_engine/cap_source.py`, `src/dpi_engine/pipeline.py`, `tests/test_rule_dsl.py` (new, 42), `tests/test_streaming_memory_bound.py` (new, 5), `tests/_mem_probe.py` (new, subprocess probe). **No new module** — the DSL lives beside the rules it describes rather than as a parallel hierarchy.
@@ -735,7 +744,8 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
-| 2026-10-15 | `ses_t1_04` | claude-opus-5[1m] | `T1-04` + Phase 1 exit | `T1-04` done - rule DSL with provenance (sidecar, never in `_RuleState`'s hot-path frozensets); 14/14 mutations caught. **Phase 1 COMPLETE 9/9, exited conditionally.** Verifying Appendix B's five exit criteria found the fifth had never been measured, and measuring it **found a real bug**: a `WatchSource` read 308 packets against `max_total_packets=50` because each file's `PcapReader` got a fresh budget. Also found my own memory test measuring below the reorder window and reporting a leak that was not one | Phase 2 (eval harness); first run `pytest tests/differential` with Docker, since parity is the one unverifiable criterion |
+| 2026-10-15 | `ses_t1_04b` | claude-opus-5[1m] | Phase 1 exit (criterion 3) | Docker enabled -> **differential suite 2 passed / 12 skipped becomes 14 passed / 0 skipped**, and the project its first **fully-verified 749 passed, 0 skipped** run. Added `tests/test_parity_breaks.py` (5 tests) verifying the port side of `DEC-05` and `DEC-06`, which the differential suite cannot check because it pins folding off to preserve parity. **Phase 1 now exits unconditionally** | Phase 2 (eval harness) |
+| 2026-10-15 | `ses_t1_04` | claude-opus-5[1m] | `T1-04` + Phase 1 exit | `T1-04` done - rule DSL with provenance (sidecar, never in `_RuleState`'s hot-path frozensets); 14/14 mutations caught. **Phase 1 COMPLETE 9/9, exited conditionally** *(superseded the same day by `ses_t1_04b`: Docker came up, parity verified, now unconditional).* Verifying Appendix B's five exit criteria found the fifth had never been measured, and measuring it **found a real bug**: a `WatchSource` read 308 packets against `max_total_packets=50` because each file's `PcapReader` got a fresh budget. Also found my own memory test measuring below the reorder window and reporting a leak that was not one | Phase 2 (eval harness); first run `pytest tests/differential` with Docker, since parity was then the one unverifiable criterion |
 | 2026-10-15 | `ses_t1_02` | claude-opus-5[1m] | `T1-02` | `T1-02` done - `CapSource` with `FileSource`/`StreamSource`/`WatchSource`. A source is an iterable of `RawPacket`, so no pipeline logic changed and `PcapReader` remains the only parser. Needed real non-rewindable stream support in `PcapReader` (it peeks 4 bytes then `seek(0)`), and `close()` had to stop closing caller-owned streams in **four** places. **11/12 mutations caught; the 12th proven equivalent by simulation, not waved off.** A test also caught `WatchSource` never terminating on a bounded watch, and the main loop and idle check *disagreeing* about a vanished directory | `T1-04` - the last Phase 1 task |
 | 2026-10-15 | `ses_t1_08` | claude-opus-5[1m] | `T1-08` | `T1-08` done - benchmark baseline published (`docs/BENCHMARKS.md` + `tests/benchmarks/baseline.json`), with a rot guard that recomputes the document's figures from the JSON. **Re-measuring `D-23` made it worse, not better: 7.26x and 8.28x against the recorded 4.7x/6.2x**, so the finding stays open and narrows to a crossover measurement on realistic traffic. Also verified rather than assumed that a default `pytest tests/benchmarks` reports these as passed WITHOUT EXECUTING THEM (3.0 s vs 18-19 s) | `T1-02` or `T1-04` |
 | 2026-10-15 | `ses_t1_06b` | claude-opus-5[1m] | `D-13` | `D-13` closed - the unowned LB-death defect finally got an owner and a fix. `_collect_streaming` now polls the result queue in `_LIVENESS_POLL_SECONDS` slices and re-checks liveness on each empty poll, so a dead LB is named in ~1 s instead of after the 120 s budget. The old message ("only N of M workers reported") described the *fast paths*, which are innocent. 7/7 mutations caught | `T1-08` - publish the benchmark baseline |
@@ -836,15 +846,20 @@ under the chosen `DEC-01` option · differential parity with the C++ reference i
 `simulate_ruleset` working and exercised by a test · memory bounded under a streaming
 run with a directory-watch source.
 
-*Verified 2026-10-15 (`ses_t1_04`), all nine tasks `done`.* Four of the five criteria
-are met and tested. **The third — differential parity — could not be verified:** the
-suite is 2 passed / 12 skipped because Docker is unavailable on this machine, so
-`DEC-05` (flow folding) and `DEC-06` (either-endpoint IP matching) remain documented
-but unverified divergences from the C++ original. Treat Phase 1 as **conditionally**
-exited: run `pytest tests/differential` with Docker available before relying on
-parity. Criterion 5 was unmeasured until this session and the measurement found a
+*Verified 2026-10-15 (`ses_t1_04`, completed `ses_t1_04b`), all nine tasks `done`.*
+**All five criteria are now met and tested.** Criterion 3 was verified in a second
+pass once Docker was running: the suite is **14 passed / 0 skipped**, and the whole
+project is **749 passed with nothing skipped** — the first fully-verified run it has
+had. `DEC-05` and `DEC-06` remain deliberate, allowlisted divergences (entries 6
+and 8) rather than open risks; the differential suite excludes them so parity holds
+for everything else, and `tests/test_parity_breaks.py` verifies the port side of
+each claim. Criterion 5 was unmeasured until this session and the measurement found a
 real defect (`WatchSource` gave every file a fresh `max_total_packets` budget, so a
 308-packet run sailed past a limit of 50); it is now tested and fixed.
+
+**Caveat on the differential suite:** it needs a running Docker daemon. A machine
+without one silently reports 12 skips, and a green run there is *not* evidence of
+parity — the same trap as `--benchmark-enable`.
 
 **Per-release** — `ruff format --check` clean · coverage ≥ 85 · differential suite
 green · golden-corpus thresholds met · safety suite green · `AUDIT.md` updated with
