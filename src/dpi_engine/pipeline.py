@@ -69,7 +69,7 @@ from multiprocessing import Queue
 from pathlib import Path
 from typing import Any
 
-from dpi_engine.cap_source import CapSource
+from dpi_engine.cap_source import CapSource, WatchSource
 from dpi_engine.connection_tracker import (
     DEFAULT_MAX_CONNECTIONS,
     DEFAULT_REAP_INTERVAL_PACKETS,
@@ -501,6 +501,47 @@ def _make_five_tuple(parsed: ParsedPacket) -> FiveTuple:
 InspectableItem = tuple[int, RawPacket, ParsedPacket, FiveTuple]
 
 
+def _open_source(
+    input_path: str | Path | CapSource,
+    *,
+    max_packet_size: int,
+    max_total_packets: int,
+) -> tuple[Iterable[RawPacket], Path | None]:
+    """Normalises a path-or-source into `(packets, source_path)`.
+
+    One helper for all three variants rather than the logic inline in each. Two
+    reasons, and the second is the important one:
+
+    1. A path still goes through `PcapReader`, because that is where the parsing
+       lives. A `CapSource` is already an iterable of `RawPacket` -- it *delegated*
+       to `PcapReader` to produce them -- so it is iterated directly.
+    2. **The resource bounds have to reach the source.** A source reads through its
+       own per-file readers, so a bound applied only to the wrapper here would be
+       enforced per file rather than per run. That is not hypothetical: it was a
+       real bug where a `WatchSource` read 308 packets against `max_total_packets=50`,
+       and a rotating-capture directory is exactly the many-small-files shape that
+       defeats a per-file bound.
+
+    `source_path` is `None` when the input has no single file -- a stream cannot be
+    re-opened and a watcher spans a directory -- and `PcapWriter` then skips the
+    never-overwrite-the-input guard rather than comparing a stream against a file
+    nobody read.
+    """
+    if isinstance(input_path, (str, Path)):
+        reader: Iterable[RawPacket] = PcapReader(
+            input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
+        )
+        return reader, Path(input_path)
+
+    if isinstance(input_path, WatchSource):
+        # The pipeline owns the bound, not the source, so push it down. The
+        # property resets the source's own counter, so the budget is "in total"
+        # rather than "from here on".
+        input_path.max_total_packets = max_total_packets
+        input_path.max_packet_size = max_packet_size
+    return input_path, input_path.path
+
+
 def _closing(reader: Iterable[RawPacket]) -> contextlib.AbstractContextManager[Iterable[RawPacket]]:
     """Closes `reader` if it is a context manager, else yields it unchanged.
 
@@ -675,36 +716,11 @@ def run_pipeline(
     can raise them for an unusually large legitimate capture without editing
     source, while still getting a safe default against adversarial input.
     """
-    # `T1-02`. `input_path` may now be a `CapSource` (a stream, or a directory
-    # watcher) instead of a filesystem path.
-    #
-    # A path still goes through `PcapReader`, because that is where the parsing
-    # lives and where `reader.linktype` comes from. A `CapSource` is already an
-    # iterable of `RawPacket` -- it *delegated* to `PcapReader` to produce them --
-    # so it is iterated directly and the same bounds are applied by that reader
-    # inside the source. Wrapping a source in a second `PcapReader` would mean
-    # parsing packets as if they were bytes, so the two are kept distinct here.
-    #
-    # `source_path` is the one thing that cannot be generic: `PcapWriter` needs a
-    # path to refuse overwriting it. A source reports `None` when it has no single
-    # file (a stream cannot be re-opened, a watcher spans a directory), and the
-    # guard is then skipped rather than fed a fabricated path.
-    if isinstance(input_path, (str, Path)):
-        pcap_reader = PcapReader(
-            input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
-        )
-        reader: Iterable[RawPacket] = pcap_reader
-        linktype = pcap_reader.linktype
-        source_path: Path | None = Path(input_path)
-        capture_label = str(input_path)
-    else:
-        # A source validates its own linktype inside the `PcapReader` it delegates
-        # to, so this branch has no reader to ask. The value here is what the
-        # `CaptureOpened` event reports for a non-file capture.
-        reader = input_path
-        linktype = ETHERNET_LINKTYPE
-        source_path = input_path.path
-        capture_label = input_path.describe()
+    reader, source_path = _open_source(
+        input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
+    )
+    capture_label = str(input_path) if isinstance(input_path, (str, Path)) else input_path.describe()
+    linktype = reader.linktype if isinstance(reader, PcapReader) else ETHERNET_LINKTYPE
 
     rules = FixedRuleSource(
         (rule_manager if rule_manager is not None else RuleManager()).snapshot()
@@ -922,10 +938,11 @@ def run_pipeline_multiprocess(
     dispatch_succeeded = False
     reorder_buffer: ReorderBuffer | None = None
 
+    reader, source_path = _open_source(
+        input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
+    )
     try:
-        with PcapReader(
-            input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
-        ) as reader, PcapWriter(output_path, source_path=input_path) as writer:
+        with _closing(reader), PcapWriter(output_path, source_path=source_path) as writer:
             reorder_buffer = (
                 ReorderBuffer(writer, reorder_window) if reorder_window is not None else None
             )
@@ -1234,10 +1251,11 @@ def run_pipeline_staged(
     dispatch_succeeded = False
     reorder_buffer: ReorderBuffer | None = None
 
+    reader, source_path = _open_source(
+        input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
+    )
     try:
-        with PcapReader(
-            input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
-        ) as reader, PcapWriter(output_path, source_path=input_path) as writer:
+        with _closing(reader), PcapWriter(output_path, source_path=source_path) as writer:
             # `streaming` is defined above the process list: the fast paths'
             # kwargs need it before this point.
             reorder_buffer = (

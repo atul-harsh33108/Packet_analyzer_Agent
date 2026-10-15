@@ -75,7 +75,8 @@ import threading
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from enum import Enum, auto
+from datetime import UTC, datetime
+from enum import Enum, StrEnum, auto
 from pathlib import Path
 from typing import Any
 
@@ -121,6 +122,117 @@ class BlockReason:
 
     type: BlockReasonType
     detail: str
+
+
+class RuleKind(StrEnum):
+    """Which category a rule belongs to.
+
+    A `str` enum so a kind is usable as a JSON object key without a conversion at
+    every boundary, and so the persisted form stays readable. These strings are
+    persisted, so they are part of the file format: renaming one is a migration,
+    not a refactor. They match `RuleManager`'s existing vocabulary
+    (`blocked_ips`, `blocked_apps`, ...) rather than inventing a second dialect.
+    """
+
+    IP = "ip"
+    APP = "app"
+    DOMAIN = "domain"
+    PORT = "port"
+    CIDR = "cidr"
+
+
+@dataclass(frozen=True, slots=True)
+class Provenance:
+    """Where a rule came from (`T1-04`).
+
+    Exists so an agent's proposal can be reviewed rather than merely obeyed. Three
+    questions, and the record is deliberately structured around them:
+
+    - **source** -- the system that produced it (`agent:triage`, `operator:alice`).
+      Required, because a record with no source is not provenance; it is a
+      decoration that makes a rule look auditable while answering nothing.
+    - **author** -- who or what is accountable for it.
+    - **evidence** -- what it was based on. Optional in the type but strongly
+      expected in practice: an agent that cannot say what it saw is guessing.
+
+    `created_at` defaults to now rather than being required, because forcing a
+    timestamp on every call site would make the common path noisier than the
+    feature earns.
+
+    **Deliberately not part of `_RuleState`.** The matching state is frozensets read
+    by `should_block` on every inspected packet, shared across threads and pickled
+    to workers; a provenance record per rule there would put an allocation and a
+    lookup on the hot path to serve a question only the control path asks. So this
+    lives beside the rules, keyed by the stable keys `D-16` introduced.
+    """
+
+    source: str
+    author: str
+    evidence: str = ""
+    created_at: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.source or not self.source.strip():
+            raise ValueError(
+                "Provenance requires a source. A rule with no recorded origin is "
+                "not auditable, which is the only reason this field exists."
+            )
+        if not self.author or not self.author.strip():
+            raise ValueError("Provenance requires an author.")
+        if not self.created_at:
+            object.__setattr__(
+                self, "created_at", datetime.now(UTC).isoformat(timespec="seconds")
+            )
+
+    @property
+    def is_agent_sourced(self) -> bool:
+        """Whether this rule came from an automated proposer.
+
+        The distinction a gate needs: an agent-proposed rule is exactly the one a
+        human should look at before it reaches live traffic, so it has to be
+        answerable as a property of the record rather than by string-matching the
+        source at each call site.
+        """
+        return self.source.lower().startswith("agent")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "author": self.author,
+            "evidence": self.evidence,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: object) -> Provenance | None:
+        """Rebuilds from persisted JSON, or `None` if the record is unusable.
+
+        Returning `None` rather than raising is the point: provenance is the audit
+        trail, the rules are the load-bearing thing, and an unreadable audit entry
+        is a reason to distrust *that rule's origin* -- not to stop blocking the
+        traffic an operator asked to block. The caller keeps the rule and records
+        that its origin is unknown.
+        """
+        if not isinstance(data, dict):
+            return None
+        try:
+            return cls(
+                source=str(data["source"]),
+                author=str(data["author"]),
+                evidence=str(data.get("evidence", "")),
+                created_at=str(data.get("created_at", "")),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+@dataclass(frozen=True, slots=True)
+class AuditEntry:
+    """One rule and where it came from, as the review path wants to see it."""
+
+    kind: RuleKind
+    key: str
+    provenance: Provenance
 
 
 @dataclass(frozen=True, slots=True)
@@ -585,6 +697,12 @@ class RuleManager:
         self._lock = threading.Lock()
         self._state = _RuleState()
         self._version = 0
+        #: `(kind, key) -> Provenance`, for `T1-04`. Guarded by the same lock as
+        #: `_state`, and deliberately **not** part of it: this is control-plane
+        #: data, read by whoever reviews or persists a rule set and never by the
+        #: packet path, so folding it into `_RuleState` would cost the hot path a
+        #: per-rule record for no benefit.
+        self._provenance: dict[tuple[RuleKind, str], Provenance] = {}
 
     # ---------- version / snapshots ----------
 
@@ -607,17 +725,89 @@ class RuleManager:
         self._state = replace(self._state, **changes)
         self._version += 1
 
+    # ---------- provenance (`T1-04`) ----------
+
+    @staticmethod
+    def _normalise_key(kind: RuleKind, key: object) -> str:
+        """Canonical lookup key for a rule, as a string.
+
+        Normalisation matters more than it looks. `block_cidr("10.0.0.0/8")` and
+        `block_cidr("10.0.0.0/08")` are the same rule, and `port` arrives as `int`
+        from one caller and `str` from another; if those produced different keys,
+        provenance would attach to a spelling rather than to the rule, and a
+        reviewer following the audit trail would find nothing.
+        """
+        if kind is RuleKind.PORT:
+            return str(int(key))  # type: ignore[call-overload]
+        if kind is RuleKind.CIDR:
+            # `strict=True`, matching `_parse_cidr`, which rejects host bits
+            # (`10.0.0.1/8` is an error, not a rule). Normalising with
+            # `strict=False` here would fold a spelling the parser rejects into an
+            # existing rule's key, so two spellings would resolve to one record
+            # while only one of them is a rule at all.
+            return str(ipaddress.ip_network(str(key), strict=True))
+        return str(key)
+
+    def _record(
+        self, kind: RuleKind, key: object, provenance: Provenance | None
+    ) -> None:
+        """Attaches or clears provenance for one rule. Callers hold `self._lock`."""
+        normalised = self._normalise_key(kind, key)
+        if provenance is None:
+            # Clearing on removal, so a deleted rule cannot leave an orphan record
+            # behind claiming an origin for a rule that no longer exists.
+            self._provenance.pop((kind, normalised), None)
+        else:
+            self._provenance[(kind, normalised)] = provenance
+
+    def provenance_for(self, kind: str, key: object) -> Provenance | None:
+        """Returns the provenance recorded for one rule, or `None`.
+
+        A bad *query* (an unknown kind) raises, because a typo there is a caller
+        bug that would otherwise read as "this rule has no provenance" -- the exact
+        answer a gate must never be able to give by accident.
+        """
+        rule_kind = RuleKind(kind)
+        with self._lock:
+            return self._provenance.get((rule_kind, self._normalise_key(rule_kind, key)))
+
+    def is_auto_appliable(self, kind: str, key: object) -> bool:
+        """Whether this rule may be put into the live path without human review.
+
+        The precondition for Phase 6's auto-apply tiers, stated as a method so the
+        policy has exactly one home. A rule with no recorded origin is **not**
+        auto-appliable: an automated system putting an untraceable rule into a
+        path that drops traffic is precisely the failure this feature exists to
+        prevent.
+        """
+        return self.provenance_for(kind, key) is not None
+
+    def audit(self) -> list[AuditEntry]:
+        """Every rule that has provenance, for review.
+
+        Sorted by `(kind, key)` so a diff between two audits is stable and readable
+        rather than dependent on dict ordering.
+        """
+        with self._lock:
+            items = sorted(self._provenance.items())
+        return [AuditEntry(kind=k, key=key, provenance=p) for (k, key), p in items]
+
     # ---------- IP blocking ----------
 
-    def block_ip(self, ip: IPLike) -> None:
+    def block_ip(self, ip: IPLike, *, provenance: Provenance | None = None) -> None:
         if isinstance(ip, str) and "/" in ip:
             # `--block-ip 10.0.0.0/8` is how most people will reach subnet
             # rules, so accept it here rather than rejecting a perfectly valid
-            # CIDR on a flag named after IPs.
-            self.block_cidr(ip)
+            # CIDR on a flag named after IPs. Forwarded with its provenance, or
+            # the subnet would land with no recorded origin.
+            self.block_cidr(ip, provenance=provenance)
             return
         ip_int = _coerce_ip_int(ip)
         with self._lock:
+            # Recorded before the idempotence check: re-declaring an existing rule
+            # with new provenance is how an operator updates *who* vouched for it,
+            # and it must not be swallowed by the early return.
+            self._record(RuleKind.IP, _int_to_ip_str(ip_int), provenance)
             if ip_int in self._state.ips:
                 return
             self._mutate(ips=self._state.ips | {ip_int})
@@ -628,6 +818,7 @@ class RuleManager:
             return
         ip_int = _coerce_ip_int(ip)
         with self._lock:
+            self._record(RuleKind.IP, _int_to_ip_str(ip_int), None)
             if ip_int not in self._state.ips:
                 return
             self._mutate(ips=self._state.ips - {ip_int})
@@ -640,7 +831,7 @@ class RuleManager:
 
     # ---------- CIDR / subnet blocking (D-20) ----------
 
-    def block_cidr(self, cidr: str) -> None:
+    def block_cidr(self, cidr: str, *, provenance: Provenance | None = None) -> None:
         """Blocks every address in `a.b.c.d/len`, as one rule.
 
         Grouped by prefix length rather than held as `ipaddress` objects, so
@@ -650,10 +841,13 @@ class RuleManager:
 
         Idempotent: re-registering a subnet that is already present leaves the
         state untouched, so it does not bump the snapshot version and does not
-        spuriously wake a live-rules consumer.
+        spuriously wake a live-rules consumer. Provenance is still updated in that
+        case, because declaring a rule that already exists with a new author is a
+        legitimate act.
         """
         prefix_length, network_bits = _parse_cidr(cidr)
         with self._lock:
+            self._record(RuleKind.CIDR, cidr, provenance)
             grouped = dict(self._state.networks)
             existing = grouped.get(prefix_length, frozenset())
             if network_bits in existing:
@@ -664,6 +858,7 @@ class RuleManager:
     def unblock_cidr(self, cidr: str) -> None:
         prefix_length, network_bits = _parse_cidr(cidr)
         with self._lock:
+            self._record(RuleKind.CIDR, cidr, None)
             grouped = dict(self._state.networks)
             existing = grouped.get(prefix_length)
             if not existing or network_bits not in existing:
@@ -687,16 +882,21 @@ class RuleManager:
 
     # ---------- App blocking ----------
 
-    def block_app(self, app: AppType) -> None:
+    def block_app(self, app: AppType, *, provenance: Provenance | None = None) -> None:
         if not isinstance(app, AppType):
             raise RuleManagerError(f"Invalid app rule {app!r}: expected an AppType")
         with self._lock:
+            # Keyed by `AppType.name`, the stable identifier `D-16` introduced --
+            # never the display name, which is presentation copy and would detach
+            # the provenance record the moment the product was reworded.
+            self._record(RuleKind.APP, app.name, provenance)
             if app in self._state.apps:
                 return
             self._mutate(apps=self._state.apps | {app})
 
     def unblock_app(self, app: AppType) -> None:
         with self._lock:
+            self._record(RuleKind.APP, app.name, None)
             if app not in self._state.apps:
                 return
             self._mutate(apps=self._state.apps - {app})
@@ -709,12 +909,13 @@ class RuleManager:
 
     # ---------- Domain blocking ----------
 
-    def block_domain(self, domain: str) -> None:
+    def block_domain(self, domain: str, *, provenance: Provenance | None = None) -> None:
         """Blocks an exact domain ("facebook.com") or a wildcard
         ("*.facebook.com"). Raises RuleManagerError for an unsupported
         pattern shape rather than storing a rule that can never match."""
         pattern = DomainPattern.parse(domain)
         with self._lock:
+            self._record(RuleKind.DOMAIN, pattern.raw, provenance)
             if pattern.suffix is None:
                 if pattern.raw in self._state.exact_domains:
                     return
@@ -727,6 +928,7 @@ class RuleManager:
     def unblock_domain(self, domain: str) -> None:
         pattern = DomainPattern.parse(domain)
         with self._lock:
+            self._record(RuleKind.DOMAIN, pattern.raw, None)
             if pattern.suffix is None:
                 if pattern.raw not in self._state.exact_domains:
                     return
@@ -745,9 +947,10 @@ class RuleManager:
 
     # ---------- Port blocking ----------
 
-    def block_port(self, port: int | str) -> None:
+    def block_port(self, port: int | str, *, provenance: Provenance | None = None) -> None:
         port_int = _normalize_port(port)
         with self._lock:
+            self._record(RuleKind.PORT, port_int, provenance)
             if port_int in self._state.ports:
                 return
             self._mutate(ports=self._state.ports | {port_int})
@@ -755,6 +958,7 @@ class RuleManager:
     def unblock_port(self, port: int | str) -> None:
         port_int = _normalize_port(port)
         with self._lock:
+            self._record(RuleKind.PORT, port_int, None)
             if port_int not in self._state.ports:
                 return
             self._mutate(ports=self._state.ports - {port_int})
@@ -884,7 +1088,23 @@ class RuleManager:
     # ---------- Persistence ----------
 
     def to_dict(self) -> dict[str, object]:
-        return self.snapshot().to_dict()
+        """Serialises the rule set, including provenance when there is any.
+
+        The `provenance` key is **omitted entirely** when no rule has any, rather
+        than emitted as an empty object. Every rules file written before `T1-04`
+        has no such key, so omitting it keeps `save_rules` output byte-identical for
+        the overwhelmingly common case of rules with no recorded origin -- which
+        also keeps this change invisible to anything diffing rules files.
+        """
+        document = self.snapshot().to_dict()
+        with self._lock:
+            records = dict(self._provenance)
+        if records:
+            grouped: dict[str, dict[str, object]] = {}
+            for (kind, key), prov in records.items():
+                grouped.setdefault(kind.value, {})[key] = prov.to_dict()
+            document["provenance"] = grouped
+        return document
 
     def save_rules(self, path: str | Path) -> None:
         """Writes rules as JSON. Raises RuleManagerError if the file cannot be
@@ -949,7 +1169,39 @@ class RuleManager:
                 manager.block_cidr(str(cidr))
         except RuleManagerError as exc:
             raise RuleManagerError(f"Rules file '{source}': {exc}") from exc
+
+        manager._load_provenance(data.get("provenance"))
         return manager
+
+    def _load_provenance(self, raw: object) -> None:
+        """Restores provenance records, tolerating anything unreadable.
+
+        A rule with an unusable provenance record keeps the rule and loses the
+        origin. That asymmetry is deliberate and is the important judgement here:
+        the rules are the load-bearing thing, and provenance is the audit trail.
+        Failing the whole file because one audit entry is malformed would mean a
+        corrupt annotation could stop the operator blocking the traffic they asked
+        to block -- and the gate would then report "no provenance" for a rule that
+        is in force, which is the one answer `is_auto_appliable` must never give by
+        accident.
+        """
+        if not isinstance(raw, dict):
+            return
+        with self._lock:
+            for kind_name, entries in raw.items():
+                try:
+                    kind = RuleKind(kind_name)
+                except ValueError:
+                    # A kind this build does not know. Skipped rather than fatal:
+                    # a newer file read by an older binary should still enforce the
+                    # rules it does understand.
+                    continue
+                if not isinstance(entries, dict):
+                    continue
+                for key, record in entries.items():
+                    prov = Provenance.from_dict(record)
+                    if prov is not None:
+                        self._provenance[(kind, self._normalise_key(kind, key))] = prov
 
     # ---------- Statistics ----------
 

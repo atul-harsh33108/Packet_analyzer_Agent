@@ -3,11 +3,11 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: T1-04 is the last Phase 1 task - the rule DSL with provenance (3 d). Note its status-correction note says "There is no rules/ subpackage", which T1-06 made stale: src/dpi_engine/rules/ now exists and holds the simulator, so the DSL should build on it rather than create a parallel one. Provenance is the precondition for any auto-apply tier in Phase 6.
-blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings (D-13 closed 2026-10-15); Phase 0 and 0.5 complete; Phase 1 8/9 (only T1-04 remains); all documentation findings M-01..M-07 closed]
+next_action: Phase 1 is COMPLETE (9/9) but exited CONDITIONALLY - the differential suite is 2 passed / 12 skipped because Docker is unavailable locally, so DEC-05 and DEC-06 are unverified divergences from the C++ original. Run `pytest tests/differential` with Docker before relying on parity. Then Phase 2 (eval harness) is unstarted.
+blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete (9/9 in Phase 1); Phase 2 not started; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_02
+session: ses_t1_04
 ---
 
 # Task Tracker — `dpi-engine`
@@ -39,16 +39,38 @@ session workflow — what to read, in what order, when to stop — read
 
 | Field | Value |
 |---|---|
-| **Phase** | 1 — Streaming core |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 8/9** (`T1-01` `T1-02` `T1-03` `T1-05` `T1-06` `T1-07` `T1-08` `T1-09`) |
-| **Current task** | none — `T1-02` **done**, uncommitted |
-| **Next action** | `T1-04`, the last Phase 1 task: rule DSL with provenance. Its stale note says "there is no `rules/` subpackage" — `T1-06` created `src/dpi_engine/rules/`, so build on that |
+| **Phase** | 1 — Streaming core (**complete**, conditionally) |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 9/9** (`T1-01`…`T1-09` all `done`) |
+| **Current task** | none — `T1-04` **done**, uncommitted |
+| **Next action** | Phase 1 is complete but **exited conditionally**: the differential suite is 2 passed / 12 skipped (no Docker), so `DEC-05`/`DEC-06` are unverified divergences. Run `pytest tests/differential` with Docker before relying on parity. Then Phase 2 (eval harness), unstarted |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none. `D-13` closed 2026-10-15 (`ses_t1_06b`); `D-23` is re-measurable via `T1-08`, which is its de-facto owner |
 | **Documentation** | **all `M-01`–`M-07` closed, and `AUDIT.md` reconciled 2026-10-15.** The three-count contradiction (§2 heading said `D-01`…`D-22`, its intro said "twenty-one", the file held 26) is fixed, and `§0`/`§4.2` — both presented as current — had every numeric row stale, including five that asserted CI, coverage, timeout, property testing and `conftest.py` as *absent* when all five now exist |
-| **Session** | `ses_t1_02` - `T1-02` done (`CapSource`), **uncommitted** |
+| **Session** | `ses_t1_04` - `T1-04` done, **Phase 1 complete (9/9)**, uncommitted |
+
+**Phase 1 is complete (`T1-04`, `ses_t1_04`) — 9/9 — but exited
+conditionally.** Four of Appendix B's five criteria are met and tested. The fifth,
+*memory bounded under a streaming run with a directory-watch source*, **had never
+been measured by anything**, so this session measured it and **it found a real
+defect**: `WatchSource` reads through one `PcapReader` per file and
+`max_total_packets` is enforced inside `PcapReader`, so every file got a fresh
+budget — **308 packets read against a limit of 50, raising nothing**. A rotating
+capture directory is exactly the many-small-files shape that defeats a per-file
+bound. Fixed, and `run_pipeline` now pushes its bounds down through a shared
+`_open_source` used by all three variants.
+
+The same criterion also caught **my own test being wrong**: it compared 77 packets
+against 616 and called the 5.4× peak growth a `D-01` leak. With a 1024-slot window
+both sizes fit in the buffer, so it was measuring "more packets fit". Re-measured
+with the input genuinely exceeding the window — 1078 → 4312 packets — peak is flat
+at ~1.62 MB.
+
+**Not verified: differential parity.** The suite is 2 passed / 12 skipped because
+Docker is unavailable here, so `DEC-05` and `DEC-06` remain documented but
+unverified divergences from the C++ original. That is the one criterion that could
+not be checked, and it is not evidence of success.
 
 **`CapSource` landed (`T1-02`, `ses_t1_02`).** A source is just an iterable of
 `RawPacket` — the shape `_iter_inspectable` already consumed — so no pipeline
@@ -159,7 +181,7 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 |---|---|---|---|---|---|---|---|---|
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
-| **1** | Streaming core | 9 | **8** | 0 | 0 | 1 (`T1-04`) | 0 | not met |
+| **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met, conditionally** (differential parity unverified - no Docker) |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
@@ -167,7 +189,7 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 30 tasks — **28** done — 0 in progress — 0 blocked — 1 pending — 1 partial.
+**Totals:** 30 tasks - **29** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -200,7 +222,7 @@ Status vocabulary is closed (7 values) — see
 | `T1-01` | Event bus | `A-01` | done | — | 1 d |
 | `T1-02` | `CapSource` abstraction | `A-01` | done | - | 2 d |
 | `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | done | — | 3 d |
-| `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
+| `T1-04` | Rule DSL with provenance | - | done | - | 3 d |
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | done | - | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | done | - | 2 d |
 | `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | done | — | 2 d |
@@ -423,12 +445,26 @@ or `dropped` and say why.
 - **Follow-ups:** `D-13` (LB-death orphans its fast paths until the parent's 120 s timeout) is still unowned *(closed 2026-10-15, `ses_t1_06b`)*. The staged wiring did **not** need per-packet verdicts forwarded through the LB tier — each fast path publishes straight to the shared `fp_output_queue` the parent already reads, and the LB only forwards *input* — so `D-13` did not bite here. It will bite whenever an LB death has to be detected promptly rather than by timeout.
 ### `T1-04` — Rule DSL with provenance
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `src/dpi_engine/rule_manager.py`, new `rules/` subpackage
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t1_04 · **Blocked by:** —
+- **Phase 1 exit criteria verified 2026-10-15, `ses_t1_04` (Appendix B):**
+  1. *all existing tests pass unchanged* — **727** at the time of the check, later **732** with the memory suite; no reduction at any point.
+  2. *streaming output deterministic under `DEC-01`* — `tests/test_reorder_buffer.py`, 15 passed.
+  3. *differential parity with the C++ reference intact* — **2 passed, 12 skipped.** **Not verifiable locally**: the 12 need Docker, which is unavailable. Allowlist entries 6 (`DEC-05`) and 8 (`DEC-06`) are unverified divergences. **This is the one Phase 1 criterion that could not be checked, and it is not evidence of success.**
+  4. *`simulate_ruleset` working and exercised* — 22 tests.
+  5. *memory bounded under a streaming run with a directory-watch source* — **was not measured by anything.** Flow reaping is covered and the reorder window is covered, but neither ran against a `WatchSource` and neither asserted peak memory. Added `tests/test_streaming_memory_bound.py`, and **it found a real bug** — see Deviations.
+- **Files:** `src/dpi_engine/rule_manager.py`, `src/dpi_engine/cap_source.py`, `src/dpi_engine/pipeline.py`, `tests/test_rule_dsl.py` (new, 42), `tests/test_streaming_memory_bound.py` (new, 5), `tests/_mem_probe.py` (new, subprocess probe). **No new module** — the DSL lives beside the rules it describes rather than as a parallel hierarchy.
 - **Planned test:** JSON round-trip preserves provenance; a rule without provenance cannot be auto-applied
-- **How it was tackled:** — · **Deviations:** — · **Verification:** —
-- **Closed findings:** — · **Follow-ups:** —
-- **Notes:** provenance is the precondition for any auto-apply tier in Phase 6
+- **How it was tackled:** **the load-bearing decision is that provenance is a sidecar, not part of the rule set.** `_RuleState` holds `frozenset`s, is read by `should_block` on every inspected packet, and is shared across threads and pickled to workers; a provenance record per rule inside it would put an allocation and a lookup on the hot path to serve a question only the *control* path asks. So matching state is untouched and provenance lives beside it in `RuleManager._provenance`, keyed by the stable keys `D-16` introduced. The consequence is stated plainly in `Provenance`'s docstring and pinned by tests: **a snapshot carries no provenance**, because a worker cannot use it and pickling history to every worker would cost every packet. `Provenance` (source, author, evidence, `created_at`) is frozen and requires a source — provenance with no source is a decoration that answers no question, so that is enforced at construction. Every `block_*` takes `provenance=`, every `unblock_*` clears the record. `is_auto_appliable` is the gate Phase 6 needs, and `audit()` is the review list.
+- **Deviations:** four, all forced by something the first version got wrong.
+  - **Provenance is recorded *before* the idempotence check.** `block_*` returns early when the rule is already present, so recording after it would silently swallow the legitimate case of re-declaring an existing rule with a new author — which is how an operator updates who vouched for it.
+  - **Normalising provenance keys uses `strict=True`, matching `_parse_cidr`.** My first version used `strict=False`, which folded `10.0.0.1/8` — a spelling the parser *rejects* as "host bits set" — into a valid rule's key. Two spellings would then share one audit record while only one of them was a rule at all.
+  - **A corrupt provenance record does not fail the file.** `Provenance.from_dict` returns `None` and the rule is kept without an origin. The rules are the load-bearing thing and provenance is the audit trail; failing the whole file would mean a corrupt annotation could stop the operator blocking traffic they asked to block — and then the gate would report "no provenance" for a rule that is in force, the one answer `is_auto_appliable` must never give by accident.
+  - **`to_dict` omits the `provenance` key entirely when no rule has any.** Every rules file written before this exists has no such key, so omitting it keeps `save_rules` byte-identical for the common case and keeps the change invisible to anything diffing rules files.
+- **The fifth exit criterion found a real defect, which is why it was worth adding.** `WatchSource` reads through one `PcapReader` **per file**, and `max_total_packets` is enforced *inside* `PcapReader` — so every file got a fresh budget and the run-wide bound was silently `files × limit`. Measured: **4 files of 77 packets read 308 packets against `max_total_packets=50`, raising nothing.** A rotating-capture directory is exactly the many-small-files shape that defeats a per-file bound, so `T1-02` had shipped a hole in the engine's main adversarial defence. Fixed by tracking the budget in the source and handing each per-file reader the *remaining* allowance; `run_pipeline` now pushes its bounds down through a shared `_open_source` used by all three variants. Two follow-on bugs surfaced while fixing it: `PcapLimitExceededError` subclasses `PcapError`, so the "skip unreadable files" handler was **swallowing the bound's own error** and truncating silently; and `remaining or 1` collapsed a remaining budget of 0 into 1, stopping the run at 4 packets instead of 50.
+  - **The memory criterion measured the wrong thing at first, and that is recorded too.** My first version compared 77 packets against 616 and reported **5.4× peak growth as a possible `D-01` leak**. It was not a leak: with a 1024-slot window, 616 packets all *fit* in the buffer, so it was measuring "more packets fit in the buffer". Re-measured with the input genuinely **exceeding** the window — 1078 → 4312 packets, 4× — peak is **flat at ~1.62 MB**, and a 32-slot window peaks lower than a 1024-slot one, which is what proves `DEC-01` is the cause rather than some unrelated ceiling.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 17 source files · `pytest -q` → **732 passed, 12 skipped** (was 685; **+47**). `rule_manager.py` coverage 90%. **14 of 14 mutations caught, 0 void.**
+- **Closed findings:** — · **Follow-ups:** no CLI surface — nothing constructs a `Provenance` from a command line, so provenance is currently only settable programmatically; Phase 6's write path will need a way to supply one
+- **Notes:** the mutation harness earned its keep twice. **The port-key normaliser survived at first**, and investigating showed why: `str(int(key))` is *identical* to `str(key)` for `443` and `"443"`, so my tests could not tell a normaliser from none. The spellings that differ are the ones `_normalize_port` accepts but `str()` does not collapse — `"0443"` and `" 443 "` — so the test now crosses that boundary, and the mutant is caught. **And `tests/test_rule_dsl.py` had three methods duplicated into two classes** by a scripted refactor of mine; caught because pytest reported `fixture 'self' not found` rather than by reading the diff. Both are the kind of thing that reads as done.
 - **Status correction (2026-10-13, ses_t1_05):** previously read **done** under `ses_t0_05` — scaffolding, not work. There is no `rules/` subpackage and `provenance` does not appear in `rule_manager.py`. Note that `T1-05` has since rewritten large parts of `rule_manager.py` (`_RuleState.networks`, `resolve_app_key`, the `dst_ip` parameter), so the rule schema this task planned around has moved on.
 
 ### `T1-05` — CIDR + destination-IP rules
@@ -699,6 +735,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t1_04` | claude-opus-5[1m] | `T1-04` + Phase 1 exit | `T1-04` done - rule DSL with provenance (sidecar, never in `_RuleState`'s hot-path frozensets); 14/14 mutations caught. **Phase 1 COMPLETE 9/9, exited conditionally.** Verifying Appendix B's five exit criteria found the fifth had never been measured, and measuring it **found a real bug**: a `WatchSource` read 308 packets against `max_total_packets=50` because each file's `PcapReader` got a fresh budget. Also found my own memory test measuring below the reorder window and reporting a leak that was not one | Phase 2 (eval harness); first run `pytest tests/differential` with Docker, since parity is the one unverifiable criterion |
 | 2026-10-15 | `ses_t1_02` | claude-opus-5[1m] | `T1-02` | `T1-02` done - `CapSource` with `FileSource`/`StreamSource`/`WatchSource`. A source is an iterable of `RawPacket`, so no pipeline logic changed and `PcapReader` remains the only parser. Needed real non-rewindable stream support in `PcapReader` (it peeks 4 bytes then `seek(0)`), and `close()` had to stop closing caller-owned streams in **four** places. **11/12 mutations caught; the 12th proven equivalent by simulation, not waved off.** A test also caught `WatchSource` never terminating on a bounded watch, and the main loop and idle check *disagreeing* about a vanished directory | `T1-04` - the last Phase 1 task |
 | 2026-10-15 | `ses_t1_08` | claude-opus-5[1m] | `T1-08` | `T1-08` done - benchmark baseline published (`docs/BENCHMARKS.md` + `tests/benchmarks/baseline.json`), with a rot guard that recomputes the document's figures from the JSON. **Re-measuring `D-23` made it worse, not better: 7.26x and 8.28x against the recorded 4.7x/6.2x**, so the finding stays open and narrows to a crossover measurement on realistic traffic. Also verified rather than assumed that a default `pytest tests/benchmarks` reports these as passed WITHOUT EXECUTING THEM (3.0 s vs 18-19 s) | `T1-02` or `T1-04` |
 | 2026-10-15 | `ses_t1_06b` | claude-opus-5[1m] | `D-13` | `D-13` closed - the unowned LB-death defect finally got an owner and a fix. `_collect_streaming` now polls the result queue in `_LIVENESS_POLL_SECONDS` slices and re-checks liveness on each empty poll, so a dead LB is named in ~1 s instead of after the 120 s budget. The old message ("only N of M workers reported") described the *fast paths*, which are innocent. 7/7 mutations caught | `T1-08` - publish the benchmark baseline |
@@ -794,10 +831,20 @@ clean · all 30 tracker task records filled in.
 **Phase 0.5** — a VLAN-tagged enterprise capture classifies identically to its
 untagged equivalent · pcapng input produces a precise, actionable diagnostic.
 
-**Phase 1** — all 404 existing tests pass unchanged · streaming output deterministic
+**Phase 1** - all 404 existing tests pass unchanged · streaming output deterministic
 under the chosen `DEC-01` option · differential parity with the C++ reference intact ·
 `simulate_ruleset` working and exercised by a test · memory bounded under a streaming
 run with a directory-watch source.
+
+*Verified 2026-10-15 (`ses_t1_04`), all nine tasks `done`.* Four of the five criteria
+are met and tested. **The third — differential parity — could not be verified:** the
+suite is 2 passed / 12 skipped because Docker is unavailable on this machine, so
+`DEC-05` (flow folding) and `DEC-06` (either-endpoint IP matching) remain documented
+but unverified divergences from the C++ original. Treat Phase 1 as **conditionally**
+exited: run `pytest tests/differential` with Docker available before relying on
+parity. Criterion 5 was unmeasured until this session and the measurement found a
+real defect (`WatchSource` gave every file a fresh `max_total_packets` budget, so a
+308-packet run sailed past a limit of 50); it is now tested and fixed.
 
 **Per-release** — `ruff format --check` clean · coverage ≥ 85 · differential suite
 green · golden-corpus thresholds met · safety suite green · `AUDIT.md` updated with

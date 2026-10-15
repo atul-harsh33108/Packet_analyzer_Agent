@@ -35,7 +35,14 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from dpi_engine.pcap_io import PcapError, PcapReader, RawPacket
+from dpi_engine.pcap_io import (
+    DEFAULT_MAX_PACKET_SIZE,
+    DEFAULT_MAX_TOTAL_PACKETS,
+    PcapError,
+    PcapLimitExceededError,
+    PcapReader,
+    RawPacket,
+)
 
 #: Suffixes a capture directory is expected to hold. Anything else in the
 #: directory is skipped: a rotating capture directory also holds lock files,
@@ -149,13 +156,46 @@ class WatchSource:
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         stop_when_idle_after: float | None = None,
         pattern: str = "*",
+        max_total_packets: int | None = None,
+        max_packet_size: int = DEFAULT_MAX_PACKET_SIZE,
     ) -> None:
         self.directory = Path(directory)
         self.poll_interval = poll_interval
         self.stop_when_idle_after = stop_when_idle_after
         self.pattern = pattern
+        self.max_packet_size = max_packet_size
         #: `Path` -> (size, mtime) as last *successfully* consumed.
         self._consumed: dict[Path, tuple[int, float]] = {}
+        #: Packet budget for the whole watch, not per file.
+        #:
+        #: `max_total_packets` is enforced *inside* `PcapReader`, and this source
+        #: reads through one `PcapReader` per file. Left alone, every file would get
+        #: a fresh budget and the run-wide bound would be `files` times `limit` — which a
+        #: directory watcher makes trivially reachable, since a rotation produces
+        #: exactly the many-small-files shape that defeats it. So the budget is
+        #: tracked here and spent as files are read, and the per-file readers are
+        #: given the *remaining* allowance.
+        self._max_total_packets = max_total_packets
+        self._packets_read = 0
+
+    @property
+    def max_total_packets(self) -> int | None:
+        """Run-wide packet budget, settable after construction.
+
+        Public because `run_pipeline` owns the bound, not the source: a caller
+        invokes the pipeline with `max_total_packets=N` and the pipeline is the
+        thing that must push that down here, exactly as it passes the same bound to
+        a `PcapReader` for a file input.
+        """
+        return self._max_total_packets
+
+    @max_total_packets.setter
+    def max_total_packets(self, value: int | None) -> None:
+        # Reset the counter too, so tightening the bound after some packets have
+        # been read means "in total", not "from here on" -- the latter would let a
+        # caller lower the bound mid-run and still read a full allowance.
+        self._max_total_packets = value
+        self._packets_read = 0
 
     @property
     def path(self) -> Path | None:
@@ -203,7 +243,41 @@ class WatchSource:
                     continue
 
                 try:
-                    yield from FileSource(path)
+                    # Spend from the run-wide budget, and hand the per-file reader
+                    # whatever is left. Without this the bound would silently
+                    # multiply by the number of rotations.
+                    if (
+                        self._max_total_packets is not None
+                        and self._packets_read >= self._max_total_packets
+                    ):
+                        raise PcapLimitExceededError(
+                            f"'{self.directory}' exceeds max_total_packets="
+                            f"{self._max_total_packets}; refusing to read further "
+                            "packets to bound memory/time on adversarial input."
+                        )
+                    remaining = (
+                        self._max_total_packets - self._packets_read
+                        if self._max_total_packets is not None
+                        # No run-wide budget: each file gets the reader's own
+                        # default, which is the same bound a direct file read gets.
+                        else DEFAULT_MAX_TOTAL_PACKETS
+                    )
+                    reader = PcapReader(
+                        path,
+                        max_packet_size=self.max_packet_size,
+                        max_total_packets=remaining,
+                    )
+                    with reader:
+                        for packet in reader:
+                            self._packets_read += 1
+                            yield packet
+                except PcapLimitExceededError:
+                    # A resource bound is not "this file was not a capture".
+                    # `PcapLimitExceededError` subclasses `PcapError`, so the
+                    # handler below would swallow it and the watch would skip the
+                    # remaining files as if they were junk -- turning a bound into
+                    # a silent truncation. Propagate instead.
+                    raise
                 except PcapError:
                     # Not readable as a capture: still being written, or simply
                     # not one. Skipped rather than fatal, because the directory
