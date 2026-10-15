@@ -3,8 +3,8 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: Phase 1 is COMPLETE and unconditionally exited - all five Appendix B criteria verified, 749 passed with 0 skipped including the Docker-gated differential suite. Start Phase 2 (eval harness), unstarted. Note: tests/differential and tests/benchmarks both report green while doing nothing unless Docker is up / --benchmark-enable is passed - do not trust either without them.
-blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete (9/9 in Phase 1); Phase 2 not started; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
+next_action: T2-02 - extend the differential suite from 77 packets to the generated golden corpus, reusing T2-01's generator (tests/golden/corpus.py). Needs Docker to verify. Then T2-03 (agent-tree safety suite, closes A-03) and T2-04 (eval history / non-worse CI gate). Also needs a user decision: D-27, the substring false-positive class, is a parity break and should be recorded as DEC-07 rather than quietly fixed.
+blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete and Phase 1 verified (749 passed, 0 skipped incl. differential parity); Phase 2 decomposed into T2-01..T2-04 with T2-01 in progress; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
 session: ses_t1_04
@@ -39,10 +39,10 @@ session workflow — what to read, in what order, when to stop — read
 
 | Field | Value |
 |---|---|
-| **Phase** | 1 — Streaming core (**complete**) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 9/9** (`T1-01`…`T1-09` all `done`) |
-| **Current task** | none — `T1-04` **done**, uncommitted |
-| **Next action** | Phase 1 complete. Start Phase 2 (eval harness), unstarted. Caveat: `tests/differential` and `tests/benchmarks` both report green while doing nothing unless Docker is up / `--benchmark-enable` is passed |
+| **Phase** | 2 — Eval harness (started) |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 1/4** (`T2-01` done) |
+| **Current task** | none — `T2-01` **done**, uncommitted |
+| **Next action** | `T2-02` (differential suite → generated corpus, needs Docker). Also: **`D-27` needs a `DEC-07` parity decision** — most apps are matched by bare substring, so an attacker-controlled hostname inherits its classification |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -191,14 +191,14 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
-| 2 | Eval harness | outline | — | — | — | — | — | not started |
+| **2** | Eval harness | 4 | **1** | 0 | 0 | 3 | 0 | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 30 tasks - **29** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
+**Totals:** 34 tasks - **30** done - 0 in progress - 0 blocked - 3 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -244,7 +244,11 @@ Status vocabulary is closed (7 values) — see
 | `DOC-05` | `OSC/` superseded banners + CMake correction | `M-05` `M-06` | done | — | 30 min |
 | `DOC-06` | Fix `conftest.py` reference | `M-07` | done | `T0-02` | 10 min |
 | `DOC-07` | Documentation index (`docs/README.md`) | - | partial | - | 15 min |
-| `DOC-08` | Gitignore / delete session transcripts | `S-01` | done | — | 5 min |
+| `DOC-08` | Gitignore / delete session transcripts | `S-01` | done | - | 5 min |
+| `T2-01` | **Golden-capture corpus + scorer** | - | done | - | 3 d |
+| `T2-02` | Differential suite: 77 pkt → generated corpus | - | pending | - | 1 d |
+| `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | pending | - | 1 d |
+| `T2-04` | Eval run history / non-worse CI gate | - | pending | - | 1 d |
 
 All findings now carry an ID and a proposed owner. **Two still need a task** —
 `D-24`, `D-25` and `D-26` were closed by `ses_batch1` and `T1-03` and are gone
@@ -547,6 +551,55 @@ or `dropped` and say why.
 - **Closed findings:** `D-17` `D-18` · **Follow-ups:** `D-19` (IPv6) — no task yet
 - **History:** this block previously read `done` under `ses_t0_05`, claiming all three findings closed. That was checked rather than trusted, and it was false: `D-17` and `D-18` were both live in the source and none of the planned tests existed. The evidence is preserved in the session log rather than restated here — the point is that the status was corrected *before* the work was done, not after.
 
+### `T2-01` — Golden-capture corpus + scorer
+
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t2_01 · **Blocked by:** —
+- **Files:** new `tests/golden/{__init__,corpus,scoring}.py`, new `tests/test_golden_corpus.py` (25 tests). **No production source touched** — the corpus is a test artefact.
+- **Planned test:** a labelled capture scores against the engine and reports precision/recall per class
+- **How it was tackled:** **33 synthetic captures across Layer 6's five classes**, each a `GoldenCase` — a named set of flows with a declared expected classification — rather than a hand-written pcap. Every label is true *by construction*: the generator knows what it emitted, so "this capture holds two Facebook flows" is a fact about the code that built it rather than a human's assertion that might be wrong. That is what makes a synthetic corpus trustworthy where a real one is not, and it is also reproducible (byte-identical rebuilds, asserted), diffable, small in git and free of licensing weight. `tests/golden/scoring.py` implements Layer 6's "precision/recall per class" and is deliberately strict about one thing: **a detected domain absent from the labels counts against precision.** A recall-only suite would pass while the engine invented classifications nobody asked for, and for a blocking engine a false positive is a false block.
+- **Deviations:** three.
+  - **Six divergences are allowlisted with reasons rather than fixed or absorbed.** Following the `tests/differential/README.md` precedent (entries 6 and 8), so a reviewer sees what is *accepted* instead of inferring it from a passing number. `Divergence.reason` is mandatory and tested non-empty, because the failure mode of an allowlist is a list of bare hostnames that quietly becomes a list of things nobody fixed.
+  - **`Layer 6`'s "30+" floor is asserted, and the corpus is 33.** Starting at 26, six more were added rather than declaring the floor met at 26. Two of the six (`unicode_lookalike`, `null_byte_style`) were then **cut again**: real SNI carries punycode, never raw UTF-8 or NULs, so they were testing a wire format that does not exist. The punycode case already covers IDN honestly.
+  - **Two non-ASCII evasion cases became ASCII ones.** Same reasoning: `gооgle.evil.example` cannot appear in a ClientHello. Replaced with typosquats (`micros0ft.evil.example`) and numeric-label hostnames, which are real wire content.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 17 source files · `pytest -q` → **774 passed, 0 skipped** (was 749; **+25**). **9 of 11 mutations caught, 0 void, and the two survivors are proven-equivalent by simulation** rather than waved off (see Notes).
+- **Closed findings:** — · **Follow-ups:** **`D-27` needs a `DEC-07`-shaped decision** — see Notes. Also `T2-04`'s baseline will be a number in a repository and therefore rot-prone in exactly the way `BENCHMARKS.md` taught us to guard; `tests/test_benchmark_baseline.py` is the precedent.
+- **The corpus earned its keep on its first run: it found `D-27`.** Building it surfaced a weakness nothing else had caught: **most apps are classified by bare substring match, so an attacker-controlled hostname containing an app name inherits its classification.** Measured: `cdn.facebook.com.attacker.example` → `FACEBOOK`, `www.facebook.com.evil.example` → `FACEBOOK`, `microsoft-update.evil.example` → `MICROSOFT`, `microsoft.com.attacker.example` → `MICROSOFT`, `cdn.apple.evil.example` → `APPLE`. **The project has already recognised this exact bug class twice** — Twitter's `x.com`/`t.co` were anchored, and Cloudflare's `"cf-"` substring was dropped because "it matches any domain containing that text" — and fixed it for those two rules only. GOOGLE, FACEBOOK, NETFLIX, MICROSOFT and the rest still carry it. It is parity-preserving (the C++ original substring-matches too), so it is an inherited weakness rather than a port bug, and **fixing it is a parity break needing a decision**, which is why it is filed as `D-27` and not quietly fixed. This is the concrete argument for `AGENTIC_ARCHITECTURE.md`'s claim that a golden corpus is worth more than prompt engineering.
+- **Mutation testing found a real weakness in my own tests.** The first run caught only 3 of 11. The reason is worth recording: **every gate asserted something that currently passes** — recall is total, nothing is unaccepted, precision clears its floor — so on a corpus with nothing wrong, *a broken gate and a working one produce identical output*. `recall` hard-coded to 1.0 survived, and so did `micro_precision` hard-coded to 1.0. Added `TestGatesCanActuallyFail`, which scores deliberately corrupted input so the scorer is proven able to report failure, and it then caught both. The two remaining survivors are **equivalent**: a constant timestamp offset shifts every build identically, so two builds still compare equal and the determinism property holds; and the stale-allowlist guard is vacuous only because `observed == expected` *currently* holds — which is exactly the coincidence that guard exists to catch the end of.
+- **Decomposition and why each piece is here:**
+  - **`T2-01` corpus + scorer** — `AGENTIC_ARCHITECTURE.md` Layer 6: *"Golden captures are the highest-leverage single artefact in this entire document. A capture with a known answer is worth more than any prompt engineering."* It is also the phase's stated exit criterion made reachable: "an agent can drive the engine and be scored automatically on every PR" is unimplementable without ground truth, so this is the only `T2` task with nothing upstream of it.
+  - **`T2-02` differential extension** — §7 asks to extend the differential suite "from 77 packets to a large generated corpus with an explicit divergence allowlist". Depends on corpus *generation*, not on the corpus, so it can be parallel or second.
+  - **`T2-03` agent-tree safety suite** — `A-03`. Chosen to be in Phase 2 rather than Phase 4 because `A-03`'s own wording is that the envelope "quietly stops being true the moment agent code lands in the same repository, and nothing will report it". A guard that must precede code belongs before the code, and no agent tree exists yet, so this is the last cheap moment to write it.
+  - **`T2-04` eval history / non-worse gate** — Layer 6's "Change tracking: every eval run recorded; any agent, prompt, model or rule-template change must be non-worse". Naturally last: it needs results to compare.
+  - **Not scheduled, deliberately:** OTel tracing, LLM-as-judge, and cost/efficiency regression all need an agent to trace, judge, or cost. They are Phase 4 work wearing a Phase 2 label.
+- **Corpus provenance (user decision, 2026-10-15):** **synthetic, generated in-repo.** Every capture's ground truth is then *true by construction* rather than asserted by hand, which is the property that makes a golden corpus worth trusting. It is also reproducible (a byte-identical rebuild), diffable, small in git, and free of the licensing and privacy weight real captures carry. Layer 6's "30+ labelled pcaps" is a floor, not a target, and synthetic is how that floor is met honestly.
+
+### `T2-02` — Differential suite: 77 packets → generated corpus
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `tests/differential/`, reuses `T2-01`'s generator
+- **Planned test:** the existing 14 parity tests run over the generated corpus, not just the 77-packet sample
+- **How it was tackled:** — · **Deviations:** — · **Verification:** —
+- **Closed findings:** — · **Follow-ups:** —
+- **Notes:** `AUDIT.md` §7 asks to extend the differential suite "from 77 packets to a large generated corpus with an explicit divergence allowlist". Needs Docker to verify, so it inherits the caveat that a green run without a running daemon proves nothing — the same trap that left Phase 1's parity criterion unverifiable for most of its life. **Depends on `T2-01`'s generator, not on the corpus itself**, so the generator half can start immediately.
+
+### `T2-03` — Agent-tree safety suite + envelope statement
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** new `tests/test_agent_safety_constraints.py`, `docs/DESIGN_DECISIONS.md`
+- **Planned test:** the agent tree is AST-scanned on its own terms, and the widened envelope is stated in writing rather than implied
+- **How it was tackled:** — · **Deviations:** — · **Verification:** —
+- **Closed findings:** `A-03` · **Follow-ups:** —
+- **Notes:** closes `A-03`, whose point is that the existing `test_safety_constraints.py` scopes `src/dpi_engine/` only — so the "no network calls, passive and offline" guarantee "quietly stops being true the moment agent code lands in the same repository, and nothing will report it". Two things must land together: a **separate** safety suite for the agent tree, and an explicit written statement that the agent layer *will* need network (threat-intel lookups, ASN resolution, app identification) as a **deliberate, documented widening for that layer only**. Also the natural place to record that "real time" can never mean sniffing a live interface — that would break the envelope at its root.
+
+### `T2-04` — Eval run history / non-worse CI gate
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** new eval-history storage + a CI comparison step
+- **Planned test:** a deliberately worse corpus result fails the gate; an equal or better one passes
+- **How it was tackled:** — · **Deviations:** — · **Verification:** —
+- **Closed findings:** — · **Follow-ups:** —
+- **Notes:** Layer 6's "Change tracking: every eval run recorded; any agent, prompt, model or rule-template change must be non-worse | CI gate". Naturally last — it needs results to compare. Note the tension to resolve when this is built: the baseline it compares against is itself a number in a repository, and therefore rot-prone in exactly the way `BENCHMARKS.md` already taught us to guard. `tests/test_benchmark_baseline.py` is the precedent to follow rather than invent a second mechanism.
+
 ### `DOC-01` — root `README.md` corrections
 
 - **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t1_05 · **Blocked by:** —
@@ -664,7 +717,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **22** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`, `D-17`, `D-18`, `D-20`, `D-21`, `D-22`, `D-24`, `D-25`, `D-26`) | 4 (`D-11`, `D-15`, `D-19`, `D-23`) | 1 (`D-23`, re-measurable via `T1-08`) |
+| `D-##` defects | 27 | **22** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`-`D-18`, `D-20`-`D-22`, `D-24`-`D-26`) | 5 (`D-11`, `D-15`, `D-19`, `D-23`, **`D-27`**) | 2 (`D-23`, **`D-27`** — needs a `DEC-07` parity decision) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
 | `A-##` agentic | 6 | **1** (`A-05`) | 5 | 0 |
 | `M-##` documentation | 7 | **7** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 0 | 0 |
@@ -744,6 +797,8 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t2_01` | claude-opus-5[1m] | `T2-01` | **`T2-01` done** - 33 synthetic labelled captures + a per-class precision/recall scorer. **The corpus found `D-27` on its first run**: most apps are matched by bare substring, so `cdn.facebook.com.attacker.example` classifies as `FACEBOOK`. The project already fixed this class twice (Twitter's rule was anchored, Cloudflare's `"cf-"` dropped) and left every other rule carrying it. Parity-preserving, so fixing it is a parity break needing a `DEC-07`. Mutation testing also caught a real weakness in my own tests: every gate asserted something that currently passes, so a broken gate was indistinguishable from a working one | `T2-02`; and a `DEC-07` decision on `D-27` |
+| 2026-10-15 | `ses_t2_01` | claude-opus-5[1m] | `T2-01` + Phase 2 decomposition | **Phase 2 had no task IDs** — the rollup said "outline", so a 2–3 week plan spanning `AUDIT.md` §7 and Layer 6 was never decomposed. Created `T2-01`…`T2-04`, deliberately **excluding** the parts of Layer 6 that cannot be built yet (tool-call / trajectory / adversarial evals need the MCP server and agents; OTel tracing, LLM-as-judge and cost tracking need an agent to trace, judge or cost). User chose corpus-first and **synthetic captures**, so ground truth is true by construction rather than asserted by hand | `T2-01` implementation |
 | 2026-10-15 | `ses_t1_04b` | claude-opus-5[1m] | Phase 1 exit (criterion 3) | Docker enabled -> **differential suite 2 passed / 12 skipped becomes 14 passed / 0 skipped**, and the project its first **fully-verified 749 passed, 0 skipped** run. Added `tests/test_parity_breaks.py` (5 tests) verifying the port side of `DEC-05` and `DEC-06`, which the differential suite cannot check because it pins folding off to preserve parity. **Phase 1 now exits unconditionally** | Phase 2 (eval harness) |
 | 2026-10-15 | `ses_t1_04` | claude-opus-5[1m] | `T1-04` + Phase 1 exit | `T1-04` done - rule DSL with provenance (sidecar, never in `_RuleState`'s hot-path frozensets); 14/14 mutations caught. **Phase 1 COMPLETE 9/9, exited conditionally** *(superseded the same day by `ses_t1_04b`: Docker came up, parity verified, now unconditional).* Verifying Appendix B's five exit criteria found the fifth had never been measured, and measuring it **found a real bug**: a `WatchSource` read 308 packets against `max_total_packets=50` because each file's `PcapReader` got a fresh budget. Also found my own memory test measuring below the reorder window and reporting a leak that was not one | Phase 2 (eval harness); first run `pytest tests/differential` with Docker, since parity was then the one unverifiable criterion |
 | 2026-10-15 | `ses_t1_02` | claude-opus-5[1m] | `T1-02` | `T1-02` done - `CapSource` with `FileSource`/`StreamSource`/`WatchSource`. A source is an iterable of `RawPacket`, so no pipeline logic changed and `PcapReader` remains the only parser. Needed real non-rewindable stream support in `PcapReader` (it peeks 4 bytes then `seek(0)`), and `close()` had to stop closing caller-owned streams in **four** places. **11/12 mutations caught; the 12th proven equivalent by simulation, not waved off.** A test also caught `WatchSource` never terminating on a bounded watch, and the main loop and idle check *disagreeing* about a vanished directory | `T1-04` - the last Phase 1 task |
