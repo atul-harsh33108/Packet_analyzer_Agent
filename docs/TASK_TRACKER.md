@@ -3,11 +3,11 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: T1-08 - publish the benchmark baseline. tests/benchmarks/test_end_to_end.py and test_micro_benchmarks.py already exist; what is missing is tests/benchmarks/baseline.json and BENCHMARKS.md. Run with --benchmark-enable (--benchmark-disable is in addopts, so a plain run reports these as passed without executing). Record the baseline, then re-measure D-23 against it.
-blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings (D-13 closed 2026-10-15); Phase 0 and 0.5 complete; Phase 1 6/9 (T1-01, T1-03, T1-05, T1-06, T1-07, T1-09); all documentation findings M-01..M-07 closed]
+next_action: Phase 1 is 7/9. Pick up T1-02 (CapSource abstraction, 2 d) or T1-04 (rule DSL with provenance, 3 d). D-23 still needs a crossover measurement on a realistic capture - the published 4000-packet baseline puts the multiprocess paths 7.26x slower than single-process, and that magnitude is workload-specific.
+blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings (D-13 closed 2026-10-15); Phase 0 and 0.5 complete; Phase 1 7/9 (T1-01, T1-03, T1-05, T1-06, T1-07, T1-08, T1-09); all documentation findings M-01..M-07 closed]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_06b
+session: ses_t1_08
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,15 +40,25 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 1 — Streaming core |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 6/9** (`T1-01` `T1-03` `T1-05` `T1-06` `T1-07` `T1-09`) |
-| **Current task** | none — `T1-06` **done**, uncommitted |
-| **Next action** | `T1-08` — publish the benchmark baseline (`tests/benchmarks/` exists; `baseline.json` and `BENCHMARKS.md` do not), which also re-measures `D-23`. Or `T1-02` (`CapSource`), `T1-04` (rule DSL) |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 7/9** (`T1-01` `T1-03` `T1-05` `T1-06` `T1-07` `T1-08` `T1-09`) |
+| **Current task** | none — `T1-08` **done**, uncommitted |
+| **Next action** | `T1-02` (`CapSource`, 2 d) or `T1-04` (rule DSL, 3 d). `D-23` needs a crossover measurement on a realistic capture |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none. `D-13` closed 2026-10-15 (`ses_t1_06b`); `D-23` is re-measurable via `T1-08`, which is its de-facto owner |
 | **Documentation** | **all `M-01`–`M-07` closed, and `AUDIT.md` reconciled 2026-10-15.** The three-count contradiction (§2 heading said `D-01`…`D-22`, its intro said "twenty-one", the file held 26) is fixed, and `§0`/`§4.2` — both presented as current — had every numeric row stale, including five that asserted CI, coverage, timeout, property testing and `conftest.py` as *absent* when all five now exist |
-| **Session** | `ses_t1_06b` - `D-13` closed, **uncommitted** |
+| **Session** | `ses_t1_08` - `T1-08` done, benchmark baseline published, **uncommitted** |
+
+**The benchmark baseline is published (`T1-08`, `ses_t1_08`):**
+[``docs/BENCHMARKS.md`](BENCHMARKS.md) + `tests/benchmarks/baseline.json`, kept in
+agreement by `tests/test_benchmark_baseline.py`, which recomputes the document's
+figures from the JSON and fails on drift. **Re-measuring `D-23` made it worse:**
+the multiprocess paths are **7.26x** slower than single-process and staged
+**8.28x**, against the 4.7x/6.2x the finding recorded — so `T0-11` removed the
+per-packet *bytes* without removing the per-packet *pickle*, which is what the
+multiprocess variants are actually made of. `D-23` stays open, narrowed to
+establishing the crossover point on a realistic capture.
 
 **`D-13` closed 2026-10-15 (`ses_t1_06b`).** It had no owner because its proposed
 owner (`T0-10`) landed without taking it — a task can close a finding only by
@@ -135,7 +145,7 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 |---|---|---|---|---|---|---|---|---|
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
-| **1** | Streaming core | 9 | **6** | 0 | 0 | 2 (`T1-02` `T1-04`) | 1 (`T1-08` partial) | not met |
+| **1** | Streaming core | 9 | **7** | 0 | 0 | 2 (`T1-02` `T1-04`) | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
@@ -143,7 +153,7 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 30 tasks — **26** done — 0 in progress — 0 blocked — 2 pending — 2 partial.
+**Totals:** 30 tasks — **27** done — 0 in progress — 0 blocked — 2 pending — 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -180,7 +190,7 @@ Status vocabulary is closed (7 values) — see
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | done | - | 1 d |
 | `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | done | - | 2 d |
 | `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | done | — | 2 d |
-| `T1-08` | Benchmark suite | `R-06` `P-15` | partial | — | 1 d |
+| `T1-08` | Benchmark suite | `R-06` `P-15` | done | - | 1 d |
 | `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` | done | - | 1 d |
 | `DOC-01` | `README.md` corrections | `M-01` | done | — | 1 h |
 | `DOC-02` | `DESIGN_DECISIONS.md` corrections | `M-02` | done | - | 2 h | Now |
@@ -198,7 +208,7 @@ from this list.
 | Finding | Issue | Proposed owner | Priority |
 |---|---|---|---|
 | `D-13` | An LB process death orphans all its fast-paths forever: only `_lb_main` sends FP sentinels, so the parent discovers it only via the 120 s timeout | **closed 2026-10-15 (`ses_t1_06b`)** — the parent's collection loop now re-checks liveness every `_LIVENESS_POLL_SECONDS` while stalled, so a dead LB is named in ~1 s instead of after 120 s | done |
-| `D-23` | **Multiprocess is 4.7x slower than single-process; staged 6.2x slower.** Promoted from `P-15` once measured | re-measure — `T0-11` has landed, which is exactly what it was waiting on. `tests/benchmarks/` can do it, with `--benchmark-enable` | **now unblocked** |
+| `D-23` | **Multiprocess is 7.26x slower than single-process; staged 8.28x slower.** Promoted from `P-15` once measured | **re-measured 2026-10-15 (`T1-08`)** — published in `docs/BENCHMARKS.md` + `tests/benchmarks/baseline.json`. Was 4.7x/6.2x; `T0-11` made it *worse* | **still open** — needs a crossover point on a realistic capture |
 
 ---
 
@@ -441,12 +451,16 @@ or `dropped` and say why.
 - **Notes:** **all five roadmap decisions are now recorded** — `DEC-01` bounded reorder window, `DEC-02` precise pcapng diagnostic, `DEC-03` implement the cross-check, `DEC-04` `AppType.name` + migration, `DEC-05` flow folding default ON — so Phase 1's five blocked tasks are unblocked. `DEC-05` specifically unblocks `D-25`, which I had documented this session as *not cheaply solvable*: `packets_in`/`bytes_in` are permanently 0 because there is no folded flow to attribute the reverse direction to, and folding gives that state an owner. Next is `T1-01` (event bus), whose shape the `DEC-01` decision fixes.
 ### `T1-08` — Benchmark suite
 
-- **Status:** partial · **Claimed by:** — · **Session:** — · **Blocked by:** -
-- **Files:** benchmark tests **done** (`tests/benchmarks/test_end_to_end.py`, `test_micro_benchmarks.py`); published baseline **not started** (no `baseline.json`, no `BENCHMARKS.md`)
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t1_08 · **Blocked by:** —
+- **Files:** `tests/benchmarks/baseline.json` (new, committed), `docs/BENCHMARKS.md` (new), `tests/test_benchmark_baseline.py` (new, 9 tests), plus the docstring corrections in both benchmark files and `D-23`'s row in `AUDIT.md`. **No production source touched.**
 - **Planned test:** publish the baseline recorded in `T0-03`
-- **How it was tackled:** — · **Deviations:** — · **Verification:** `uv run pytest tests/benchmarks/test_end_to_end.py --benchmark-enable`
-- **Closed findings:** — · **Follow-ups:** publish the baseline; re-measure against `D-23`
-- **Notes:** first honest measurement of whether the port is fast enough for real captures
+- **How it was tackled:** the benchmark *tests* already existed and were correct, so the work was publishing what they measure — and making the published pair incapable of silently disagreeing. `docs/BENCHMARKS.md` is the human-readable half and `tests/benchmarks/baseline.json` the machine-readable half; the second was deliberately **not** put in `.benchmarks/` (gitignored, and pytest's *comparison* store rather than an artefact). `tests/test_benchmark_baseline.py` recomputes the document's figures from the JSON and fails if they drift, because a hand-edited baseline is the exact rot this task exists to stop, and it is the rot the README and `AUDIT.md` §0 already suffered once. **The `--benchmark-disable` caveat was verified rather than assumed:** a default run finishes in 3.0 s and the real run in 18–19 s, which is now recorded in the document itself.
+- **Deviations:** two, both forced by what the measurement actually showed.
+  - **`D-23` got worse, so it was corrected rather than closed.** Re-measuring gave **7.26×** (multiprocess) and **8.28×** (staged) against single-process, where the finding recorded 4.7× and 6.2×. The direction held and the magnitude grew by roughly half. Plausible reason: `T0-11` — the change `D-23` was waiting on — replaced shipping packet *bytes* back to the parent with a decision *bitmap*, which removes memory without removing work, and each packet now costs a bit-setting on a path where per-packet pickling already dominated. Recorded as a **hypothesis, not a measurement**, because isolating it needs a benchmark with and without the bitmap. `D-23` stays open with the remaining work narrowed to *establish the crossover point on a realistic capture*.
+  - **The magnitude is labelled workload-specific rather than quoted as a property.** 4000 synthetic 54-byte frames over-weight process spawn and per-record pickling, so the direction is trustworthy and the number is not portable. `BENCHMARKS.md` says so explicitly, and the previous docstring overstated this by presenting one machine's ratios without that hedge.
+- **Verification:** `uv run pytest tests/benchmarks --benchmark-enable` → 8 benchmarks, 18–19 s. Default run → 3.0 s, proving they do not execute without the flag. `ruff check .` clean · `mypy` (`--strict`) clean on 16 source files · `pytest -q` → **645 passed, 12 skipped** (was 636; +9). **The rot guard proven to bite three ways**, each independently: corrupting `137.5 ms` → *"the baseline records 137.5 ms but BENCHMARKS.md does not contain that figure"*; corrupting `7.26x` → *"recomputed ratio is 7.26x"*; corrupting `29 Kpps` → *"recomputes to 29 Kpps"*. All three fail exactly one test and name the mismatch.
+- **Closed findings:** — (`R-06` was closed by `T0-03`, and `P-15` was promoted out of the register into `D-23`; neither is this task's to close) · **Follow-ups:** `D-23` needs a crossover measurement on a realistic capture; `BENCHMARKS.md` should be regenerated whenever the benchmarks change
+- **Notes:** first honest measurement of whether the port is fast enough for real captures. **Answer so far: the scaling paths are not, and were not when we looked either.** The one genuinely new finding in the micro-benchmarks is that `parse_packet` (10.73 µs) costs ~7× `extract_sni` (1.57 µs) — most of this engine's per-packet work is header parsing, not payload inspection, which is the opposite of where an intuition about DPI starts.
 - **Status correction (2026-10-13, ses_t1_05):** previously read **done**, closing `R-06` and `P-15`. The truth is split, and the block was wrong about both findings even though the code exists:
   - **What genuinely exists:** `tests/benchmarks/test_end_to_end.py` and `test_micro_benchmarks.py`, both real `pytest-benchmark` suites covering all three pipeline variants, tracked in git since `e9b8674`. The benchmark *tests* do not need rebuilding.
   - **What does not exist:** the published baseline. There is no `tests/benchmarks/baseline.json`, no `BENCHMARKS.md`, no baseline anywhere. The task's whole point — publishing what `T0-03` measured — is undone.
@@ -663,6 +677,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t1_08` | claude-opus-5[1m] | `T1-08` | `T1-08` done - benchmark baseline published (`docs/BENCHMARKS.md` + `tests/benchmarks/baseline.json`), with a rot guard that recomputes the document's figures from the JSON. **Re-measuring `D-23` made it worse, not better: 7.26x and 8.28x against the recorded 4.7x/6.2x**, so the finding stays open and narrows to a crossover measurement on realistic traffic. Also verified rather than assumed that a default `pytest tests/benchmarks` reports these as passed WITHOUT EXECUTING THEM (3.0 s vs 18-19 s) | `T1-02` or `T1-04` |
 | 2026-10-15 | `ses_t1_06b` | claude-opus-5[1m] | `D-13` | `D-13` closed - the unowned LB-death defect finally got an owner and a fix. `_collect_streaming` now polls the result queue in `_LIVENESS_POLL_SECONDS` slices and re-checks liveness on each empty poll, so a dead LB is named in ~1 s instead of after the 120 s budget. The old message ("only N of M workers reported") described the *fast paths*, which are innocent. 7/7 mutations caught | `T1-08` - publish the benchmark baseline |
 | 2026-10-15 | `ses_t1_06` | claude-opus-5[1m] | `T1-06` | `T1-06` done, `A-05` closed - the counterfactual engine. Two runs of the real pipeline diffed, no decision logic reimplemented, no existing source file touched. Found by a test rather than by inspection that a policy **substitution** (Facebook -> YouTube) drops the same 2 packets either way, so the net drop delta is 0 while 4 packets change disposition - so `packets_changed` is counted from the decision bitmaps and the signed figure lives in `net_packets_dropped`. 12/12 mutations caught; 100% coverage on the new module | `T1-08` - publish the benchmark baseline, the missing half of a `partial` task |
 | 2026-10-15 | `ses_t1_05b` | claude-opus-5[1m] | `DOC-01` follow-up (`AUDIT.md` reconciliation) | Reconciled `AUDIT.md`. Fixed the trigger — §2's heading said `D-01`…`D-22` while its intro said "twenty-one" and the file held 26 (21 live + 5 inherited in §2.1; the heading was the only error). Then found the same rot the README had, in the two sections that present themselves as **current**: `§0` and `§4.2`. Every numeric row was stale, and five `§0` rows asserted CI, coverage, test timeout, property testing and `conftest.py` as **absent** when all five now exist — `pytest-cov` even carries `fail_under = 85`. Also refreshed the Appendix, whose expected outputs would have made a correct run look like a failure, and marked `ruff format --check` as a characterisation rather than a gate. Descriptions in §2/§5 left untouched per the document's own rule that status lives in the tracker | `T1-08` — the missing half of a `partial` task |

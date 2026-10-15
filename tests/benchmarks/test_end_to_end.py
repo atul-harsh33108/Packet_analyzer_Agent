@@ -11,11 +11,16 @@ and probably worse than the C++ original: a `WorkItem` is pickled per packet
 across a process boundary, the five-tuple hash is a pure-Python mix, and every
 packet currently rides back to the parent inside the `WorkerResult`.
 
-First baseline -- 4000 synthetic packets, Windows, Python 3.13:
+**The published baseline lives in [`docs/BENCHMARKS.md`](../../docs/BENCHMARKS.md)
+and [`baseline.json`](baseline.json).** Do not quote figures from this docstring --
+they are a summary of a snapshot, and the JSON is the artefact that is checked.
 
-    single process    113 ms    35 Kpps
-    multiprocess (4)  527 ms     8 Kpps    4.7x SLOWER than single
-    staged (2+4)      694 ms     6 Kpps    6.2x SLOWER than single
+Current baseline -- 4000 synthetic packets, Windows, Python 3.13, Ryzen 5 5600H,
+measured 2026-10-15 after `T0-11`:
+
+    single process    138 ms    29 Kpps
+    multiprocess (4)  999 ms     4 Kpps    7.3x SLOWER than single
+    staged (2+4)     1139 ms     4 Kpps    8.3x SLOWER than single
 
 **The scaling paths are slower than not using them**, which is the concrete
 form of `P-15` and of the design note that the staged tier is
@@ -24,8 +29,11 @@ packets is small, so process spawn and queue setup are a large share of each
 measurement and flatter the multiprocess variants; and these synthetic frames
 are 54 bytes, so per-record pickling overhead is proportionally larger than it
 would be on real traffic. The *direction* is measured even if the magnitude
-would shrink on a large capture, and re-measuring after `T0-11` is the point
-of keeping the suite.
+would shrink on a large capture.
+
+The ratios were 4.7x and 6.2x when `D-23` was first recorded, so they have grown
+by roughly half since `T0-11` landed. See `BENCHMARKS.md` for the likely reason
+and for what is and is not established by this benchmark.
 """
 
 from __future__ import annotations
