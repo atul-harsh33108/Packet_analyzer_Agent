@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 1
-current_task: DOC-01
-next_action: Pick up the next Phase 1 task — T1-02 (CapSource), T1-04 (rule DSL), T1-06 (simulate_ruleset) or T1-08 (publish the benchmark baseline). Alternatively close D-13, which still has no owning task.
-blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); DEC-06 decided 2026-10-13 (parity break, allowlist entry 8); Phase 0 and 0.5 complete; Phase 1 5/9 (T1-01, T1-03, T1-05, T1-07, T1-09); all documentation findings M-01..M-07 closed]
-last_updated: 2026-10-13
+current_task: none
+next_action: Phase 1 is 6/9. Pick up T1-08 (publish the benchmark baseline - tests/benchmarks/ exists, baseline.json and BENCHMARKS.md do not; 1 d, and it unblocks re-measuring D-23) or T1-02 (CapSource abstraction, 2 d) or T1-04 (rule DSL with provenance, 3 d). D-13 still has no owning task - LB process death orphans its fast paths until the parent 120 s timeout, previously assigned to T0-10 which landed without taking it.
+blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; Phase 0 and 0.5 complete; Phase 1 6/9 (T1-01, T1-03, T1-05, T1-06, T1-07, T1-09); all documentation findings M-01..M-07 closed]
+last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_05b
+session: ses_t1_06
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,18 +40,21 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 1 — Streaming core |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 5/9** (`T1-01` `T1-03` `T1-05` `T1-07` `T1-09`) |
-| **Current task** | `DOC-01` - `README.md` corrections (**done**, uncommitted) |
-| **Next action** | Pick up `T1-02` (`CapSource`, 2 d), `T1-04` (rule DSL, 3 d), `T1-06` (`simulate_ruleset`, 2 d) or `T1-08` (publish the benchmark baseline, the missing half). Or close `D-13` |
-| **Blocked by** | nothing — all six decisions recorded; `DEC-06` is the last, 2026-10-13 |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 6/9** (`T1-01` `T1-03` `T1-05` `T1-06` `T1-07` `T1-09`) |
+| **Current task** | none — `T1-06` **done**, uncommitted |
+| **Next action** | `T1-08` — publish the benchmark baseline (`tests/benchmarks/` exists; `baseline.json` and `BENCHMARKS.md` do not), which also unblocks re-measuring `D-23`. Or `T1-02` (`CapSource`), `T1-04` (rule DSL). `D-13` still needs an owner |
+| **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
-| **Untracked findings** | `D-13` and `D-23` have no owning task. `D-23` is now re-measurable — `T0-11` has landed, which was what it waited on |
+| **Untracked findings** | `D-13` has no owning task (`T0-10` landed without taking it). `D-23` has none either but is now re-measurable via `T1-08` |
 | **Documentation** | **all `M-01`–`M-07` closed, and `AUDIT.md` reconciled 2026-10-15.** The three-count contradiction (§2 heading said `D-01`…`D-22`, its intro said "twenty-one", the file held 26) is fixed, and `§0`/`§4.2` — both presented as current — had every numeric row stale, including five that asserted CI, coverage, timeout, property testing and `conftest.py` as *absent* when all five now exist |
-| **Session** | `ses_t1_05` + `ses_t1_05b` - `T1-05` `T1-09` `DOC-01` committed; `AUDIT.md` reconciled, uncommitted |
+| **Session** | `ses_t1_06` - `T1-06` done (`A-05` closed), **uncommitted** |
 
-**Standing blockers for whoever picks this up:** five decisions need a human. They
-are *not* for an agent to choose silently. See [§2](#2-decision-log).
+**Standing blockers for whoever picks this up: none.** This paragraph used to say
+five decisions needed a human and were "not for an agent to choose silently". All
+six were decided between 2026-10-12 and 2026-10-13 — four by you, two taken as the
+code already behaved. There is nothing waiting on a human. See
+[§2](#2-decision-log) if a new one arises.
 
 ---
 
@@ -121,18 +124,19 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 |---|---|---|---|---|---|---|---|---|
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
-| **1** | Streaming core | 9 | **2** | 0 | 7 | 0 | 0 | not met |
+| **1** | Streaming core | 9 | **6** | 0 | 0 | 2 (`T1-02` `T1-04`) | 1 (`T1-08` partial) | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
-| **DOC** | Documentation track | 8 | **3** | 0 | 0 | 2 | **1** (`DOC-03`) superseded + **1** partial (`DOC-07`) | not met |
+| **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 30 tasks — **3** done — 0 in progress — 6 blocked — 18 pending — 2 deferred/partial.
-The six blocked tasks are `T0-11`, `T05-02`, `T1-01`, `T1-03`, `T1-05`, `T1-07` —
-all gated on the five open decisions. **Six of thirty tasks cannot start until a
-human decides.**
+**Totals:** 30 tasks — **26** done — 0 in progress — 0 blocked — 2 pending — 2 partial.
+The "6 blocked / six tasks cannot start until a human decides" text that stood here
+was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
+between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
+blocked tasks.** (`DOC-03` also stopped being superseded once it was rewritten.)
 
 **Total specified work:** 30 tasks, ~27 working days (Phases 0 + 0.5 + 1), plus ~2
 days of documentation in parallel.
@@ -163,7 +167,7 @@ Status vocabulary is closed (7 values) — see
 | `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | done | — | 3 d |
 | `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | done | - | 1 d |
-| `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | pending | — | 2 d |
+| `T1-06` | **`simulate_ruleset` counterfactual engine** | `A-05` | done | - | 2 d |
 | `T1-07` | Property tests + scapy cross-check | `R-05` `R-08` | done | — | 2 d |
 | `T1-08` | Benchmark suite | `R-06` `P-15` | partial | — | 1 d |
 | `T1-09` | SNI / DNS parser correctness | `D-17` `D-18` | done | - | 1 d |
@@ -402,11 +406,16 @@ or `dropped` and say why.
 
 ### `T1-06` — `simulate_ruleset` counterfactual engine
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** new `rules/simulator.py`, `src/dpi_engine/pipeline.py`
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t1_06 · **Blocked by:** —
+- **Files:** new `src/dpi_engine/rules/simulator.py`, new `src/dpi_engine/rules/__init__.py`, new `tests/test_simulate_ruleset.py`. **No existing source file was modified.**
 - **Planned test:** simulating a ruleset that would block 100% of flows is reported as such; a no-op change yields zero delta
-- **How it was tackled:** — · **Deviations:** — · **Verification:** —
-- **Closed findings:** `A-05` · **Follow-ups:** —
+- **How it was tackled:** exactly as the keystone note planned — two runs of the real pipeline, diffed. `simulate_ruleset` calls `run_pipeline` twice (baseline rules, candidate rules) with an `EventBus` attached, recording `PacketParsed.forwarded` per `sequence_index` as the decision bitmap and `PipelineResult.blocked_flows` as the flow set. The constraint that shaped the design: **do not reimplement decision logic.** A simulator that re-derived "would this flow be blocked?" would be a second source of truth free to drift from production, and every number it reported would be a guess wearing the costume of a measurement. Cost is two runs; the difference is exact rather than sampled, which matters because the roadmap wants to make *safety* claims from it ("a ruleset that would block 100% of flows is reported as such") and a sample cannot support one. The package is a separate `dpi_engine.rules` subpackage with an `__init__` that states the enforcement path must never import it — the engine decides about traffic in front of it, a simulator answers "what *would* you do", and keeping them apart stops an analysis tool being one refactor from load-bearing on live traffic.
+- **Deviations:** two, both forced by tests rather than chosen up front.
+  - **`packets_changed` is not the net drop delta.** The first implementation defined it as `candidate_dropped - baseline_dropped` and cross-checked it against the per-packet diff. A test caught this being *false*: substituting one blocked app for another (Facebook → YouTube) drops **2 packets either way**, so the net is 0, while **4 packets change disposition**. A simulator built on the net would report the most disruptive kind of edit — a policy swap — as "no change at all". Now `packets_changed` is counted from the decision bitmaps and is unsigned; `net_packets_dropped` carries the signed figure, and `test_substitution_moves_packets_without_changing_the_drop_total` pins the distinction.
+  - **The consistency guard checks the decision key-sets, not the counters.** The original guard asserted the per-packet diff equalled the net drop delta — the same wrong premise — and fired spuriously on the substitution case above. It now asserts the two runs saw the same *packets*, which is a genuinely universal invariant, and `RuntimeError`s with both directions named if not.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 16 source files · `pytest -q` → **623 passed, 12 skipped** (was 601; **+22**). Coverage **100%** on `simulator.py` (87/87 statements), overall **92.16%** against the 85 floor. **Proven to bite: 12 of 12 mutations caught, 0 void**, via a detached worktree with `PYTHONPATH` asserted per run. Five of the first ten survived the initial run and each was a real gap, not a bad anchor: an empty-capture test for `total_loss`'s `dropped > 0` condition, a policy-substitution test for the sign of `net_packets_dropped`, a stricter `unchanged_blocked` assertion, a `baseline_blocked == 0` assertion, and fault injection for the consistency guard.
+- **Closed findings:** `A-05` · **Follow-ups:** no CLI surface yet — `simulate_ruleset` is library-only, and `tests/test_simulate_ruleset.py` is not imported by anything in `src`, so there is no read-only command to reach it from
+- **Harness note worth keeping:** the mutation harness's first run reported **10 of 10 survived**, which was the harness lying rather than the tests being weak. `dpi_engine` is an editable install resolving to `C:\Project\Packet_analyzer\src`, so pytest inside the worktree imported the *unmutated original* and every mutation "passed". Fixed by putting the worktree's `src` on `PYTHONPATH` and **asserting the resolved module path on every single run**, not once at setup. Same trap as `T1-07`'s first bite run.
 - **Notes:** **the keystone component.** Implement by running the engine twice and diffing the decision bitmaps `T0-11` produces — nearly free, and exact rather than approximate. Every safety claim in `AGENTIC_ARCHITECTURE.md` Layers 3/7/8 reduces to this existing
 - **Status correction (2026-10-13, ses_t1_05):** previously read **done** under `ses_t0_05` — scaffolding, not work. Neither `rules/simulator.py` nor `src/dpi_engine/pipeline_sim.py` exists, and no `simulate_ruleset` symbol exists anywhere. The "keystone" note above is genuine planning and worth keeping; only the status was false.
 
@@ -565,7 +574,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
 | `D-##` defects | 26 | **21** (`D-01`–`D-10`, `D-12`, `D-14`, `D-16`, `D-17`, `D-18`, `D-20`, `D-21`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 (`D-11`, `D-13`, `D-15`, `D-19`, `D-23`) | 2 (`D-13`, `D-23`) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
-| `A-##` agentic | 6 | 0 | 6 | 0 |
+| `A-##` agentic | 6 | **1** (`A-05`) | 5 | 0 |
 | `M-##` documentation | 7 | **7** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 0 | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
 
@@ -643,6 +652,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t1_06` | claude-opus-5[1m] | `T1-06` | `T1-06` done, `A-05` closed - the counterfactual engine. Two runs of the real pipeline diffed, no decision logic reimplemented, no existing source file touched. Found by a test rather than by inspection that a policy **substitution** (Facebook -> YouTube) drops the same 2 packets either way, so the net drop delta is 0 while 4 packets change disposition - so `packets_changed` is counted from the decision bitmaps and the signed figure lives in `net_packets_dropped`. 12/12 mutations caught; 100% coverage on the new module | `T1-08` - publish the benchmark baseline, the missing half of a `partial` task |
 | 2026-10-15 | `ses_t1_05b` | claude-opus-5[1m] | `DOC-01` follow-up (`AUDIT.md` reconciliation) | Reconciled `AUDIT.md`. Fixed the trigger — §2's heading said `D-01`…`D-22` while its intro said "twenty-one" and the file held 26 (21 live + 5 inherited in §2.1; the heading was the only error). Then found the same rot the README had, in the two sections that present themselves as **current**: `§0` and `§4.2`. Every numeric row was stale, and five `§0` rows asserted CI, coverage, test timeout, property testing and `conftest.py` as **absent** when all five now exist — `pytest-cov` even carries `fail_under = 85`. Also refreshed the Appendix, whose expected outputs would have made a correct run look like a failure, and marked `ruff format --check` as a characterisation rather than a gate. Descriptions in §2/§5 left untouched per the document's own rule that status lives in the tracker | `T1-08` — the missing half of a `partial` task |
 | 2026-10-13 | `ses_t1_05` | claude-opus-5[1m] | `T1-05` `T1-09` `DOC-01` + tracker integrity | `T1-05` done — CIDR (`D-20`), either-endpoint matching (`D-21`/`DEC-06`), stable rule keys (`D-16`/`DEC-04`) — committed `cce25c7`. `T1-09` done — server_name list walked per entry (`D-17`), hostname policy (`D-18`) — committed `e628771`. `DOC-01` done — `M-01` closed, **all `M-##` now closed**. 601 green throughout. Also corrected six task blocks that falsely read `done`, recomputed §6, realigned three malformed `DOC-*` rows, and rebuilt §1, which still said `phase: 0` and named `R-05` as the current task | `T1-02` or `T1-04`; both uncommitted |
 | 2026-10-12 | `ses_t1_01` | claude-opus-5[1m] | `T1-01` | event bus done — derived `PipelineResult` — guarantee test caught 2 emission bugs | `T1-03` |
