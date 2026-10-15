@@ -3,7 +3,7 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: T2-02 - extend the differential suite from 77 packets to the generated golden corpus, reusing T2-01's generator (tests/golden/corpus.py). Needs Docker to verify. Then T2-03 (agent-tree safety suite, closes A-03) and T2-04 (eval history / non-worse CI gate). Also needs a user decision: D-27, the substring false-positive class, is a parity break and should be recorded as DEC-07 rather than quietly fixed.
+next_action: T2-03 - the agent-tree safety suite, which closes A-03. Two things must land together: a SEPARATE safety suite for the agent tree (the existing one scopes src/dpi_engine/ only, so the 'no network' guarantee 'quietly stops being true the moment agent code lands in the same repository, and nothing will report it'), and an explicit written statement that the agent layer WILL need network as a deliberate, documented widening for that layer only. Then T2-04. Still open with the user: a DEC-07 decision on D-27 (bare-substring app matching).
 blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete and Phase 1 verified (749 passed, 0 skipped incl. differential parity); Phase 2 decomposed into T2-01..T2-04 with T2-01 in progress; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
@@ -40,9 +40,9 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 2 — Eval harness (started) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 1/4** (`T2-01` done) |
-| **Current task** | none — `T2-01` **done**, uncommitted |
-| **Next action** | `T2-02` (differential suite → generated corpus, needs Docker). Also: **`D-27` needs a `DEC-07` parity decision** — most apps are matched by bare substring, so an attacker-controlled hostname inherits its classification |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 2/4** (`T2-01`, `T2-02` done) |
+| **Current task** | none — `T2-02` **done**, uncommitted |
+| **Next action** | `T2-03` — agent-tree safety suite, closes `A-03`. Still open: a **`DEC-07` decision on `D-27`** |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -191,14 +191,14 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
-| **2** | Eval harness | 4 | **1** | 0 | 0 | 3 | 0 | not started |
+| **2** | Eval harness | 4 | **2** | 0 | 0 | 2 | 0 | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 34 tasks - **30** done - 0 in progress - 0 blocked - 3 pending - 1 partial.
+**Totals:** 34 tasks - **31** done - 0 in progress - 0 blocked - 2 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -246,7 +246,7 @@ Status vocabulary is closed (7 values) — see
 | `DOC-07` | Documentation index (`docs/README.md`) | - | partial | - | 15 min |
 | `DOC-08` | Gitignore / delete session transcripts | `S-01` | done | - | 5 min |
 | `T2-01` | **Golden-capture corpus + scorer** | - | done | - | 3 d |
-| `T2-02` | Differential suite: 77 pkt → generated corpus | - | pending | - | 1 d |
+| `T2-02` | Differential suite: 77 pkt → generated corpus | - | done | - | 1 d |
 | `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | pending | - | 1 d |
 | `T2-04` | Eval run history / non-worse CI gate | - | pending | - | 1 d |
 
@@ -575,12 +575,17 @@ or `dropped` and say why.
 
 ### `T2-02` — Differential suite: 77 packets → generated corpus
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `tests/differential/`, reuses `T2-01`'s generator
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t2_02 · **Blocked by:** —
+- **Files:** new `tests/differential/test_differential_corpus.py` (12 tests), `tests/differential/cpp_reference.py` (new `run_cpp_reference_batch` + `_parse_batch`). **No production source touched.**
 - **Planned test:** the existing 14 parity tests run over the generated corpus, not just the 77-packet sample
-- **How it was tackled:** — · **Deviations:** — · **Verification:** —
-- **Closed findings:** — · **Follow-ups:** —
-- **Notes:** `AUDIT.md` §7 asks to extend the differential suite "from 77 packets to a large generated corpus with an explicit divergence allowlist". Needs Docker to verify, so it inherits the caveat that a green run without a running daemon proves nothing — the same trap that left Phase 1's parity criterion unverifiable for most of its life. **Depends on `T2-01`'s generator, not on the corpus itself**, so the generator half can start immediately.
+- **How it was tackled:** `run_cpp_reference_batch` runs the C++ reference over **all 33 captures in one container**, and `test_differential_corpus.py` asserts packet-count parity for each. Batch mode exists because of a measurement, not a preference: **~7.5 s per capture individually versus 0.66 s for all 33 batched**, since essentially all the cost is container startup rather than the binary. Without it, corpus-wide parity is ~4 minutes of CI and nobody runs it; with it, the whole thing takes 6.6 s. Comparison is deliberately on **packet counts**, not classification — the allowlist already documents that app classification diverges, so asserting app equality would either fail on documented behaviour or force the test to restate the allowlist.
+- **Deviations:** three.
+  - **The batch addresses captures by absolute `/input/...` path, not bare name.** The single-capture path does `cd /tmp && cp /input/<name> .`, so it never encounters this. A batch that looped over bare names ran the binary in `/tmp` where the read-only capture mount does not exist: every capture reported "Could not open file", and the batch returned **33 clean all-zero reports** rather than an error. That is the worst shape this component could fail in — a differential suite that verifies nothing and looks green. Caught by comparing against single mode, and it is now an explicit mutation.
+  - **"Materially larger" was corrected to what actually grew.** An early version asserted the corpus was 10x the sample by packet count; it is not. Measured: **33x the captures, 3.3x the distinct domains, 2.7x the flows, but only 1.5x the packets** (118 vs 77). It is scenario *breadth*, not volume, and the limitation is recorded rather than glossed — 33 synthetic captures of 2-8 packets is the right tool for parity across shapes and the wrong tool for anything about throughput, which is why `D-23` still needs real captures.
+  - **`TestBatchFailureIsLoud` added because the parity assertions could not fail alone.** Every assertion in the parity class is satisfied by a healthy run, so a broken batch and a working one produce the same output — the same trap `T2-01` hit. Each new case *forces* a failure (a container returning 125, an unparsable segment, a missing capture) and checks it is reported.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 17 source files · `pytest -q` → **786 passed, 0 skipped** (was 774; **+12**). Differential suite **22 passed** (14 original + 8 new) in 15.7 s. **7 of 7 mutations caught, 0 void.**
+- **Closed findings:** — · **Follow-ups:** the corpus is thin on volume (see Deviations); `D-23`'s throughput work needs real captures, not this
+- **Notes:** `AUDIT.md` §7 asked to extend the suite "from 77 packets to a large generated corpus with an explicit divergence allowlist". Why it was capped at 77: **every test in `tests/differential/` was hardcoded to `TEST_DPI_PCAP`**, so the suite's coverage was exactly one capture's worth — which is how `D-27` survived the whole of Phase 1. The mutation harness also caught a **category error in itself**: five mutants removed assertions from the *test* file, and a test that asserts less still passes, so they were un-catchable by construction. Only production mutations are meaningful there.
 
 ### `T2-03` — Agent-tree safety suite + envelope statement
 
@@ -797,6 +802,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t2_02` | claude-opus-5[1m] | `T2-02` | **`T2-02` done** — differential suite extended from 1 capture to all 33 generated ones. Added `run_cpp_reference_batch` because of a measurement: ~7.5 s per capture individually vs **0.66 s for all 33** in one container, since the cost is startup not compute. Caught a bug that failed in the worst possible shape — addressing captures by bare name produced **33 clean all-zero reports** instead of an error, so the suite verified nothing while looking green. Also corrected my own overclaim: the corpus is 33x the captures but only **1.5x the packets** (breadth, not volume). 7/7 mutations caught | `T2-03` |
 | 2026-10-15 | `ses_t2_01` | claude-opus-5[1m] | `T2-01` | **`T2-01` done** - 33 synthetic labelled captures + a per-class precision/recall scorer. **The corpus found `D-27` on its first run**: most apps are matched by bare substring, so `cdn.facebook.com.attacker.example` classifies as `FACEBOOK`. The project already fixed this class twice (Twitter's rule was anchored, Cloudflare's `"cf-"` dropped) and left every other rule carrying it. Parity-preserving, so fixing it is a parity break needing a `DEC-07`. Mutation testing also caught a real weakness in my own tests: every gate asserted something that currently passes, so a broken gate was indistinguishable from a working one | `T2-02`; and a `DEC-07` decision on `D-27` |
 | 2026-10-15 | `ses_t2_01` | claude-opus-5[1m] | `T2-01` + Phase 2 decomposition | **Phase 2 had no task IDs** — the rollup said "outline", so a 2–3 week plan spanning `AUDIT.md` §7 and Layer 6 was never decomposed. Created `T2-01`…`T2-04`, deliberately **excluding** the parts of Layer 6 that cannot be built yet (tool-call / trajectory / adversarial evals need the MCP server and agents; OTel tracing, LLM-as-judge and cost tracking need an agent to trace, judge or cost). User chose corpus-first and **synthetic captures**, so ground truth is true by construction rather than asserted by hand | `T2-01` implementation |
 | 2026-10-15 | `ses_t1_04b` | claude-opus-5[1m] | Phase 1 exit (criterion 3) | Docker enabled -> **differential suite 2 passed / 12 skipped becomes 14 passed / 0 skipped**, and the project its first **fully-verified 749 passed, 0 skipped** run. Added `tests/test_parity_breaks.py` (5 tests) verifying the port side of `DEC-05` and `DEC-06`, which the differential suite cannot check because it pins folding off to preserve parity. **Phase 1 now exits unconditionally** | Phase 2 (eval harness) |
