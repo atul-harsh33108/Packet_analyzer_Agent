@@ -3,11 +3,11 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: Phase 1 is 7/9. Pick up T1-02 (CapSource abstraction, 2 d) or T1-04 (rule DSL with provenance, 3 d). D-23 still needs a crossover measurement on a realistic capture - the published 4000-packet baseline puts the multiprocess paths 7.26x slower than single-process, and that magnitude is workload-specific.
-blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings (D-13 closed 2026-10-15); Phase 0 and 0.5 complete; Phase 1 7/9 (T1-01, T1-03, T1-05, T1-06, T1-07, T1-08, T1-09); all documentation findings M-01..M-07 closed]
+next_action: T1-04 is the last Phase 1 task - the rule DSL with provenance (3 d). Note its status-correction note says "There is no rules/ subpackage", which T1-06 made stale: src/dpi_engine/rules/ now exists and holds the simulator, so the DSL should build on it rather than create a parallel one. Provenance is the precondition for any auto-apply tier in Phase 6.
+blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings (D-13 closed 2026-10-15); Phase 0 and 0.5 complete; Phase 1 8/9 (only T1-04 remains); all documentation findings M-01..M-07 closed]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_08
+session: ses_t1_02
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,15 +40,29 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 1 — Streaming core |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 7/9** (`T1-01` `T1-03` `T1-05` `T1-06` `T1-07` `T1-08` `T1-09`) |
-| **Current task** | none — `T1-08` **done**, uncommitted |
-| **Next action** | `T1-02` (`CapSource`, 2 d) or `T1-04` (rule DSL, 3 d). `D-23` needs a crossover measurement on a realistic capture |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 8/9** (`T1-01` `T1-02` `T1-03` `T1-05` `T1-06` `T1-07` `T1-08` `T1-09`) |
+| **Current task** | none — `T1-02` **done**, uncommitted |
+| **Next action** | `T1-04`, the last Phase 1 task: rule DSL with provenance. Its stale note says "there is no `rules/` subpackage" — `T1-06` created `src/dpi_engine/rules/`, so build on that |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none. `D-13` closed 2026-10-15 (`ses_t1_06b`); `D-23` is re-measurable via `T1-08`, which is its de-facto owner |
 | **Documentation** | **all `M-01`–`M-07` closed, and `AUDIT.md` reconciled 2026-10-15.** The three-count contradiction (§2 heading said `D-01`…`D-22`, its intro said "twenty-one", the file held 26) is fixed, and `§0`/`§4.2` — both presented as current — had every numeric row stale, including five that asserted CI, coverage, timeout, property testing and `conftest.py` as *absent* when all five now exist |
-| **Session** | `ses_t1_08` - `T1-08` done, benchmark baseline published, **uncommitted** |
+| **Session** | `ses_t1_02` - `T1-02` done (`CapSource`), **uncommitted** |
+
+**`CapSource` landed (`T1-02`, `ses_t1_02`).** A source is just an iterable of
+`RawPacket` — the shape `_iter_inspectable` already consumed — so no pipeline
+logic changed and `PcapReader` stays the only thing that parses bytes. `FileSource`,
+`StreamSource` and `WatchSource` decide *where bytes come from*; none of them
+decides what they mean. A stream has no path, so `PcapWriter`'s
+never-overwrite-the-input guard is skipped rather than fed an invented one, and
+still enforced for file sources.
+
+Mutation testing found what green tests could not: the suite used `BytesIO` and
+real files — **both seekable** — so the non-rewindable path, which is the entire
+reason `StreamSource` exists, was never executed, and both mutants on that branch
+survived. `PcapReader` peeks four bytes of magic and then `seek(0)`, which a pipe
+cannot do; `_PrefixedStream` re-prepends them instead.
 
 **The benchmark baseline is published (`T1-08`, `ses_t1_08`):**
 [``docs/BENCHMARKS.md`](BENCHMARKS.md) + `tests/benchmarks/baseline.json`, kept in
@@ -145,7 +159,7 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 |---|---|---|---|---|---|---|---|---|
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
-| **1** | Streaming core | 9 | **7** | 0 | 0 | 2 (`T1-02` `T1-04`) | 0 | not met |
+| **1** | Streaming core | 9 | **8** | 0 | 0 | 1 (`T1-04`) | 0 | not met |
 | 2 | Eval harness | outline | — | — | — | — | — | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
@@ -153,7 +167,7 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 30 tasks — **27** done — 0 in progress — 0 blocked — 2 pending — 1 partial.
+**Totals:** 30 tasks — **28** done — 0 in progress — 0 blocked — 1 pending — 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -184,7 +198,7 @@ Status vocabulary is closed (7 values) — see
 | `T05-01` | VLAN / 802.1Q and QinQ | `D-14` | done | — | 0.5 d |
 | `T05-02` | pcapng diagnostic or reader | `D-15` | done | — | 10 min / 2 d |
 | `T1-01` | Event bus | `A-01` | done | — | 1 d |
-| `T1-02` | `CapSource` abstraction | `A-01` | pending | — | 2 d |
+| `T1-02` | `CapSource` abstraction | `A-01` | done | - | 2 d |
 | `T1-03` | Streaming output + reorder buffer | `A-02` `P-16` | done | — | 3 d |
 | `T1-04` | Rule DSL with provenance | — | pending | — | 3 d |
 | `T1-05` | CIDR + destination-IP rules | `D-20` `D-21` `D-16` | done | - | 1 d |
@@ -372,9 +386,17 @@ or `dropped` and say why.
 - **Notes:** this is the first task that could not be validated by comparing output bytes to `HEAD`, because the point is to change the shape of the data. The guarantee test replaces that check and is stronger: it asserts the two paths agree on every reported figure rather than on the bytes. Worth being explicit that it did its job twice — both emission bugs above were found by it and would have shipped silently without it, since `run_pipeline`'s own return value was unaffected in both cases.
 ### `T1-02` — `CapSource` abstraction
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `src/dpi_engine/cap_source.py` (new), `src/dpi_engine/pcap_io.py`
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t1_02 · **Blocked by:** —
+- **Files:** `src/dpi_engine/cap_source.py` (new, 264 lines), `tests/test_cap_source.py` (new, 40 tests), `src/dpi_engine/pcap_io.py` (stream support), `src/dpi_engine/pipeline.py` (accept a source)
 - **Planned test:** `WatchSource` over a temp directory picks up files as they appear; `StreamSource` round-trips byte-for-byte against `FileSource`
+- **How it was tackled:** **the contract is deliberately one line wide: a `CapSource` is an iterable of `RawPacket`.** That is the shape `pipeline._iter_inspectable` already consumed, so no pipeline logic changed — only its parameter type — and `PcapReader` remains the only thing that turns bytes into packets. Three sources: `FileSource` (a capture on disk), `StreamSource` (a pipe or socket), `WatchSource` (a directory, polled, each file read once by identity rather than name so a rotation is not mistaken for a new file and a replacement at the same path is). The whole design rests on delegation: a source that parsed bytes itself would be a second parser, and a second parser carries its own bounds, its own pcapng handling and its own truncation behaviour — three bug surfaces where the rest of the engine has one. `path` is `None` for anything without a single file, so `PcapWriter`'s never-overwrite-the-input guard is *skipped* for a stream rather than fed an invented path, and still enforced for a file source.
+- **Deviations:** three, each forced by something the first implementation got wrong.
+  - **`PcapReader` needed a stream mode, and it needed a non-rewindable one.** `_open` peeks four bytes of magic and then `seek(0)` to restart. On a pipe there is nothing to seek with, so every stream source would have died on format detection with `io.UnsupportedOperation` — an error naming an implementation detail rather than anything about the capture. Added `_PrefixedStream`, which pushes the four peeked bytes back in front of a non-rewindable stream instead of seeking. Rewind is chosen by `stream.seekable()`, defaulting to *non*-rewindable when a stream will not say: re-prepending four bytes is always correct, whereas seeking a pipe that claims to be seekable and is not fails mid-read.
+  - **`close()` had to stop closing streams it does not own — in four places, not one.** `close()` plus three error paths (pcapng, bad magic, wrong linktype) all close the handle. If any closed a caller's stream, the *first* malformed capture on a live pipe would shut the pipe down. Each is guarded and each is tested per rejection reason, because "the error path is careful" is exactly the kind of claim that holds in one branch and not the others.
+  - **`WatchSource` records an unreadable file as *attempted*, not as finished.** The first version deliberately left unreadable files unconsumed so a mid-write capture would be retried — which meant a permanently-unreadable file kept `_has_unconsumed()` true and a bounded watch **never terminated**. Caught by a test timing out, not by inspection. Recording the stamp instead satisfies both: a file that keeps growing changes stamp and is retried automatically, and a permanently broken one stops holding the watch open. No `retry_growing` flag was needed, which is why the planned test's version of that parameter does not exist.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 17 source files · `pytest -q` → **685 passed, 12 skipped** (was 645; **+40**). Coverage **94%** on `cap_source.py`, overall 92.5% against the 85 floor. **11 of 12 mutations caught, 0 void, and the twelfth is a proven equivalent** rather than a coverage gap — see below.
+- **Closed findings:** — (`A-01` is the phase-level finding this belongs to; `A-01` also names `T1-01`, already closed) · **Follow-ups:** no CLI surface — `WatchSource`/`StreamSource` are library-only and nothing in `cli.py` constructs one, so live capture is reachable programmatically but not from the command line yet
+- **Notes:** **mutation testing found a hole that green tests could not.** The suite used `BytesIO` and real files — *both seekable* — so the non-rewindable path, which is the entire reason `StreamSource` exists, was never executed. Both mutants on that branch survived. Seven tests now drive a genuinely non-seekable stream, and the live-pipe path is covered end to end. The one remaining survivor was verified **equivalent by simulation**, not waved off: `_PrefixedStream` subclasses `io.RawIOBase`, and `RawIOBase.close()` marks the wrapper closed without touching a handle it never opened — so a non-seekable caller's pipe survives whether or not `close()` checks ownership. Reporting 12/12 there would have been padding. Two tests also found that the main loop and the idle check *disagreed* about a vanished directory (one raised, one silently reported "finished"); the silent one was the dangerous one, since a watch whose directory was unmounted is indistinguishable from one where traffic stopped, so both now raise.
 - **How it was tackled:** — · **Deviations:** — · **Verification:** —
 - **Closed findings:** — · **Follow-ups:** —
 - **Notes:** `PcapReader`/`PcapWriter` stay the only I/O boundary, so the safety invariant holds by construction
@@ -677,6 +699,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t1_02` | claude-opus-5[1m] | `T1-02` | `T1-02` done - `CapSource` with `FileSource`/`StreamSource`/`WatchSource`. A source is an iterable of `RawPacket`, so no pipeline logic changed and `PcapReader` remains the only parser. Needed real non-rewindable stream support in `PcapReader` (it peeks 4 bytes then `seek(0)`), and `close()` had to stop closing caller-owned streams in **four** places. **11/12 mutations caught; the 12th proven equivalent by simulation, not waved off.** A test also caught `WatchSource` never terminating on a bounded watch, and the main loop and idle check *disagreeing* about a vanished directory | `T1-04` - the last Phase 1 task |
 | 2026-10-15 | `ses_t1_08` | claude-opus-5[1m] | `T1-08` | `T1-08` done - benchmark baseline published (`docs/BENCHMARKS.md` + `tests/benchmarks/baseline.json`), with a rot guard that recomputes the document's figures from the JSON. **Re-measuring `D-23` made it worse, not better: 7.26x and 8.28x against the recorded 4.7x/6.2x**, so the finding stays open and narrows to a crossover measurement on realistic traffic. Also verified rather than assumed that a default `pytest tests/benchmarks` reports these as passed WITHOUT EXECUTING THEM (3.0 s vs 18-19 s) | `T1-02` or `T1-04` |
 | 2026-10-15 | `ses_t1_06b` | claude-opus-5[1m] | `D-13` | `D-13` closed - the unowned LB-death defect finally got an owner and a fix. `_collect_streaming` now polls the result queue in `_LIVENESS_POLL_SECONDS` slices and re-checks liveness on each empty poll, so a dead LB is named in ~1 s instead of after the 120 s budget. The old message ("only N of M workers reported") described the *fast paths*, which are innocent. 7/7 mutations caught | `T1-08` - publish the benchmark baseline |
 | 2026-10-15 | `ses_t1_06` | claude-opus-5[1m] | `T1-06` | `T1-06` done, `A-05` closed - the counterfactual engine. Two runs of the real pipeline diffed, no decision logic reimplemented, no existing source file touched. Found by a test rather than by inspection that a policy **substitution** (Facebook -> YouTube) drops the same 2 packets either way, so the net drop delta is 0 while 4 packets change disposition - so `packets_changed` is counted from the decision bitmaps and the signed figure lives in `net_packets_dropped`. 12/12 mutations caught; 100% coverage on the new module | `T1-08` - publish the benchmark baseline, the missing half of a `partial` task |

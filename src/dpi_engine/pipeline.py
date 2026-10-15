@@ -69,6 +69,7 @@ from multiprocessing import Queue
 from pathlib import Path
 from typing import Any
 
+from dpi_engine.cap_source import CapSource
 from dpi_engine.connection_tracker import (
     DEFAULT_MAX_CONNECTIONS,
     DEFAULT_REAP_INTERVAL_PACKETS,
@@ -104,6 +105,7 @@ from dpi_engine.packet_parser import ParsedPacket, parse_packet
 from dpi_engine.pcap_io import (
     DEFAULT_MAX_PACKET_SIZE,
     DEFAULT_MAX_TOTAL_PACKETS,
+    ETHERNET_LINKTYPE,
     PcapLimitExceededError,
     PcapReader,
     PcapWriter,
@@ -499,8 +501,21 @@ def _make_five_tuple(parsed: ParsedPacket) -> FiveTuple:
 InspectableItem = tuple[int, RawPacket, ParsedPacket, FiveTuple]
 
 
+def _closing(reader: Iterable[RawPacket]) -> contextlib.AbstractContextManager[Iterable[RawPacket]]:
+    """Closes `reader` if it is a context manager, else yields it unchanged.
+
+    Only `PcapReader` (the path branch) owns an open file handle. A `CapSource` is
+    an arbitrary iterable and closing it here would be closing something the caller
+    handed us -- a live stream, most of all. So the type is checked rather than the
+    caller's intent assumed.
+    """
+    if isinstance(reader, PcapReader):
+        return reader
+    return contextlib.nullcontext(reader)
+
+
 def _iter_inspectable(
-    reader: PcapReader,
+    reader: Iterable[RawPacket],
     stats: DPIStats,
     *,
     bus: EventBus | None = None,
@@ -619,7 +634,7 @@ def _combine_fast_path_stats(results: Sequence[WorkerResult]) -> FastPathStats:
 
 
 def run_pipeline(
-    input_path: str | Path,
+    input_path: str | Path | CapSource,
     output_path: str | Path,
     rule_manager: RuleManager | None = None,
     *,
@@ -660,6 +675,37 @@ def run_pipeline(
     can raise them for an unusually large legitimate capture without editing
     source, while still getting a safe default against adversarial input.
     """
+    # `T1-02`. `input_path` may now be a `CapSource` (a stream, or a directory
+    # watcher) instead of a filesystem path.
+    #
+    # A path still goes through `PcapReader`, because that is where the parsing
+    # lives and where `reader.linktype` comes from. A `CapSource` is already an
+    # iterable of `RawPacket` -- it *delegated* to `PcapReader` to produce them --
+    # so it is iterated directly and the same bounds are applied by that reader
+    # inside the source. Wrapping a source in a second `PcapReader` would mean
+    # parsing packets as if they were bytes, so the two are kept distinct here.
+    #
+    # `source_path` is the one thing that cannot be generic: `PcapWriter` needs a
+    # path to refuse overwriting it. A source reports `None` when it has no single
+    # file (a stream cannot be re-opened, a watcher spans a directory), and the
+    # guard is then skipped rather than fed a fabricated path.
+    if isinstance(input_path, (str, Path)):
+        pcap_reader = PcapReader(
+            input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
+        )
+        reader: Iterable[RawPacket] = pcap_reader
+        linktype = pcap_reader.linktype
+        source_path: Path | None = Path(input_path)
+        capture_label = str(input_path)
+    else:
+        # A source validates its own linktype inside the `PcapReader` it delegates
+        # to, so this branch has no reader to ask. The value here is what the
+        # `CaptureOpened` event reports for a non-file capture.
+        reader = input_path
+        linktype = ETHERNET_LINKTYPE
+        source_path = input_path.path
+        capture_label = input_path.describe()
+
     rules = FixedRuleSource(
         (rule_manager if rule_manager is not None else RuleManager()).snapshot()
     )
@@ -682,11 +728,9 @@ def run_pipeline(
 
     stats = DPIStats()
 
-    with PcapReader(
-        input_path, max_packet_size=max_packet_size, max_total_packets=max_total_packets
-    ) as reader, PcapWriter(output_path, source_path=input_path) as writer:
+    with _closing(reader), PcapWriter(output_path, source_path=source_path) as writer:
         if bus is not None:
-            bus.emit(CaptureOpened(path=str(input_path), linktype=reader.linktype))
+            bus.emit(CaptureOpened(path=capture_label, linktype=linktype))
         try:
             for sequence_index, raw, parsed, tuple_ in _iter_inspectable(reader, stats, bus=bus):
                 if rule_broadcaster is not None:

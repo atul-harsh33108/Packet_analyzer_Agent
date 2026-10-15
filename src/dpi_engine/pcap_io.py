@@ -27,6 +27,7 @@ network calls. See DESIGN_DECISIONS.md "Safety constraints".
 
 from __future__ import annotations
 
+import io
 import os
 import struct
 from collections.abc import Iterator
@@ -130,6 +131,54 @@ class RawPacket:
     orig_len: int
 
 
+class _PrefixedStream(io.RawIOBase):
+    """Re-prepends bytes already read from a non-rewindable stream.
+
+    `PcapReader` peeks four bytes to identify the capture format and then needs to
+    start again from byte zero. On a file that is `seek(0)`; on a pipe or socket
+    there is nothing to seek with, so the peeked bytes are pushed back in front.
+
+    Subclasses `io.RawIOBase` rather than standing alone so it presents the same
+    protocol as any other binary stream (`dpkt` is typed against `BinaryIO`), and
+    so `readable()`/`seekable()` answer correctly without being hand-written.
+    """
+
+    def __init__(self, prefix: bytes, stream: BinaryIO) -> None:
+        super().__init__()
+        self._prefix = prefix
+        self._offset = 0
+        self._stream = stream
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            rest = self._stream.read()
+            out = self._prefix[self._offset :] + rest
+            self._offset = len(self._prefix)
+            return out
+
+        if self._offset < len(self._prefix):
+            take = min(size, len(self._prefix) - self._offset)
+            head = self._prefix[self._offset : self._offset + take]
+            self._offset += take
+            remaining = size - take
+            if remaining <= 0:
+                return head
+            return head + self._stream.read(remaining)
+        return self._stream.read(size)
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return False
+
+    def close(self) -> None:
+        # Deliberately does not close the wrapped stream: this object holds four
+        # borrowed bytes, and the caller owns the pipe. `PcapReader.close()` guards
+        # its own handle on the same principle.
+        super().close()
+
+
 class PcapReader:
     """Reads packets from a pcap file with explicit safety bounds.
 
@@ -145,34 +194,73 @@ class PcapReader:
 
     def __init__(
         self,
-        path: str | os.PathLike[str],
+        path: str | os.PathLike[str] | None = None,
         *,
         max_packet_size: int = DEFAULT_MAX_PACKET_SIZE,
         max_total_packets: int = DEFAULT_MAX_TOTAL_PACKETS,
         require_ethernet: bool = True,
+        stream: BinaryIO | None = None,
     ) -> None:
-        self.path = Path(path)
+        """Reads from `path`, or from `stream` when one is given.
+
+        `stream` is how `T1-02`'s `CapSource` feeds a live capture without
+        duplicating this parser. It is deliberately **not** a general-purpose
+        option: every byte still goes through the code below, so the bounds, the
+        pcapng diagnostic and the linktype check apply identically to a piped
+        stream and to a file. A second parser would be a second set of bugs.
+
+        `path` becomes `None` when streaming, and every diagnostic then names
+        `name` instead -- a stream has no path to quote, and printing an empty
+        string would produce messages like "Cannot open pcap file ''".
+        """
+        if path is None and stream is None:
+            raise ValueError("PcapReader needs either a path or a stream")
+
+        self.path = Path(path) if path is not None else None
         self.max_packet_size = max_packet_size
         self.max_total_packets = max_total_packets
         self.require_ethernet = require_ethernet
+        #: What diagnostics call this input. The path when there is one.
+        self.name = str(self.path) if self.path is not None else "<stream>"
 
-        self._file: BinaryIO | None = None
+        # Not `BinaryIO`: a caller-supplied non-rewindable stream gets wrapped in
+        # `_PrefixedStream` during format detection, so this holds either a real
+        # binary stream or that adapter. Both expose the same `read`/`close`.
+        self._file: BinaryIO | _PrefixedStream | None = None
         self._reader: dpkt.pcap.Reader | None = None
         self._packets_read = 0
         self._endian = "<"
         self._ts_divisor = 1_000_000
         self._ts_scale = 1
+        #: Whether the input supports `seek`. Files always do; a pipe or socket does
+        #: not, and rewind is then done by re-prepending the bytes already read.
+        self._rewindable = True
 
-        self._open()
+        self._open(stream)
 
-    def _open(self) -> None:
-        try:
-            # Long-lived handle owned by this object and released in `close()`;
-            # PcapReader is itself a context manager, so the `with` form is the
-            # intended usage at every call site.
-            self._file = open(self.path, "rb")  # noqa: SIM115
-        except OSError as exc:
-            raise PcapError(f"Cannot open pcap file '{self.path}': {exc}") from exc
+    def _open(self, stream: BinaryIO | None = None) -> None:
+        if stream is not None:
+            # Owned by the caller: `close()` must not close a stream the caller may
+            # still be using (a pipe is not ours to shut down), so this is the one
+            # handle whose lifetime differs from the file case.
+            self._file = stream
+            try:
+                self._rewindable = stream.seekable()
+            except (AttributeError, OSError, ValueError):
+                # Anything that does not clearly say it can seek is treated as
+                # non-rewindable, which is the safe direction: re-prepending four
+                # bytes is always correct, whereas seeking a pipe that claims to be
+                # seekable and then is not fails mid-read.
+                self._rewindable = False
+        else:
+            assert self.path is not None
+            try:
+                # Long-lived handle owned by this object and released in `close()`;
+                # PcapReader is itself a context manager, so the `with` form is the
+                # intended usage at every call site.
+                self._file = open(self.path, "rb")  # noqa: SIM115
+            except OSError as exc:
+                raise PcapError(f"Cannot open pcap file '{self.path}': {exc}") from exc
 
         # Byte order and timestamp precision come from the magic, read before
         # dpkt consumes the global header. `__iter__` unpacks the 16-byte
@@ -183,14 +271,24 @@ class PcapReader:
         # still validates the global header here, so format checking is
         # unchanged.
         magic = self._file.read(4)
-        self._file.seek(0)
+        if not self._rewindable:
+            # A stream (pipe, socket, or an iterator wrapped in a BufferedReader
+            # that cannot seek) cannot be rewound, so the four bytes just read are
+            # pushed back in front of the stream instead. `T1-02`'s `CapSource`
+            # needs this: without it, every stream source would die on the magic
+            # peek with an `io.UnsupportedOperation` rather than on anything
+            # meaningful about the capture.
+            self._file = _PrefixedStream(magic, self._file)
+        else:
+            self._file.seek(0)
         if magic == _PCAPNG_MAGIC_BYTES:
             # Checked before dpkt, which would otherwise fail with a bare
             # ValueError and produce a misleading "not a valid pcap file".
-            self._file.close()
+            if self.path is not None:
+                self._file.close()
             self._file = None
             raise PcapngUnsupportedError(
-                f"'{self.path}' is a pcapng capture, which this engine does not "
+                f"'{self.name}' is a pcapng capture, which this engine does not "
                 "read yet. pcapng is a different container format, not a pcap "
                 "variant. Convert it with Wireshark's editcap: "
                 "    editcap -F pcap in.pcapng out.pcap"
@@ -206,18 +304,20 @@ class PcapReader:
         try:
             self._reader = dpkt.pcap.Reader(self._file)
         except Exception as exc:  # dpkt raises bare ValueError on bad magic/truncated header
-            self._file.close()
+            if self.path is not None:
+                self._file.close()
             self._file = None
             raise PcapFormatError(
-                f"'{self.path}' is not a valid pcap file: {exc}"
+                f"'{self.name}' is not a valid pcap file: {exc}"
             ) from exc
 
         if self.require_ethernet and self._reader.datalink() != ETHERNET_LINKTYPE:
             linktype = self._reader.datalink()
-            self._file.close()
+            if self.path is not None:
+                self._file.close()
             self._file = None
             raise PcapLinktypeError(
-                f"'{self.path}' declares linktype {linktype}, expected "
+                f"'{self.name}' declares linktype {linktype}, expected "
                 f"Ethernet (DLT_EN10MB = {ETHERNET_LINKTYPE}). This port "
                 "only supports Ethernet-framed captures; the original C++ "
                 "engine silently assumed Ethernet for every linktype, which "
@@ -243,7 +343,13 @@ class PcapReader:
 
     def close(self) -> None:
         if self._file is not None:
-            self._file.close()
+            # Only a handle *this* object opened. A caller-supplied stream is left
+            # open: closing a pipe or a caller's file object on their behalf would
+            # be a side effect outside the reader's remit, and `StreamSource`
+            # reuses one stream across several `PcapReader`s when a capture is
+            # re-read.
+            if self.path is not None:
+                self._file.close()
             self._file = None
             self._reader = None
 
@@ -254,7 +360,7 @@ class PcapReader:
         unpack_record = struct.Struct(f"{self._endian}IIII").unpack
         divisor = self._ts_divisor
         scale = self._ts_scale
-        path = self.path
+        name = self.name
 
         while True:
             header = self._file.read(_RECORD_HEADER_LEN)
@@ -273,7 +379,7 @@ class PcapReader:
 
             if self._packets_read >= self.max_total_packets:
                 raise PcapLimitExceededError(
-                    f"'{path}' exceeds max_total_packets="
+                    f"'{name}' exceeds max_total_packets="
                     f"{self.max_total_packets}; refusing to read further "
                     "packets to bound memory/time on adversarial input."
                 )
@@ -283,7 +389,7 @@ class PcapReader:
             # bound exists to prevent.
             if incl_len > self.max_packet_size:
                 raise PcapLimitExceededError(
-                    f"Packet #{self._packets_read} in '{path}' declares "
+                    f"Packet #{self._packets_read} in '{name}' declares "
                     f"incl_len={incl_len}, exceeding max_packet_size="
                     f"{self.max_packet_size}."
                 )
