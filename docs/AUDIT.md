@@ -48,25 +48,35 @@ The second column reorders the queue. Unwrapping VLAN/802.1Q (`D-14`) is not a b
 
 Re-derivable at any time via the [Appendix](#appendix--verification-commands). Kept as a table rather than prose because this is the section that goes stale fastest.
 
+> **Re-derived 2026-10-15.** Written on 2026-10-03 and read as a live baseline,
+> by 2026-10-15 every row except the runtime deps and the Python pin had moved —
+> and five rows asserted rails that **now exist**: CI, coverage, test timeout,
+> property testing and `conftest.py`. A baseline that is quoted but not
+> refreshed is worse than none, because it looks like evidence. The commands in
+> the right-hand column are the source of truth; if your run disagrees with this
+> table, trust your run.
+
 | Property | Value | Command |
 |---|---|---|
-| Modules | 13 + `py.typed`, ~5,200 lines | `src/dpi_engine/*.py` |
+| Modules | 14 + `py.typed`, ~6,800 lines | `src/dpi_engine/*.py` |
 | Runtime deps | 1 (`dpkt`) | `pyproject.toml` |
 | Optional extra | `cryptography` (QUIC decryption only) | `[project.optional-dependencies].quic` |
-| Dev deps | `pytest`, `scapy`, `ruff`, `mypy`, `cryptography` | `[dependency-groups].dev` |
-| Tests | **404 collected, 404 passed** (390 unit + 14 differential) | `uv run pytest -q` |
+| Dev deps | 9: `pytest`, `scapy`, `cryptography`, `ruff`, `mypy`, `pytest-cov`, `pytest-timeout`, `pytest-benchmark`, `hypothesis` | `[dependency-groups].dev` |
+| Tests | **613 collected — 601 passed, 12 skipped** (the 12 skips are the Docker-dependent differential tests) | `uv run pytest -q` |
 | Lint | `All checks passed!` | `uv run ruff check .` |
-| Types | `Success: no issues found in 13 source files` — `strict = true`, `warn_unreachable = true` | `uv run mypy` |
-| Format | **22 files would be reformatted**, 27 already formatted — not enforced | `uv run ruff format --check .` |
-| Commits | 4 | `git log --oneline` |
-| CI | **none** | no `.github/`, `.gitlab-ci.yml`, `.circleci`, `azure-pipelines.yml`, `Jenkinsfile` |
-| Coverage | **not measured** | no `pytest-cov`/`coverage.py` |
-| Property/fuzz testing | **none** | no `hypothesis`, no `atheris` |
-| Test timeout | **none** | no `pytest-timeout` |
-| `conftest.py` | **absent** (referenced by `tests/differential/README.md:83`) | — |
+| Types | `Success: no issues found in 14 source files` — `strict = true`, `warn_unreachable = true` | `uv run mypy` |
+| Format | **31 files would be reformatted**, 33 already — **not enforced**. The project lints with `ruff check` and has not adopted `ruff format`; treat this as a characterisation, not a gate | `uv run ruff format --check .` |
+| Commits | 27 | `git log --oneline` |
+| CI | **present** — `.github/`, added by `T0-01` | `Test-Path .github` |
+| Coverage | **measured** — `branch = true`, `fail_under = 85` | `[tool.coverage]` in `pyproject.toml` |
+| Property/fuzz testing | **present** — `hypothesis` properties plus a scapy cross-check under `tests/property/` | `uv run pytest tests/property` |
+| Test timeout | **present** — `pytest-timeout`, `timeout = 30` under `[tool.pytest.iniOptions]` | `pyproject.toml` |
+| `conftest.py` | **present**, at both `tests/` and `tests/differential/` | `Test-Path tests/conftest.py` |
 | Python | 3.13, pinned `<3.14` | `.python-version` |
 
 **Baseline conclusion.** The codebase is in materially better shape than the pre-existing `AGENTIC_ARCHITECTURE.md` claims: type-clean, lint-clean, well-tested, and honestly documented at the module level. The engineering failures that remain are concentrated in **memory behaviour**, **resource-boundedness claims**, and **repository rails** — not in correctness of the decision logic.
+
+**That conclusion has held, and the rails gap it names has since closed.** As of 2026-10-15 the five open defects are `D-11`, `D-13`, `D-15`, `D-19` and `D-23` — none of them a correctness defect in the decision logic. The one regression this audit led with, `D-01` (unbounded accumulation), is closed.
 
 ---
 
@@ -80,9 +90,14 @@ Re-derivable at any time via the [Appendix](#appendix--verification-commands). K
 
 The comparison below was made by reading all 11 headers and 12 sources in `OSC/` and all 13 modules in `src/dpi_engine/`. `OSC/CMakeLists.txt` builds only `packet_analyzer` from three files (`main.cpp`, `pcap_reader.cpp`, `packet_parser.cpp`) with no `-pthread`; every DPI binary was a hand-written `g++` invocation, and `dpi_engine.cpp` is **never compiled by anything**. The behavioural reference for the port is `OSC/src/main_working.cpp`.
 
-### §1.1 — Axes where the port is strictly better (11)
+### §1.1 — Axes where the port is strictly better (11 axes, plus 2 corrections)
 
 Do not regress these. They are the reason the port is trustworthy.
+
+The first table is the eleven **axes** — places where the port is better on the
+merits. The second is two **behavioural corrections** that were ported
+deliberately. Both tables carry `P-##` IDs, so §1.1 holds thirteen IDs in total;
+they are split because an axis and a correction are different kinds of claim.
 
 | ID | Axis | OSC C++ | Port | Evidence |
 |---|---|---|---|---|
@@ -159,7 +174,7 @@ These are **not** undiscovered bugs. Each is a conscious decision to preserve C+
 
 ---
 
-## §2 — Defect register (`D-01`…`D-22`)
+## §2 — Defect register (`D-01`…`D-26`)
 
 > **Closure is tracked in [`TASK_TRACKER.md`](TASK_TRACKER.md) §6, not here.** This
 > section is the *description* of each finding and is its single home. A row below is
@@ -168,9 +183,17 @@ These are **not** undiscovered bugs. Each is a conscious decision to preserve C+
 > about a fact rather than about status, the tracker is describing current state and
 > this section describes what was found.
 
-Twenty-one live defects in the port (`D-01`…`D-16` plus `D-22`…`D-26`), ordered by intrinsic severity then product impact. `D-22` is grouped with `D-01` and `D-23` is promoted from `P-15`, so neither is in numeric order. `D-17`…`D-21` are inherited C++ behaviour carried forward deliberately — see §2.1.
+Twenty-six defects were found, with no gaps in the numbering. **Twenty-one** are
+live in the port and appear in the table below: `D-01`…`D-16` plus
+`D-22`…`D-26`. The remaining **five** — `D-17`…`D-21` — are inherited C++
+behaviour carried forward deliberately and are described in §2.1. So the section
+heading, this paragraph and §2.1 all agree: 21 + 5 = 26.
 
-Ordered by intrinsic severity, then product impact. All locations verified against the current tree.
+Ordered by intrinsic severity, then product impact. `D-22` is grouped with
+`D-01` and `D-23` is promoted from `P-15`, so neither is in numeric order. All
+locations were verified against the tree as of 2026-10-03, when this audit was
+written. Several have since moved or been fixed — which is expected, and is why
+status lives in the tracker rather than here.
 
 | ID | Intrinsic | Product | Location | Issue | Suggested fix |
 |---|---|---|---|---|---|
@@ -250,14 +273,22 @@ It was written at 2026-09-30 23:02. A substantial refactor landed at 2026-10-01 
 
 ### §4.2 — Stale claims and their current values
 
+> **This table is a snapshot, re-derived 2026-10-15.** The left column quotes
+> claims from `AGENTIC_ARCHITECTURE.md`, which `DOC-04` has since moved into a
+> historical banner — the quotes are kept because they record what was asserted.
+> The right column is *current* by definition, so it has to be refreshed, and it
+> had drifted: every numeric row was stale by the time this note was added.
+> Numbers here will rot again; the commands to re-derive them are in the
+> Appendix.
+
 | Claim in `AGENTIC_ARCHITECTURE.md` | Current reality |
 |---|---|
-| "11 modules, ~2,900 lines" | 13 modules, ~5,200 lines |
-| "Tests 168 collected — 159 passed, 9 skipped" | **404 collected, 404 passed** |
-| "Dev dependencies 2 (`pytest`, `scapy`)" | 5: `pytest`, `scapy`, `ruff`, `mypy`, `cryptography` |
-| "Commits 3" | 4 |
-| "README **0 bytes**" | 10,375 bytes, and good |
-| "**No type checking** … no mypy config and no `py.typed` marker" | `mypy --strict` + `warn_unreachable`, clean on 13 files; `py.typed` shipped |
+| "11 modules, ~2,900 lines" | **14 modules, ~6,800 lines** |
+| "Tests 168 collected — 159 passed, 9 skipped" | **613 collected — 601 passed, 12 skipped** |
+| "Dev dependencies 2 (`pytest`, `scapy`)" | **9**: `pytest`, `scapy`, `cryptography`, `ruff`, `mypy`, `pytest-cov`, `pytest-timeout`, `pytest-benchmark`, `hypothesis` |
+| "Commits 3" | **27** |
+| "README **0 bytes**" | **15,864 bytes**, and good |
+| "**No type checking** … no mypy config and no `py.typed` marker" | `mypy --strict` + `warn_unreachable`, clean on 14 files; `py.typed` shipped |
 | "**No linting or formatting** … no ruff config" | `[tool.ruff]` configured and passing |
 | Defect #2 — `output_queue.get()` with no timeout, "parent **hangs forever**" | **Fixed.** `_collect` with a 120 s budget → `RuntimeError` |
 | Defect #3 — `should_block` raises on empty IP from `src_ip_str` | **Fixed.** `parsed.src_ip` (int) is passed; `is_ip_blocked` is a frozenset lookup |
@@ -269,19 +300,28 @@ It was written at 2026-09-30 23:02. A substantial refactor landed at 2026-10-01 
 | Defect #17 — `DPIStats.combine` docstring contradicts its code | **Fixed.** Docstring now matches |
 | "`cleanup_stale()` is never called in any production path" | **Fixed.** Cadence-triggered reaper inside `get_or_create_connection` |
 | "Zero tests for `demo_classify.py`" | N/A — module deleted |
-| Defect #1 — unbounded `processed_packets` | **Still real**, and now the #1 blocker → `D-01` |
-| Defect #4 — `PcapWriter` `FileNotFoundError` escapes | **Still real** → `D-04` |
-| Defect #6 — `extract_sni` `IndexError` on mismatched `length` | **Still real** → `D-05` |
-| Defect #7 — `orig_len` is `len(buf)` | **Still real** → `D-06` |
-| Defect #8 — `caplen` checked after dpkt read | **Still real** → `D-07` |
-| Defects #9, #10 — HTTP host scan, IPv6 colon | **Still real** → `D-09`, `D-10` |
-| "No CI" | **Still true** → `R-01` |
-| "No coverage measurement" | **Still true** → `R-02` |
-| "`conftest.py` referenced but missing" | **Still true** → `R-04` |
-| "scapy's stated purpose is unimplemented" | **Still true** → `R-08` |
-| "No property-based testing / no fuzzing" | **Still true** → `R-05` |
+> **Status in this column was re-derived 2026-10-15** against `TASK_TRACKER.md`
+> §6. At audit time every row below was genuinely open; most are now closed.
+> Per-item status belongs to the tracker, so this column names closure and
+> points there rather than duplicating the detail.
 
-**Net:** its "Immediate next move #1 — fix defects #1–#4" is now **fix `D-01` and `D-04`**. Defects #2 and #3 in its numbering are already closed.
+| Defect #1 — unbounded `processed_packets` | **Closed** → `D-01`. The #1 blocker at audit time; resolved by `T1-01` (event bus replacing accumulation) and `T1-03` (bounded reorder window) |
+| Defect #4 — `PcapWriter` `FileNotFoundError` escapes | **Closed** → `D-04` |
+| Defect #6 — `extract_sni` `IndexError` on mismatched `length` | **Closed** → `D-05` |
+| Defect #7 — `orig_len` is `len(buf)` | **Closed** → `D-06` |
+| Defect #8 — `caplen` checked after dpkt read | **Closed** → `D-07` |
+| Defects #9, #10 — HTTP host scan, IPv6 colon | **Closed** → `D-09`, `D-10`, by `T0-07`. Note this is the one place where *closing* the finding made a README limitation entry unnecessary: the vectors no longer exist |
+| "No CI" | **Closed** → `R-01` (`T0-01`) |
+| "No coverage measurement" | **Closed** → `R-02` (`T0-01`) |
+| "`conftest.py` referenced but missing" | **Closed** → `R-04` (`T0-02`) |
+| "scapy's stated purpose is unimplemented" | **Closed** → `R-08` (`T1-07`) |
+| "No property-based testing / no fuzzing" | **Closed** → `R-05` (`T1-07`) |
+
+**Net:** its "Immediate next move #1 — fix defects #1–#4" has been overtaken.
+Defects #2 and #3 were already closed when this audit was written, and the two
+it went on to recommend — `D-01` and `D-04` — are closed now. As of 2026-10-15
+the open defects are `D-11`, `D-13`, `D-15`, `D-19` and `D-23`; closure detail
+lives in the tracker.
 
 ### §4.3 — `A-01`: "real-time" and the memory fix are the same work
 
@@ -368,6 +408,26 @@ Layer 1.5's anomaly model is **also not an LLM** and is deterministic — good. 
 - No CIDR/subnet rules; no destination-IP blocking (`D-20`, `D-21`).
 - The `extract_http_host` full-payload scan and IPv6-colon behaviour — both are *false-classification and false-blocking* vectors and belong in a security tool's limitations list (`D-09`, `D-10`).
 - **No statement that the port is likely slower per packet than the C++ original** (`P-15`). For a tool whose README currently reads as confident, this omission is the most material one.
+
+> **Outcome, recorded 2026-10-15 — `M-01` is closed, and most of the list above
+> was overtaken by the code fixing the underlying defects.** Worth reading
+> before re-adding any of these as limitations:
+>
+> - **pcapng** — still a genuine gap; documented, with `editcap -F pcap` and the
+>   rationale for refusing rather than mis-parsing (`DEC-02`).
+> - **VLAN** — `T05-01` added 802.1Q/QinQ peeling, so the item inverted. Writing
+>   "100% of tagged traffic is discarded" into the README would have documented a
+>   bug that had already been fixed. Now listed as a deliberate parity break.
+> - **CIDR / destination-IP** — `T1-05` turned both into features (`D-20`,
+>   `D-21`). Documented as behaviour rather than as limitations.
+> - **`extract_http_host` / IPv6-colon** — `D-09`/`D-10` were closed by `T0-07`,
+>   so the vectors no longer exist and no limitation entry was needed at all.
+> - **Slower per packet** — documented as asked, carrying `D-23`'s measured
+>   figures and an explicit pointer at the preserved C++ original.
+>
+> Three of the five items resolved by *fixing the defect*, which is the better
+> outcome and the reason a "missing limitations" list should be re-checked
+> against the code rather than transcribed.
 
 **Correct and should stay:** the three pipeline variants and the explicit statement that the LB tier is queue-decoupling and observability rather than throughput; the domain-rule anchoring table; the "blocking less is the safe direction" note.
 
@@ -476,6 +536,18 @@ This audit's own dead-code findings are therefore a **first** pass and should be
 
 Ordered by dependency, not by severity. Every item traces to an ID above. Effort figures assume one developer.
 
+> **Status of this plan, re-derived 2026-10-15.** The tables below are the
+> original remediation ordering, kept as written. **Phase 0, Phase 0.5 and the
+> documentation track are complete.** Phase 1 is **5/9** — `T1-01`, `T1-03`,
+> `T1-05`, `T1-07` and `T1-09` — leaving `T1-02`, `T1-04`, `T1-06` and the
+> missing half of `T1-08`. Phases 2–6 have not started.
+>
+> This section deliberately carries **no per-item status column**: closure
+> belongs to `TASK_TRACKER.md` §6, and a second status table here is exactly the
+> duplication that let the tracker's own summary table and its task records
+> disagree for several sessions. The exit-criteria text below quotes test counts
+> from the time of writing; take live numbers from `pytest` instead.
+
 ### Phase 0 — Harden *(~1 week)* — **blocks everything**
 
 | Item | Ref | Effort |
@@ -519,7 +591,9 @@ Ordered by dependency, not by severity. Every item traces to an ID above. Effort
 | `pytest-benchmark`; establish the throughput number `P-15` leaves open | `R-06` |
 | Rewrite `WORKFLOW.md` against the new architecture | `M-03` |
 
-**Exit criteria:** the 404 existing tests still pass; streaming output is deterministic under the chosen `A-02` option; differential parity with the C++ reference intact.
+**Exit criteria:** the existing suite still passes in full, with no reduction in
+the passing count; streaming output is deterministic under the chosen `A-02`
+option; differential parity with the C++ reference intact.
 
 ### Phase 2 — Eval harness *(2–3 weeks, parallel with Phase 3)*
 
@@ -547,9 +621,20 @@ Policy agent · `simulate_ruleset` + blast-radius circuit breaker · durable hum
 
 **Exit criteria:** end-to-end *capture → agent proposes a signed ruleset → human approves → applied → revertible*, with a complete audit trail.
 
-### Parallel documentation track
+### Parallel documentation track — **complete**
 
-`M-01`–`M-07` can be corrected independently of code work and should not wait for Phase 1. `M-03` (`WORKFLOW.md`) is best done *after* Phase 1, since the architecture it documents will have changed; `M-01`, `M-02`, `M-05`, `M-06`, `M-07` can be done now.
+All of `M-01`–`M-07` were corrected and are closed; the documentation findings
+register is empty. Two departed from this plan, both deliberately:
+
+- `M-03` (`WORKFLOW.md`) was rewritten **earlier** than recommended here. The
+  plan said to wait until after Phase 1 because the architecture would change;
+  but a document describing a deleted module (`demo_classify.py`) misleads in
+  the present tense, and did so for the whole of Phase 0.
+- `M-01` (`README.md`) was resolved partly by the **code overtaking the
+  finding**: `D-09`/`D-10` were closed by `T0-07`, so the HTTP-host vectors
+  needed no limitation entry, and `T05-01` and `T1-05` turned the VLAN and
+  CIDR items from limitations into documented behaviour. Fixing the defect was
+  the better outcome in each case.
 
 ---
 
@@ -557,14 +642,22 @@ Policy agent · `simulate_ruleset` + blast-radius circuit breaker · durable hum
 
 Every claim in this document is re-derivable with the following. Run from the repository root.
 
+> Expected outputs below were re-derived **2026-10-15**. Counts in a verification
+> block rot by definition — if one disagrees with what you just ran, trust your
+> run and update this block.
+
 ```powershell
 # §0 baseline
-uv run pytest -q                              # 404 passed
-uv run pytest --collect-only -q                # 404 collected
+uv run pytest -q                              # 601 passed, 12 skipped
+uv run pytest --collect-only -q                # 613 collected
 uv run pytest --collect-only -q tests/differential   # 14 collected
 uv run ruff check . --output-format concise    # All checks passed!
-uv run ruff format --check .                   # 22 files would be reformatted
-uv run mypy                                    # Success: no issues found in 13 source files
+uv run mypy                                    # Success: no issues found in 14 source files
+
+# NOT part of the gate, and not expected to be clean. The project lints with
+# `ruff check` but has not adopted `ruff format`, so this reports reformatting
+# and always has — it is here as a characterisation, not a pass condition.
+uv run ruff format --check .                   # 31 files would be reformatted, 33 files already formatted
 
 # §0 missing rails
 foreach ($p in @('.github','.gitlab-ci.yml','.circleci','azure-pipelines.yml',

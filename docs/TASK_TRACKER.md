@@ -7,7 +7,7 @@ next_action: Pick up the next Phase 1 task — T1-02 (CapSource), T1-04 (rule DS
 blockers: [DEC-01 decided 2026-10-12 (unblocks T1-01, T1-03); DEC-02 decided 2026-10-12; DEC-03 decided 2026-10-12 (unblocks T1-07 inc 2); DEC-04 decided 2026-10-12 (unblocks T1-05); DEC-05 decided 2026-10-12 (unblocks T1-03 and D-25); DEC-06 decided 2026-10-13 (parity break, allowlist entry 8); Phase 0 and 0.5 complete; Phase 1 5/9 (T1-01, T1-03, T1-05, T1-07, T1-09); all documentation findings M-01..M-07 closed]
 last_updated: 2026-10-13
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_05
+session: ses_t1_05b
 ---
 
 # Task Tracker — `dpi-engine`
@@ -47,8 +47,8 @@ session workflow — what to read, in what order, when to stop — read
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | `D-13` and `D-23` have no owning task. `D-23` is now re-measurable — `T0-11` has landed, which was what it waited on |
-| **Documentation** | **all `M-01`–`M-07` closed.** One follow-up: `AUDIT.md:162` still reads "Defect register (`D-01`…`D-22`)" while the file holds `D-01`–`D-26`, and line 171 says "Twenty-one live defects" — three counts in one document. Left alone deliberately; correcting a register others may be citing is a separate call |
-| **Session** | `ses_t1_05` - `T1-05` `T1-09` `DOC-01` done, **uncommitted** |
+| **Documentation** | **all `M-01`–`M-07` closed, and `AUDIT.md` reconciled 2026-10-15.** The three-count contradiction (§2 heading said `D-01`…`D-22`, its intro said "twenty-one", the file held 26) is fixed, and `§0`/`§4.2` — both presented as current — had every numeric row stale, including five that asserted CI, coverage, timeout, property testing and `conftest.py` as *absent* when all five now exist |
+| **Session** | `ses_t1_05` + `ses_t1_05b` - `T1-05` `T1-09` `DOC-01` committed; `AUDIT.md` reconciled, uncommitted |
 
 **Standing blockers for whoever picks this up:** five decisions need a human. They
 are *not* for an agent to choose silently. See [§2](#2-decision-log).
@@ -454,8 +454,9 @@ or `dropped` and say why.
 - **How it was tackled:** every claim was checked against the source before it was written, and four turned out to be wrong in ways the task did not anticipate. Details below.
 - **Deviations:** the task said "test count → the current real count". Not done, deliberately: the figure was **377** when the task was written, the previous session found **581**, and it is **601** now — it drifted by 177 and then 20 across three sessions. Publishing a number guarantees it rots. Line 20 now describes the suite and points at `Testing`, which carries the composition.
 - **Verification:** `ruff check .` clean · `mypy --strict` clean · `pytest -q` → 601 passed, 12 skipped. Markdown fence balance checked (12, even). Every new claim smoke-tested: `--block-ip 10.0.0.0/8` writes `blocked_cidrs: ["10.0.0.0/8"]`; `--block-ip 10.1.2.3/8` is rejected with `has host bits set`, exactly as documented; the three variants' failure outputs measured at 458 / 24 / 24 bytes.
-- **Closed findings:** `M-01` · **Follow-ups:** `AUDIT.md` §2 heading (below)
+- **Closed findings:** `M-01` · **Follow-ups:** — (completed 2026-10-15, see below)
 - **Notes:** independent of code work. Most of `M-01`'s "missing limitations" list had been **overtaken by the code fixing them**, which is the better resolution: `D-09`/`D-10` were closed by `T0-07`, so the HTTP-host vectors no longer need a limitation entry at all. `M-01` was written when they were live.
+- **Follow-up completed 2026-10-15 (`ses_t1_05b`)** — `AUDIT.md` reconciled in full, which turned out to be considerably more than the single heading recorded here. See the `ses_t1_05b` row in §8.
 - **Four things `M-01` did not predict, all found by checking rather than transcribing:**
   1. **The flow-folding bullet described the opposite of current behaviour.** It read "flows are keyed by exact five-tuple… preserved from the original deliberately", but `DEC-05` made bidirectional folding the **default** and added `--exact-tuple-flows` as the opt-out. A reader would have come away with the blocking scope inverted. This was the most material error in the file.
   2. **The VLAN claim was stale in the other direction.** The README said VLAN tags "are not parsed"; `T05-01` added 802.1Q peeling and it is differential allowlist entry 7. `M-01` had asked to make the limitation *louder* ("100% of tagged traffic is discarded") — doing that would have documented a bug that had already been fixed. Now recorded as a deliberate parity break instead.
@@ -642,6 +643,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t1_05b` | claude-opus-5[1m] | `DOC-01` follow-up (`AUDIT.md` reconciliation) | Reconciled `AUDIT.md`. Fixed the trigger — §2's heading said `D-01`…`D-22` while its intro said "twenty-one" and the file held 26 (21 live + 5 inherited in §2.1; the heading was the only error). Then found the same rot the README had, in the two sections that present themselves as **current**: `§0` and `§4.2`. Every numeric row was stale, and five `§0` rows asserted CI, coverage, test timeout, property testing and `conftest.py` as **absent** when all five now exist — `pytest-cov` even carries `fail_under = 85`. Also refreshed the Appendix, whose expected outputs would have made a correct run look like a failure, and marked `ruff format --check` as a characterisation rather than a gate. Descriptions in §2/§5 left untouched per the document's own rule that status lives in the tracker | `T1-08` — the missing half of a `partial` task |
 | 2026-10-13 | `ses_t1_05` | claude-opus-5[1m] | `T1-05` `T1-09` `DOC-01` + tracker integrity | `T1-05` done — CIDR (`D-20`), either-endpoint matching (`D-21`/`DEC-06`), stable rule keys (`D-16`/`DEC-04`) — committed `cce25c7`. `T1-09` done — server_name list walked per entry (`D-17`), hostname policy (`D-18`) — committed `e628771`. `DOC-01` done — `M-01` closed, **all `M-##` now closed**. 601 green throughout. Also corrected six task blocks that falsely read `done`, recomputed §6, realigned three malformed `DOC-*` rows, and rebuilt §1, which still said `phase: 0` and named `R-05` as the current task | `T1-02` or `T1-04`; both uncommitted |
 | 2026-10-12 | `ses_t1_01` | claude-opus-5[1m] | `T1-01` | event bus done — derived `PipelineResult` — guarantee test caught 2 emission bugs | `T1-03` |
 | 2026-10-12 | `ses_t1_07b` | claude-opus-5[1m] | `T1-07` | `R-05` + `R-08` closed — 45 tests, proven to bite | `T1-01` |
