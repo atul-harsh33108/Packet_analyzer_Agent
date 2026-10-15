@@ -3,11 +3,11 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: Phase 1 is 6/9. Pick up T1-08 (publish the benchmark baseline - tests/benchmarks/ exists, baseline.json and BENCHMARKS.md do not; 1 d, and it unblocks re-measuring D-23) or T1-02 (CapSource abstraction, 2 d) or T1-04 (rule DSL with provenance, 3 d). D-13 still has no owning task - LB process death orphans its fast paths until the parent 120 s timeout, previously assigned to T0-10 which landed without taking it.
-blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; Phase 0 and 0.5 complete; Phase 1 6/9 (T1-01, T1-03, T1-05, T1-06, T1-07, T1-09); all documentation findings M-01..M-07 closed]
+next_action: T1-08 - publish the benchmark baseline. tests/benchmarks/test_end_to_end.py and test_micro_benchmarks.py already exist; what is missing is tests/benchmarks/baseline.json and BENCHMARKS.md. Run with --benchmark-enable (--benchmark-disable is in addopts, so a plain run reports these as passed without executing). Record the baseline, then re-measure D-23 against it.
+blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings (D-13 closed 2026-10-15); Phase 0 and 0.5 complete; Phase 1 6/9 (T1-01, T1-03, T1-05, T1-06, T1-07, T1-09); all documentation findings M-01..M-07 closed]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
-session: ses_t1_06
+session: ses_t1_06b
 ---
 
 # Task Tracker — `dpi-engine`
@@ -42,13 +42,24 @@ session workflow — what to read, in what order, when to stop — read
 | **Phase** | 1 — Streaming core |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — **Phase 1: 6/9** (`T1-01` `T1-03` `T1-05` `T1-06` `T1-07` `T1-09`) |
 | **Current task** | none — `T1-06` **done**, uncommitted |
-| **Next action** | `T1-08` — publish the benchmark baseline (`tests/benchmarks/` exists; `baseline.json` and `BENCHMARKS.md` do not), which also unblocks re-measuring `D-23`. Or `T1-02` (`CapSource`), `T1-04` (rule DSL). `D-13` still needs an owner |
+| **Next action** | `T1-08` — publish the benchmark baseline (`tests/benchmarks/` exists; `baseline.json` and `BENCHMARKS.md` do not), which also re-measures `D-23`. Or `T1-02` (`CapSource`), `T1-04` (rule DSL) |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
-| **Untracked findings** | `D-13` has no owning task (`T0-10` landed without taking it). `D-23` has none either but is now re-measurable via `T1-08` |
+| **Untracked findings** | none. `D-13` closed 2026-10-15 (`ses_t1_06b`); `D-23` is re-measurable via `T1-08`, which is its de-facto owner |
 | **Documentation** | **all `M-01`–`M-07` closed, and `AUDIT.md` reconciled 2026-10-15.** The three-count contradiction (§2 heading said `D-01`…`D-22`, its intro said "twenty-one", the file held 26) is fixed, and `§0`/`§4.2` — both presented as current — had every numeric row stale, including five that asserted CI, coverage, timeout, property testing and `conftest.py` as *absent* when all five now exist |
-| **Session** | `ses_t1_06` - `T1-06` done (`A-05` closed), **uncommitted** |
+| **Session** | `ses_t1_06b` - `D-13` closed, **uncommitted** |
+
+**`D-13` closed 2026-10-15 (`ses_t1_06b`).** It had no owner because its proposed
+owner (`T0-10`) landed without taking it — a task can close a finding only by
+actually fixing it. The fix is in the parent's collection loop rather than in the
+load balancer: `_collect_streaming` now polls the result queue in
+`_LIVENESS_POLL_SECONDS` (1 s) slices and re-checks liveness on each empty poll.
+A dead load balancer is therefore named in about a second rather than after
+`_RESULT_TIMEOUT_SECONDS`, and the message says *which process died* instead of
+describing the fast paths — which are innocent, since only `_lb_main` sends their
+sentinels. `T0-10`'s distinction survives deliberately: a worker that exited 0 is
+done, not dead, and a healthy-but-slow worker still gets the whole budget.
 
 **Standing blockers for whoever picks this up: none.** This paragraph used to say
 five decisions needed a human and were "not for an agent to choose silently". All
@@ -186,7 +197,7 @@ from this list.
 
 | Finding | Issue | Proposed owner | Priority |
 |---|---|---|---|
-| `D-13` | An LB process death orphans all its fast-paths forever: only `_lb_main` sends FP sentinels, so the parent discovers it only via the 120 s timeout | `T0-10` (same supervision/teardown family) — **that task has since landed without taking this**, so it needs an owner of its own | add to a new task |
+| `D-13` | An LB process death orphans all its fast-paths forever: only `_lb_main` sends FP sentinels, so the parent discovers it only via the 120 s timeout | **closed 2026-10-15 (`ses_t1_06b`)** — the parent's collection loop now re-checks liveness every `_LIVENESS_POLL_SECONDS` while stalled, so a dead LB is named in ~1 s instead of after 120 s | done |
 | `D-23` | **Multiprocess is 4.7x slower than single-process; staged 6.2x slower.** Promoted from `P-15` once measured | re-measure — `T0-11` has landed, which is exactly what it was waiting on. `tests/benchmarks/` can do it, with `--benchmark-enable` | **now unblocked** |
 
 ---
@@ -311,7 +322,7 @@ or `dropped` and say why.
 - **Deviations:** three substantive ones, all in the plan's favour of correcting it. (1) Plan item 4 is **already satisfied**: it says `types.py:257` cites `DESIGN_DECISIONS.md` item 14, but it already cited item 7, which is exactly the `classifyConnection` terminal-classification bug it describes. There is no item 14, and no item 11 either — that list has only 10 entries. Nothing to change. (2) The plan claims the AST check "would have caught all four" phantom references. Verified against `git show HEAD`: it catches **two** of three — `pipeline.QuicFlowTable` and `pipeline.RuleBroadcaster.SnapshotHolder`, both module-qualified. It cannot catch `with_fast_path_stats=True`, which has no dot to resolve, nor load_balancer's prose claim. I prototyped a second check for bare `name=` references: against the fixed tree it returned 5 false positives for 1 true positive (`i=` and `d=` are C++ loop variables being documented, `confirmed=` and `is_outbound=` are other functions' parameters). Rejected as not worth the false alarms, and the rejected variant's reasoning is recorded in the test's docstring so nobody re-derives it. (3) `D-13` is **not** closed — see Notes.
 - **Verification:** **454 passed, 12 skipped, 2 xfailed** (up from 451). `ruff check .` and `mypy` (strict, 13 files) clean. Coverage 91.39%. The `D-12` tests were confirmed to be real regression tests by stashing only `pipeline.py` and re-running: `3 of 3 queues were left open after the failure`.
 - **Closed findings:** `D-12` — **Follow-ups:** `D-13` and the dead-code sweep half of `S-03` (tracked as `D-24`) both need a home; see Notes.
-- **Notes:** **`D-13` is still open and now has no task.** It is the LB-death orphan: only `_lb_main` sends FP shutdown sentinels, so if an LB dies its fast paths block on `input_queue.get()` until the parent hits the 120 s `_RESULT_TIMEOUT_SECONDS`. Rated `Medium`/`High`. The task title mentions dead code and the pre-seeded record said "`D-13` (proposed)", but the plan's Change list has five items and none of them is LB supervision, so implementing it would have been an undeclared scope increase on a 0.5 d task. Deliberately not claimed closed. It should be its own task, and it is the natural companion to `T0-11` since both concern bounding what happens when a stage dies mid-run. Also note `D-12`'s fix does **not** help here: it guarantees teardown once `_collect` gives up, which is strictly after the 120 s wait the orphan causes.
+- **Notes:** **`D-13` is still open and now has no task.** *(Closed 2026-10-15 — see the `ses_t1_06b` row in §8.)* It is the LB-death orphan: only `_lb_main` sends FP shutdown sentinels, so if an LB dies its fast paths block on `input_queue.get()` until the parent hits the 120 s `_RESULT_TIMEOUT_SECONDS`. Rated `Medium`/`High`. The task title mentions dead code and the pre-seeded record said "`D-13` (proposed)", but the plan's Change list has five items and none of them is LB supervision, so implementing it would have been an undeclared scope increase on a 0.5 d task. Deliberately not claimed closed. It should be its own task, and it is the natural companion to `T0-11` since both concern bounding what happens when a stage dies mid-run. Also note `D-12`'s fix does **not** help here: it guarantees teardown once `_collect` gives up, which is strictly after the 120 s wait the orphan causes.
 ### `T0-11` — Bound worker memory
 - **Status:** done — **Blocked by:** — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t0_11
 - **Files:** `src/dpi_engine/worker.py`, `src/dpi_engine/pipeline.py`, `tests/test_resource_bounds.py`, `tests/test_staged_pipeline.py`
@@ -377,7 +388,7 @@ or `dropped` and say why.
 - **Test re-derivations (not weakenings):** `_compare` sorts `blocked_flows` (partitioning decides order, the claim is decision-identity); `test_every_flow_lands_on_exactly_one_fast_path` counts distinct **canonical keys** (43 five-tuples → 27 flows) while still pinning the fixture's 43; three `test_report` expectations moved to a new `unfolded_result` fixture, since a rendering test needs a report that still *contains* NEW states and UNKNOWN apps. `_worker_result_pickle_bytes` now spies on `_collect_streaming` **and** asserts it captured something — its old hook missed and it had been passing vacuously on `0 == 0`.
 - **Verification:** `ruff` and `mypy --strict` clean. **554 passed, 12 skipped** (from 538; +16 new). `tests/test_reorder_buffer.py` (15 tests) was mutation-checked: 6 deliberate mutations of `ReorderBuffer`, **all 6 caught**.
 - **Left undone, recorded rather than implied:** the two multiprocess variants still do **not** emit events — `T1-01` deviation (4) stands, and it is a separate piece of work, not a loose end of this one. The live-consumer contract doc is also unwritten.
-- **Follow-ups:** `D-13` (LB-death orphans its fast paths until the parent's 120 s timeout) is still unowned. The staged wiring did **not** need per-packet verdicts forwarded through the LB tier — each fast path publishes straight to the shared `fp_output_queue` the parent already reads, and the LB only forwards *input* — so `D-13` did not bite here. It will bite whenever an LB death has to be detected promptly rather than by timeout.
+- **Follow-ups:** `D-13` (LB-death orphans its fast paths until the parent's 120 s timeout) is still unowned *(closed 2026-10-15, `ses_t1_06b`)*. The staged wiring did **not** need per-packet verdicts forwarded through the LB tier — each fast path publishes straight to the shared `fp_output_queue` the parent already reads, and the LB only forwards *input* — so `D-13` did not bite here. It will bite whenever an LB death has to be detected promptly rather than by timeout.
 ### `T1-04` — Rule DSL with provenance
 
 - **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
@@ -572,7 +583,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 26 | **21** (`D-01`–`D-10`, `D-12`, `D-14`, `D-16`, `D-17`, `D-18`, `D-20`, `D-21`, `D-22`, `D-24`, `D-25`, `D-26`) | 5 (`D-11`, `D-13`, `D-15`, `D-19`, `D-23`) | 2 (`D-13`, `D-23`) |
+| `D-##` defects | 26 | **22** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`, `D-17`, `D-18`, `D-20`, `D-21`, `D-22`, `D-24`, `D-25`, `D-26`) | 4 (`D-11`, `D-15`, `D-19`, `D-23`) | 1 (`D-23`, re-measurable via `T1-08`) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
 | `A-##` agentic | 6 | **1** (`A-05`) | 5 | 0 |
 | `M-##` documentation | 7 | **7** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 0 | 0 |
@@ -652,6 +663,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-15 | `ses_t1_06b` | claude-opus-5[1m] | `D-13` | `D-13` closed - the unowned LB-death defect finally got an owner and a fix. `_collect_streaming` now polls the result queue in `_LIVENESS_POLL_SECONDS` slices and re-checks liveness on each empty poll, so a dead LB is named in ~1 s instead of after the 120 s budget. The old message ("only N of M workers reported") described the *fast paths*, which are innocent. 7/7 mutations caught | `T1-08` - publish the benchmark baseline |
 | 2026-10-15 | `ses_t1_06` | claude-opus-5[1m] | `T1-06` | `T1-06` done, `A-05` closed - the counterfactual engine. Two runs of the real pipeline diffed, no decision logic reimplemented, no existing source file touched. Found by a test rather than by inspection that a policy **substitution** (Facebook -> YouTube) drops the same 2 packets either way, so the net drop delta is 0 while 4 packets change disposition - so `packets_changed` is counted from the decision bitmaps and the signed figure lives in `net_packets_dropped`. 12/12 mutations caught; 100% coverage on the new module | `T1-08` - publish the benchmark baseline, the missing half of a `partial` task |
 | 2026-10-15 | `ses_t1_05b` | claude-opus-5[1m] | `DOC-01` follow-up (`AUDIT.md` reconciliation) | Reconciled `AUDIT.md`. Fixed the trigger — §2's heading said `D-01`…`D-22` while its intro said "twenty-one" and the file held 26 (21 live + 5 inherited in §2.1; the heading was the only error). Then found the same rot the README had, in the two sections that present themselves as **current**: `§0` and `§4.2`. Every numeric row was stale, and five `§0` rows asserted CI, coverage, test timeout, property testing and `conftest.py` as **absent** when all five now exist — `pytest-cov` even carries `fail_under = 85`. Also refreshed the Appendix, whose expected outputs would have made a correct run look like a failure, and marked `ruff format --check` as a characterisation rather than a gate. Descriptions in §2/§5 left untouched per the document's own rule that status lives in the tracker | `T1-08` — the missing half of a `partial` task |
 | 2026-10-13 | `ses_t1_05` | claude-opus-5[1m] | `T1-05` `T1-09` `DOC-01` + tracker integrity | `T1-05` done — CIDR (`D-20`), either-endpoint matching (`D-21`/`DEC-06`), stable rule keys (`D-16`/`DEC-04`) — committed `cce25c7`. `T1-09` done — server_name list walked per entry (`D-17`), hostname policy (`D-18`) — committed `e628771`. `DOC-01` done — `M-01` closed, **all `M-##` now closed**. 601 green throughout. Also corrected six task blocks that falsely read `done`, recomputed §6, realigned three malformed `DOC-*` rows, and rebuilt §1, which still said `phase: 0` and named `R-05` as the current task | `T1-02` or `T1-04`; both uncommitted |

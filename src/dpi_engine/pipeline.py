@@ -62,6 +62,7 @@ from __future__ import annotations
 import contextlib
 import multiprocessing as mp
 import queue as queue_module
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from multiprocessing import Queue
@@ -1641,14 +1642,27 @@ def _collect_streaming(
     Returns `results` extended in place, which already holds whatever dispatch
     managed to drain.
     """
+    deadline = time.monotonic() + _RESULT_TIMEOUT_SECONDS
     while len(results) < expected:
-        try:
-            message = output_queue.get(timeout=_RESULT_TIMEOUT_SECONDS)
-        except queue_module.Empty:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             raise RuntimeError(
                 f"only {len(results)} of {expected} workers reported within "
                 f"{_RESULT_TIMEOUT_SECONDS}s"
-            ) from None
+            )
+        try:
+            # Wait in slices rather than for the whole budget, so liveness is
+            # re-checked while a stall is in progress.
+            message = output_queue.get(timeout=min(_LIVENESS_POLL_SECONDS, remaining))
+        except queue_module.Empty:
+            # `D-13`. The processes may not be slow at all -- they may be dead. A
+            # dead load balancer sends no sentinel to its fast paths (`_lb_main` is
+            # the only thing that does), so its fast paths block on
+            # `input_queue.get()` forever and never report. Blocking for the whole
+            # budget would burn 120 s discovering it and then blame the fast paths,
+            # which are innocent: the operator would go and look at the wrong tier.
+            _ensure_alive(processes)
+            continue
         if isinstance(message, PacketDecision):
             if buffer is not None:
                 buffer.decide(message.sequence_index, message.forwarded)
@@ -1798,6 +1812,13 @@ def _collect[T](output_queue: Queue[T], expected: int) -> list[T]:
 #: Generous, because a worker may still be draining a large backlog. It exists
 #: to convert a hang into a diagnosable error, not to bound normal work.
 _RESULT_TIMEOUT_SECONDS = 120.0
+
+#: How long a single `get` on a result queue waits before liveness is re-checked.
+#: `D-13`. A dead worker is reported within this many seconds rather than after the
+#: full `_RESULT_TIMEOUT_SECONDS`, while a healthy-but-slow worker is still given
+#: the entire budget to finish. Kept well under the budget so the slicing is
+#: unobservable for a run that is merely slow.
+_LIVENESS_POLL_SECONDS = 1.0
 
 
 def _terminate(
