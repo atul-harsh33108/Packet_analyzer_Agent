@@ -3,7 +3,7 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: T2-03 - the agent-tree safety suite, which closes A-03. Two things must land together: a SEPARATE safety suite for the agent tree (the existing one scopes src/dpi_engine/ only, so the 'no network' guarantee 'quietly stops being true the moment agent code lands in the same repository, and nothing will report it'), and an explicit written statement that the agent layer WILL need network as a deliberate, documented widening for that layer only. Then T2-04. Still open with the user: a DEC-07 decision on D-27 (bare-substring app matching).
+next_action: T2-03 - the agent-tree safety suite, which closes A-03. Two things must land together: a SEPARATE safety suite for the agent tree (the existing one scopes src/dpi_engine/ only, so the 'no network' guarantee 'quietly stops being true the moment agent code lands in the same repository, and nothing will report it'), and an explicit written statement that the agent layer WILL need network as a deliberate, documented widening for that layer only. Then T2-04. `DEC-07` is decided: `D-27`'s bare-substring app matching is kept and documented.
 blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete and Phase 1 verified (749 passed, 0 skipped incl. differential parity); Phase 2 decomposed into T2-01..T2-04 with T2-01 in progress; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
@@ -42,7 +42,7 @@ session workflow — what to read, in what order, when to stop — read
 | **Phase** | 2 — Eval harness (started) |
 | **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 2/4** (`T2-01`, `T2-02` done) |
 | **Current task** | none — `T2-02` **done**, uncommitted |
-| **Next action** | `T2-03` — agent-tree safety suite, closes `A-03`. Still open: a **`DEC-07` decision on `D-27`** |
+| **Next action** | `T2-03` — agent-tree safety suite, closes `A-03`. **`DEC-07` is now decided**: `D-27`'s bare-substring matching is kept deliberately and documented, so it is no longer an open question |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -137,6 +137,7 @@ without a new `DEC-##` row superseding it.
 | `DEC-04` | Rule-file persistence key migration | **decided** | (a) Persist `AppType.name` + migration (`T1-05`) | user | 2026-10-12 | `T1-05` | `T1-05` (done) 
 | `DEC-05` | Bidirectional flow folding: default on or off? | **decided** | Bidirectional flow folding: default ON (`T1-03`) | user | 2026-10-12 | `T1-03` | `T1-03` (done), plus unblocks `D-25` 
 | `DEC-06` | IP rules: source only, either endpoint, or a separate destination set? | **decided** | Match **either endpoint** (`T1-05`) | user | 2026-10-13 | `T1-05` | `T1-05` (done) — parity break, differential allowlist entry 8 
+| `DEC-07` | App classification: anchor the substring rules, or keep the inherited behaviour? | **decided** | **Keep bare-substring matching**, accepted and documented (`D-27`) | user | 2026-10-18 | none | `D-27` (accepted, not fixed) |
 
 ### Detail
 
@@ -562,7 +563,7 @@ or `dropped` and say why.
   - **`Layer 6`'s "30+" floor is asserted, and the corpus is 33.** Starting at 26, six more were added rather than declaring the floor met at 26. Two of the six (`unicode_lookalike`, `null_byte_style`) were then **cut again**: real SNI carries punycode, never raw UTF-8 or NULs, so they were testing a wire format that does not exist. The punycode case already covers IDN honestly.
   - **Two non-ASCII evasion cases became ASCII ones.** Same reasoning: `gооgle.evil.example` cannot appear in a ClientHello. Replaced with typosquats (`micros0ft.evil.example`) and numeric-label hostnames, which are real wire content.
 - **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 17 source files · `pytest -q` → **774 passed, 0 skipped** (was 749; **+25**). **9 of 11 mutations caught, 0 void, and the two survivors are proven-equivalent by simulation** rather than waved off (see Notes).
-- **Closed findings:** — · **Follow-ups:** **`D-27` needs a `DEC-07`-shaped decision** — see Notes. Also `T2-04`'s baseline will be a number in a repository and therefore rot-prone in exactly the way `BENCHMARKS.md` taught us to guard; `tests/test_benchmark_baseline.py` is the precedent.
+- **Closed findings:** — · **Follow-ups:** **`D-27` decided 2026-10-18 as `DEC-07`** — the inherited bare-substring behaviour is kept and documented rather than fixed, because both candidate fixes were measured and both regress legitimate traffic. See Notes.
 - **The corpus earned its keep on its first run: it found `D-27`.** Building it surfaced a weakness nothing else had caught: **most apps are classified by bare substring match, so an attacker-controlled hostname containing an app name inherits its classification.** Measured: `cdn.facebook.com.attacker.example` → `FACEBOOK`, `www.facebook.com.evil.example` → `FACEBOOK`, `microsoft-update.evil.example` → `MICROSOFT`, `microsoft.com.attacker.example` → `MICROSOFT`, `cdn.apple.evil.example` → `APPLE`. **The project has already recognised this exact bug class twice** — Twitter's `x.com`/`t.co` were anchored, and Cloudflare's `"cf-"` substring was dropped because "it matches any domain containing that text" — and fixed it for those two rules only. GOOGLE, FACEBOOK, NETFLIX, MICROSOFT and the rest still carry it. It is parity-preserving (the C++ original substring-matches too), so it is an inherited weakness rather than a port bug, and **fixing it is a parity break needing a decision**, which is why it is filed as `D-27` and not quietly fixed. This is the concrete argument for `AGENTIC_ARCHITECTURE.md`'s claim that a golden corpus is worth more than prompt engineering.
 - **Mutation testing found a real weakness in my own tests.** The first run caught only 3 of 11. The reason is worth recording: **every gate asserted something that currently passes** — recall is total, nothing is unaccepted, precision clears its floor — so on a corpus with nothing wrong, *a broken gate and a working one produce identical output*. `recall` hard-coded to 1.0 survived, and so did `micro_precision` hard-coded to 1.0. Added `TestGatesCanActuallyFail`, which scores deliberately corrupted input so the scorer is proven able to report failure, and it then caught both. The two remaining survivors are **equivalent**: a constant timestamp offset shifts every build identically, so two builds still compare equal and the determinism property holds; and the stale-allowlist guard is vacuous only because `observed == expected` *currently* holds — which is exactly the coincidence that guard exists to catch the end of.
 - **Decomposition and why each piece is here:**
@@ -722,7 +723,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 27 | **22** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`-`D-18`, `D-20`-`D-22`, `D-24`-`D-26`) | 5 (`D-11`, `D-15`, `D-19`, `D-23`, **`D-27`**) | 2 (`D-23`, **`D-27`** — needs a `DEC-07` parity decision) |
+| `D-##` defects | 27 | **22** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`-`D-18`, `D-20`-`D-22`, `D-24`-`D-26`) | 4 (`D-11`, `D-15`, `D-19`, `D-23`) | 1 (`D-23`) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
 | `A-##` agentic | 6 | **1** (`A-05`) | 5 | 0 |
 | `M-##` documentation | 7 | **7** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 0 | 0 |

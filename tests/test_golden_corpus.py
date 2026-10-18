@@ -395,10 +395,17 @@ class TestScoring:
 
         The classes losing precision to substring matching are precisely the ones
         with a bare-substring rule, so a reader can connect the number to the cause.
+
+        This is the test that makes `DEC-07` self-enforcing. The decision was to
+        **keep** the weakness, so a passing suite must not mean "no longer weak" -
+        if FACEBOOK ever stops losing precision, `D-27` has been fixed by someone and
+        this fails, telling them to shrink `KNOWN_DIVERGENCES` rather than leaving a
+        stale allowlist entry to rot silently.
         """
         weak = {s.app for s in score.per_app if s.precision < 1.0}
         assert AppType.FACEBOOK in weak, (
-            "FACEBOOK is expected to lose precision to the substring rule (D-27); "
-            "if it no longer does, D-27 may be fixed and the allowlist should shrink"
+            "FACEBOOK is expected to lose precision to the substring rule "
+            "(D-27, accepted as DEC-07); if it no longer does, D-27 has been fixed "
+            "and KNOWN_DIVERGENCES should shrink to match"
         )
         assert "corpus:" in score.summary()

@@ -530,6 +530,76 @@ they are deliberately not resolved in this document. Full detail in
 | `DEC-05` | Bidirectional flow folding: default on, or on only in streaming mode? **Decided 2026-10-12: default ON** — the product-correct behaviour, and it **unblocks `D-25`**: with flows unfolded there is no shared state to correlate a SYN with the SYN-ACK answering it. A deliberate parity break, recorded in the differential allowlist like the VLAN peel. | `T1-03` (done) |
 | `DEC-06` | `should_block` matched the **source** address only, so a rule written to block an IP was inert whenever that IP was the destination. Source only, either endpoint, or a separate destination rule set? **Decided 2026-10-13: match either endpoint** — "block this IP" names an address, not the direction it was reached from, and a rule that half-fires is worse than one that obviously does not exist. Rejected source-only: that is the defect itself. Rejected a second rule set: two collections that must stay in step for a single concept is the same mistake `DEC-04` rejected, restated. Deliberate parity break, recorded as differential allowlist entry 8; no opt-out switch, unlike `DEC-05`, because source-only is not a behaviour anyone would select on purpose. The committed fixtures carry no IP rules, so this is recorded rather than observed. | `T1-05` (done) |
 
+| `DEC-07` | App classification matches by **bare substring**, so an attacker-controlled hostname containing an app name inherits its classification — `cdn.facebook.com.attacker.example` classifies as `FACEBOOK`. 16 of 17 rules do this; only Twitter is anchored. Anchor the rules, or keep the inherited behaviour? **Decided 2026-10-18: keep the inherited behaviour, documented.** | none — accepted as-is; rationale below |
+
+### `DEC-07` — bare-substring app matching is kept, and why that is a decision rather than a deferral
+
+**Decided 2026-10-18 (user), found by `T2-01`'s golden corpus.**
+
+`sni_to_app_type` matches most apps by **bare substring**, so any hostname
+containing an app's name is classified as that app. Measured on the corpus:
+
+| hostname | classifies as | should be |
+|---|---|---|
+| `cdn.facebook.com.attacker.example` | `FACEBOOK` | unrecognised |
+| `www.facebook.com.evil.example` | `FACEBOOK` | unrecognised |
+| `microsoft.com.attacker.example` | `MICROSOFT` | unrecognised |
+| `cdn.apple.evil.example` | `APPLE` | unrecognised |
+| `notfacebook.com` | `FACEBOOK` | unrecognised |
+| `microsoft-update.evil.example` | `MICROSOFT` | unrecognised |
+
+**Zero of six** adversarial cases are correctly rejected. For a blocking engine a
+false positive is a false block: an attacker's domain inherits a legitimate app's
+policy.
+
+**This bug class was already recognised twice in this codebase.** Twitter's rule is
+*anchored* — `types.py`'s docstring explains that unanchored, `x.com` false-positives
+on `netflix.com` and `microsoft.com` — and Cloudflare's `"cf-"` substring was
+**dropped outright** because "it matches any domain containing that text". Those two
+were fixed; the other 16 rules still carry it. The inconsistency is the strongest
+argument that this is a known weakness rather than a design.
+
+**Parity-preserving.** The C++ original substring-matches identically, so this is an
+inherited weakness rather than a port-introduced bug — the same category as the VLAN
+peel and `DEC-05`/`DEC-06`.
+
+**Why not just fix it.** Two candidate fixes were implemented and measured against
+the corpus's 17 legitimate hostnames and 6 adversarial ones:
+
+| approach | legitimate hostnames still correct | attacks blocked |
+|---|---|---|
+| current (bare substring) | 17/17 | **0/6** |
+| label-boundary anchoring | **15/17** | 2/6 |
+| registrable-domain matching | **14/17** | **6/6** |
+
+Both regress real traffic, and the regressions are informative: `aws` is a substring
+of the label `awsstatic`, `cloudfront` of `example-cloudfront`, `office` of
+`office365`. **Those rules depend on substring matching to work at all.** Anchoring
+is therefore not a patch but a curation project — roughly sixteen hand-maintained
+domain lists that must be kept current as vendors add subdomains, each one a place
+to fall behind silently.
+
+**Decision: keep the inherited behaviour, document it, keep it visible.** The
+reasons, in order:
+
+1. It preserves C++ parity, which is the property this port has spent Phase 0 and 1
+   defending.
+2. The correct fix is a maintenance commitment, not a change, and it should not be
+   undertaken casually as a side effect of an audit finding.
+3. **The weakness is already surfaced, not buried.** `D-27` records it;
+   `tests/golden/scoring.py`'s `KNOWN_DIVERGENCES` carries each affected case with a
+   reason; the corpus reports precision per class so `FACEBOOK`, `MICROSOFT` and
+   `APPLE` visibly lose precision to it; and a test asserts `FACEBOOK` *stays* in the
+   weak set, so the day it stops, the allowlist is told to shrink.
+
+**Operator mitigation exists today.** `DomainPattern` anchors and domain rules are
+checked *after* app classification, so an exact-match rule for the hostnames that
+matter overrides the classification. That is the workaround without a code change.
+
+**Revisit when** the corpus can compare against real-world traffic at volume — the
+curation cost should be driven by observed hostname shapes, not by six synthetic
+examples.
+
 ## Open trade-offs, deliberately not resolved
 
 - **A hand-rolled block cipher for QUIC** was considered and rejected. `cryptography` is a

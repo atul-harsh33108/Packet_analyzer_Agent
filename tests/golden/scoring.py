@@ -57,7 +57,8 @@ KNOWN_DIVERGENCES: tuple[Divergence, ...] = (
         reason=(
             "substring match on 'microsoft'. The hostname is attacker-controlled "
             "and is NOT Microsoft. Parity-preserving (the C++ original does the "
-            "same), but a real false positive. See D-27."
+            "same), but a real false positive. Accepted deliberately as DEC-07; "
+            "see D-27 for the measured fix options and why anchoring was rejected."
         ),
     ),
     Divergence(
@@ -65,28 +66,28 @@ KNOWN_DIVERGENCES: tuple[Divergence, ...] = (
         hostname="cdn.apple.evil.example",
         expected=AppType.HTTPS,
         actual=AppType.APPLE,
-        reason="substring match on 'apple'; same class as above. See D-27.",
+        reason="substring match on 'apple'; same class. Accepted as DEC-07, see D-27.",
     ),
     Divergence(
         case="evasion_subdomain_app",
         hostname="cdn.facebook.com.attacker.example",
         expected=AppType.HTTPS,
         actual=AppType.FACEBOOK,
-        reason="substring match on 'facebook'; same class. See D-27.",
+        reason="substring match on 'facebook'; same class. Accepted as DEC-07, see D-27.",
     ),
     Divergence(
         case="evasion_legitimate_prefix",
         hostname="www.facebook.com.evil.example",
         expected=AppType.HTTPS,
         actual=AppType.FACEBOOK,
-        reason="substring match on 'facebook'; same class. See D-27.",
+        reason="substring match on 'facebook'; same class. Accepted as DEC-07, see D-27.",
     ),
     Divergence(
         case="evasion_legitimate_prefix",
         hostname="microsoft.com.attacker.example",
         expected=AppType.HTTPS,
         actual=AppType.MICROSOFT,
-        reason="substring match on 'microsoft'; same class. See D-27.",
+        reason="substring match on 'microsoft'; same class. Accepted as DEC-07, see D-27.",
     ),
     Divergence(
         case="evasion_trailing_dot",
