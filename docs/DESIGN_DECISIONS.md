@@ -134,6 +134,40 @@ class as #5 above -- unanchored substring matching on short, generic-looking pat
 - These constraints are tested explicitly in Task 11, but must not be violated by any earlier
   task's implementation.
 
+### The envelope is layered, and the widening is deliberate
+
+Everything above binds `src/dpi_engine/`. **The agent layer that Phase 3 introduces
+will need network access** — threat-intel lookups, ASN resolution, web search for app
+identification — and that is a **deliberate, documented widening of the envelope for
+that layer only**. It is recorded here, in the safety section, precisely because
+"the core is offline" stops being a whole-product claim the moment an agent exists.
+
+| | `OFFLINE_CORE` (`dpi_engine`) | `NETWORKED_AGENT` (Phase 3+) |
+|---|---|---|
+| Outbound network | **forbidden** | **permitted** |
+| Raw sockets / live capture | **forbidden** | **forbidden** |
+| `eval` / `exec` | **forbidden** | **forbidden** |
+| Shelling out (`subprocess`, `os.system`) | **forbidden** | **forbidden** |
+
+Two consequences that are easy to state and easy to lose:
+
+1. **"Real time" can never mean sniffing a live interface.** That would break the
+   envelope at its root for every layer, agent included. Real-time means file,
+   directory-watch, and stream ingest only.
+2. **Live capture is forbidden for the agent layer too, not merely discouraged.** An
+   agent permitted to open a raw socket could forge traffic, and one permitted to
+   `eval` could execute whatever a threat-intel response contained. The agent may
+   *ask the network questions*; it may not *speak to the wire*.
+
+**Enforcement is by declaration, not by directory listing.** Every package under
+`src/` is assigned exactly one envelope in `tests/safety_envelope.PACKAGE_ENVELOPES`,
+and `test_every_shipped_package_declares_an_envelope` fails the moment a package
+exists without one. Otherwise adding `src/agents/` would leave the existing suite
+green while half the shipped tree went uninspected — the silent gap `A-03` names.
+The dependency direction is enforced too: `dpi_engine` may not import a
+network-permitted package, so "the agent layer may use the network" cannot become
+"the product uses the network" by import alone.
+
 ## Testing strategy
 
 All five layers below are implemented and green. This section records what each one is for;
@@ -157,9 +191,20 @@ for the current counts and status see [`TASK_TRACKER.md`](TASK_TRACKER.md).
   byte-identical output pcaps, and a regression test
   (`test_every_flow_lands_on_exactly_one_fast_path`) pins the partitioning invariant that makes
   this possible.
-- **Safety-constraint tests** (`tests/test_safety_constraints.py`) AST-scan the shipped
-  source for forbidden constructs — raw sockets, `subprocess`, `eval`/`exec`, `urllib`, and
-  more — and self-check that the scan is not passing vacuously.
+- **Safety-constraint tests** — two suites, because the envelope is layered
+  (`tests/safety_envelope.py` is the shared model and scanner):
+  - `tests/test_safety_constraints.py` holds `src/dpi_engine/` to the offline core
+    envelope, and keeps the process-leak, docstring-symbol and latency-knob checks.
+  - `tests/test_agent_safety_envelope.py` owns the *boundary*: every package under
+    `src/` must declare an envelope, `dpi_engine` may never be widened, and the core
+    may not import a network-permitted package.
+  - Both scan via `ast`, resolving each module's imports and then every call through
+    that alias map. This replaced a regex-over-raw-text scan which — despite being
+    described as an AST scan — detected **only 1 of 9** ordinary ways to reach the
+    network, because detection depended on how the import was spelled
+    (`from urllib import request` was missed; `from urllib.request import urlopen`
+    was caught). Neither suite can pass vacuously: the scanner raises on unparseable
+    input rather than reporting nothing, and each asserts it inspected real files.
 
 ### Known gaps in the test strategy
 

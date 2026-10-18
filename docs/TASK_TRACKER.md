@@ -3,7 +3,7 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: T2-03 - the agent-tree safety suite, which closes A-03. Two things must land together: a SEPARATE safety suite for the agent tree (the existing one scopes src/dpi_engine/ only, so the 'no network' guarantee 'quietly stops being true the moment agent code lands in the same repository, and nothing will report it'), and an explicit written statement that the agent layer WILL need network as a deliberate, documented widening for that layer only. Then T2-04. `DEC-07` is decided: `D-27`'s bare-substring app matching is kept and documented.
+next_action: T2-04 - eval run history plus a non-worse CI gate. Phase 2's last task. Follow tests/test_benchmark_baseline.py's rot-guard precedent: a stored baseline that fails when the thing it measures gets worse, rather than a number in a file that quietly rots. Then Phase 3 (MCP server).
 blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete and Phase 1 verified (749 passed, 0 skipped incl. differential parity); Phase 2 decomposed into T2-01..T2-04 with T2-01 in progress; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
@@ -40,9 +40,9 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 2 — Eval harness (started) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 2/4** (`T2-01`, `T2-02` done) |
-| **Current task** | none — `T2-02` **done**, uncommitted |
-| **Next action** | `T2-03` — agent-tree safety suite, closes `A-03`. **`DEC-07` is now decided**: `D-27`'s bare-substring matching is kept deliberately and documented, so it is no longer an open question |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 3/4** (`T2-01`-`T2-03` done) |
+| **Current task** | none — `T2-03` **done**, uncommitted |
+| **Next action** | `T2-04` — eval run history and a non-worse CI gate, the last Phase 2 task. Follow the `tests/test_benchmark_baseline.py` rot-guard precedent |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -192,14 +192,14 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
-| **2** | Eval harness | 4 | **2** | 0 | 0 | 2 | 0 | not started |
+| **2** | Eval harness | 4 | **3** | 0 | 0 | 1 | 0 | not started |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 34 tasks - **31** done - 0 in progress - 0 blocked - 2 pending - 1 partial.
+**Totals:** 34 tasks - **32** done - 0 in progress - 0 blocked - 1 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -248,7 +248,7 @@ Status vocabulary is closed (7 values) — see
 | `DOC-08` | Gitignore / delete session transcripts | `S-01` | done | - | 5 min |
 | `T2-01` | **Golden-capture corpus + scorer** | - | done | - | 3 d |
 | `T2-02` | Differential suite: 77 pkt → generated corpus | - | done | - | 1 d |
-| `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | pending | - | 1 d |
+| `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | done | - | 1 d |
 | `T2-04` | Eval run history / non-worse CI gate | - | pending | - | 1 d |
 
 All findings now carry an ID and a proposed owner. **Two still need a task** —
@@ -590,17 +590,19 @@ or `dropped` and say why.
 
 ### `T2-03` — Agent-tree safety suite + envelope statement
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** new `tests/test_agent_safety_constraints.py`, `docs/DESIGN_DECISIONS.md`
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t2_03 · **Blocked by:** —
+- **Files:** new `tests/safety_envelope.py` (envelope model + AST scanner), new `tests/test_agent_safety_envelope.py` (33 tests), `tests/test_safety_constraints.py` (scan replaced), `docs/DESIGN_DECISIONS.md`. **No `src/` code touched.**
 - **Planned test:** the agent tree is AST-scanned on its own terms, and the widened envelope is stated in writing rather than implied
-- **How it was tackled:** — · **Deviations:** — · **Verification:** —
-- **Closed findings:** `A-03` · **Follow-ups:** —
+- **How it was tackled:** `A-03` asks for two things that must land together — a separate safety suite for the agent tree, and a written statement that the agent layer *will* need network as a deliberate widening. Both landed. The suite is built on **envelope declaration**: every package under `src/` must have exactly one entry in `PACKAGE_ENVELOPES`, so creating `src/agents/` fails a test instead of silently leaving half the tree uninspected. Two envelopes: `OFFLINE_CORE` (all four capabilities refused) and `NETWORKED_AGENT` (network permitted; live capture, dynamic exec and subprocess still refused). Dependency direction is enforced too — `dpi_engine` may not import a network-permitted package, so the widening cannot leak backwards.
+- **Deviations:** one, and it was the larger finding. **The existing scanner was not an AST scan.** `test_safety_constraints.py` matched regular expressions against raw text, while its own module docstring and `DESIGN_DECISIONS.md` both described it as one. Measured against nine ordinary, working ways to reach the network or a shell, it caught **one**: `from urllib.request import urlopen` was caught, but `from urllib import request`, `from subprocess import run`, `import subprocess as sp`, `import socket as s`, `from socket import socket`, `from os import system`, `__import__('os').system(...)` and `getattr(__builtins__, 'eval')` all passed. Which import spelling someone happened to type decided whether a network call was reported - which is precisely the `A-03` failure of *"nothing will report it"*. Replaced with an AST scanner that resolves each module's imports and then every call through that alias map; regex is kept only as a secondary net, since AST alone cannot see `getattr(os, "system")`. `DESIGN_DECISIONS.md`'s now-true "AST-scan" wording was corrected to describe both suites rather than one.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 17 source files · `pytest -q` → **795 passed, 24 skipped** (was 762; **+33**; all 24 skips are the Docker-gated differential suite, daemon down). **18 of 18 mutations and plants caught, 0 void.**
+- **Closed findings:** **`A-03`** · **Follow-ups:** —
 - **Notes:** closes `A-03`, whose point is that the existing `test_safety_constraints.py` scopes `src/dpi_engine/` only — so the "no network calls, passive and offline" guarantee "quietly stops being true the moment agent code lands in the same repository, and nothing will report it". Two things must land together: a **separate** safety suite for the agent tree, and an explicit written statement that the agent layer *will* need network (threat-intel lookups, ASN resolution, app identification) as a **deliberate, documented widening for that layer only**. Also the natural place to record that "real time" can never mean sniffing a live interface — that would break the envelope at its root.
 
 ### `T2-04` — Eval run history / non-worse CI gate
 
 - **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** new eval-history storage + a CI comparison step
+- **Files:** a run-history store under `tests/eval/` plus a gate test that compares a fresh corpus score against the last recorded one; follows the `tests/test_benchmark_baseline.py` rot-guard precedent
 - **Planned test:** a deliberately worse corpus result fails the gate; an equal or better one passes
 - **How it was tackled:** — · **Deviations:** — · **Verification:** —
 - **Closed findings:** — · **Follow-ups:** —
@@ -725,7 +727,7 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
 | `D-##` defects | 27 | **22** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`-`D-18`, `D-20`-`D-22`, `D-24`-`D-26`) | 4 (`D-11`, `D-15`, `D-19`, `D-23`) | 1 (`D-23`) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
-| `A-##` agentic | 6 | **1** (`A-05`) | 5 | 0 |
+| `A-##` agentic | 6 | **2** (`A-05`, `A-03`) | 4 | 0 |
 | `M-##` documentation | 7 | **7** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`) | 0 | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
 
@@ -803,6 +805,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-19 | `ses_t2_03` | claude-opus-5[1m] | `T2-03` | **`T2-03` done** — agent-tree safety suite, closes `A-03`. Built on **envelope declaration**: every package under `src/` must have exactly one entry, so adding `src/agents/` fails a test instead of quietly leaving half the tree uninspected. `OFFLINE_CORE` refuses all four capabilities; `NETWORKED_AGENT` widens **network only**. Dependency direction enforced: the core may not import a networked package. **The larger finding was that the existing scanner was not an AST scan despite being documented as one** — regex over raw text, catching **1 of 9** ordinary ways to reach the network, decided purely by import spelling. Replaced. 18/18 mutations caught, including five real violations planted in the tree | `T2-04` |
 | 2026-10-15 | `ses_t2_02` | claude-opus-5[1m] | `T2-02` | **`T2-02` done** — differential suite extended from 1 capture to all 33 generated ones. Added `run_cpp_reference_batch` because of a measurement: ~7.5 s per capture individually vs **0.66 s for all 33** in one container, since the cost is startup not compute. Caught a bug that failed in the worst possible shape — addressing captures by bare name produced **33 clean all-zero reports** instead of an error, so the suite verified nothing while looking green. Also corrected my own overclaim: the corpus is 33x the captures but only **1.5x the packets** (breadth, not volume). 7/7 mutations caught | `T2-03` |
 | 2026-10-15 | `ses_t2_01` | claude-opus-5[1m] | `T2-01` | **`T2-01` done** - 33 synthetic labelled captures + a per-class precision/recall scorer. **The corpus found `D-27` on its first run**: most apps are matched by bare substring, so `cdn.facebook.com.attacker.example` classifies as `FACEBOOK`. The project already fixed this class twice (Twitter's rule was anchored, Cloudflare's `"cf-"` dropped) and left every other rule carrying it. Parity-preserving, so fixing it is a parity break needing a `DEC-07`. Mutation testing also caught a real weakness in my own tests: every gate asserted something that currently passes, so a broken gate was indistinguishable from a working one | `T2-02`; and a `DEC-07` decision on `D-27` |
 | 2026-10-15 | `ses_t2_01` | claude-opus-5[1m] | `T2-01` + Phase 2 decomposition | **Phase 2 had no task IDs** — the rollup said "outline", so a 2–3 week plan spanning `AUDIT.md` §7 and Layer 6 was never decomposed. Created `T2-01`…`T2-04`, deliberately **excluding** the parts of Layer 6 that cannot be built yet (tool-call / trajectory / adversarial evals need the MCP server and agents; OTel tracing, LLM-as-judge and cost tracking need an agent to trace, judge or cost). User chose corpus-first and **synthetic captures**, so ground truth is true by construction rather than asserted by hand | `T2-01` implementation |

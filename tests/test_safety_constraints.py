@@ -12,6 +12,23 @@ and `subprocess`/`docker` for the differential test harness's C++
 reference binary (tests/differential/cpp_reference.py) -- neither of those
 runs as part of the shipped tool, so they're out of scope for this
 enforcement.
+
+**The network/live-capture scan now lives in `safety_envelope.scan_source`** and is
+AST-based (`T2-03`). It used to be a list of regular expressions matched against raw
+text here, which -- despite this module's docstring calling it an AST scan -- caught
+only **one** of nine ordinary ways to reach the network, because which one you
+detected depended on how the import was spelled:
+
+    from urllib import request;  request.urlopen(...)     # missed
+    from subprocess import run;  run([...])               # missed
+    import subprocess as sp;     sp.run([...])            # missed
+    import socket as s;          s.socket()               # missed
+    from socket import socket;   socket()                 # missed
+    from os import system;       system('id')             # missed
+
+The AST scanner resolves each module's imports and then resolves every call through
+that alias map, so all five collapse onto their canonical form. Per-package
+envelopes and the agent-tree boundary are in `test_agent_safety_envelope.py`.
 """
 
 from __future__ import annotations
@@ -22,29 +39,9 @@ from pathlib import Path
 import pytest
 
 from conftest import TEST_DPI_PCAP
+from safety_envelope import OFFLINE_CORE, scan_source
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src" / "dpi_engine"
-
-# Patterns that would indicate a live-capture, packet-injection, or
-# network-calling code path if found in shipped source. Each entry is
-# (pattern, human description) for clear failure messages.
-FORBIDDEN_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\bsocket\.socket\s*\("), "raw socket creation (socket.socket)"),
-    (re.compile(r"\bsocket\.create_connection\s*\("), "outbound network connection"),
-    (re.compile(r"\.connect\s*\(\s*\("), "socket connect() call"),
-    (re.compile(r"\bscapy\.sendp\s*\(|\bsendp\s*\("), "scapy packet injection (sendp)"),
-    (re.compile(r"\bscapy\.sniff\s*\(|\bsniff\s*\("), "scapy live capture (sniff)"),
-    (re.compile(r"\bsr1?\s*\("), "scapy send/receive (sr/sr1)"),
-    (re.compile(r"^\s*(import scapy|from scapy)", re.MULTILINE), "scapy import in shipped code"),
-    (re.compile(r"\burllib\.request\b"), "urllib network request"),
-    (re.compile(r"\brequests\.(get|post|put|delete|patch)\s*\("), "requests HTTP call"),
-    (re.compile(r"\bhttp\.client\b"), "http.client network call"),
-    (re.compile(r"\bsubprocess\."), "subprocess invocation"),
-    (re.compile(r"\bos\.system\s*\("), "shell command execution (os.system)"),
-    (re.compile(r"\bos\.popen\s*\("), "shell command execution (os.popen)"),
-    (re.compile(r"\beval\s*\("), "dynamic code execution (eval)"),
-    (re.compile(r"\bexec\s*\("), "dynamic code execution (exec)"),
-]
 
 
 def _iter_source_files() -> list[Path]:
@@ -59,14 +56,23 @@ def test_src_dir_exists_and_has_python_files() -> None:
 
 
 def test_no_forbidden_network_or_live_capture_calls_in_shipped_source() -> None:
+    """`dpi_engine` holds to `OFFLINE_CORE`.
+
+    The `connect()` pattern the old regex list also covered has no AST equivalent
+    (`.connect(` matches any object's method, most of which are harmless), so a
+    narrow check remains for it -- on resolved `socket.*` names only, to avoid
+    false alarms on `queue.connect()`-shaped calls.
+    """
     violations: list[str] = []
     for path in _iter_source_files():
+        rel = path.relative_to(SRC_DIR.parent)
         text = path.read_text(encoding="utf-8")
-        for pattern, description in FORBIDDEN_PATTERNS:
-            match = pattern.search(text)
-            if match:
+        for v in scan_source(text, OFFLINE_CORE, str(rel)):
+            violations.append(f"{v.path}:{v.line}: {v.capability} ({v.resolved})")
+        for match in re.finditer(r"\b(\w+)\.connect\s*\(", text):
+            if "socket" in match.group(1).lower():
                 line_no = text[: match.start()].count("\n") + 1
-                violations.append(f"{path.relative_to(SRC_DIR.parent)}:{line_no}: {description}")
+                violations.append(f"{rel}:{line_no}: socket connect() call")
 
     assert not violations, (
         "Found forbidden network/live-capture/dynamic-execution call(s) in "
