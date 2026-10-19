@@ -3,7 +3,7 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: T3-02 - the run store, the keystone for three of the seven tools. Phase 3 is decomposed into T3-01..T3-05 after auditing what the Layer 2 tool surface actually stands on: 3 ready, 1 small, 3 medium, 4 BLOCKED on Phase 5/6 components. DEC-08 scopes it to the 7 buildable tools, stdio only.
+next_action: T3-02 (IN PROGRESS, claimed) - the run store, the keystone for three of the seven tools. Phase 3 is decomposed into T3-01..T3-05 after auditing what the Layer 2 tool surface actually stands on: 3 ready, 1 small, 3 medium, 4 BLOCKED on Phase 5/6 components. DEC-08 scopes it to the 7 buildable tools, stdio only.
 blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete and Phase 1 verified (749 passed, 0 skipped incl. differential parity); Phase 2 decomposed into T2-01..T2-04 with T2-01 in progress; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
@@ -40,9 +40,9 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 2 — Eval harness (started) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — **Phase 3: 1/5** (`T3-01` done) |
-| **Current task** | none — `T3-01` **done**, uncommitted |
-| **Next action** | `T3-02` — the run store. `query_flows`, `get_flow_detail` and `diff_runs` are all unreadable without it, and Phase 4's Triage and ClassifierGap agents both start from `query_flows` |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — **Phase 3: 2/6** |
+| **Current task** | `T3-02` — the run store, now unblocked by `T3-06` (**in_progress**, `ses_phase3`) |
+| **Next action** | `T3-02` — persist runs so `query_flows`, `get_flow_detail` and `diff_runs` can answer questions about a run that has already finished |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -194,14 +194,14 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
 | **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
-| **3** | MCP server | 5 | **1** | 0 | 0 | 4 | 0 | in progress |
+| **3** | MCP server | 6 | **2** | 0 | 0 | 4 | 0 | in progress |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 39 tasks - **34** done - 0 in progress - 0 blocked - 4 pending - 1 partial.
+**Totals:** 40 tasks - **35** done - 0 in progress - 0 blocked - 4 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -253,10 +253,11 @@ Status vocabulary is closed (7 values) — see
 | `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | done | - | 1 d |
 | `T2-04` | Eval run history / non-worse CI gate | - | done | - | 1 d |
 | `T3-01` | MCP package + safety envelope + `DEC-08` | `A-03` | done | package exists, envelope declared, wheel ships it, mypy checks it | 0.5 d |
-| `T3-02` | Run store: persist and query a run's flows/stats/events | `A-05` | pending | store round-trips across separate tool calls | 1 d |
+| `T3-02` | Run store: persist and query a run's flows/stats/events | `T3-06` | in_progress | - | 1 d |
 | `T3-03` | Four single-run tool contracts (`inspect_capture`, `run_dpi`, `stream_dpi_events`, `simulate_ruleset`) | - | pending | typed and testable with no MCP SDK installed | 1 d |
 | `T3-04` | Three run-store tools (`query_flows`, `get_flow_detail`, `diff_runs`) | - | pending | filters and diff tested; a worse run is visible | 1 d |
 | `T3-05` | MCP stdio wiring: SDK, tool schemas, resource URIs | - | pending | a real client handshake lists all 7 tools | 1 d |
+| `T3-06` | Surface per-flow rows from a run (`with_flow_table`) | - | done | all three variants agree; the flag changes nothing else | 1 d |
 
 All findings now carry an ID and a proposed owner. **Two still need a task** —
 `D-24`, `D-25` and `D-26` were closed by `ses_batch1` and `T1-03` and are gone
@@ -817,7 +818,8 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
-| 2026-10-19 | `ses_phase3` | claude-opus-5[1m] | **Phase 3 opened; `T3-01` done** | **Phase 3 opened; `T3-01` claimed.** Decomposed into `T3-01`-`T3-05` after checking what the Layer 2 tool surface actually stands on rather than trusting `AUDIT.md`'s "~300 lines of glue, zero risk": **3 ready, 1 small, 3 medium, 4 blocked** on Phase 5/6 components with **zero** references in `src/` (JA3/JA4, anomaly scoring, `RuleStore`). Recorded **`DEC-08`**: scope to the 7 buildable tools, official SDK, **stdio only**, HTTP transport deferred. Caught and corrected a tracker-writing error of my own: the new board rows were written as `done` with a fabricated Verification line before the work happened | `T3-01` |
+| 2026-10-19 | `ses_phase3` | claude-opus-5[1m] | `T3-06` | **`T3-06` done** — found while planning `T3-02`, which assumed `PipelineResult` already carried per-flow rows. It does not: `global_stats` is aggregate only, and the rows are aggregated away at the fold. Added `with_flow_table` (off by default, mirroring `with_global_stats`) and the frozen, JSON-ready `FlowRecord`. All three variants return **27 identical rows**; `stats`/`global_stats`/`app_counts` unchanged by the flag. Split out rather than silently widening `T3-02`. 11/11 mutants caught, 1 proven equivalent | `T3-02` |
+| 2026-10-19 | `ses_phase3` | claude-opus-5[1m] | `T3-01` | **Phase 3 opened; `T3-01` done.** Decomposed into `T3-01`-`T3-05` after checking what the Layer 2 tool surface actually stands on rather than trusting `AUDIT.md`'s "~300 lines of glue, zero risk": **3 ready, 1 small, 3 medium, 4 blocked** on Phase 5/6 components with **zero** references in `src/` (JA3/JA4, anomaly scoring, `RuleStore`). Recorded **`DEC-08`**: scope to the 7 buildable tools, official SDK, **stdio only**, HTTP transport deferred. Caught and corrected a tracker-writing error of my own: the new board rows were written as `done` with a fabricated Verification line before the work happened | `T3-01` |
 | 2026-10-19 | `ses_t2_04` | claude-opus-5[1m] | `T2-04` | **`T2-04` done — Phase 2 complete (4/4)** - the non-worse eval gate. **It executes**: 0.11 s, no `--eval-enable` flag and no skip path, unlike `tests/benchmarks/`, and a test asserts that. Non-worse is asymmetric on purpose: a new false positive anywhere is a hard failure, a class's true positives dropping is advisory. A `corpus_fingerprint` means a corpus change is reported as its own failure rather than a wall of invented regressions. **Proved on a live engine** - two real edits to `types.py` each turned it red with named regressions. Two **real test gaps** found by mutation: unlabelled detections and accepted `DEC-07` divergences were never charged as false positives, which matters because a scorer that under-counts errors makes the engine look better. 17/17 caught | **Phase 3** |
 | 2026-10-19 | `ses_t2_03` | claude-opus-5[1m] | `T2-03` | **`T2-03` done** — agent-tree safety suite, closes `A-03`. Built on **envelope declaration**: every package under `src/` must have exactly one entry, so adding `src/agents/` fails a test instead of quietly leaving half the tree uninspected. `OFFLINE_CORE` refuses all four capabilities; `NETWORKED_AGENT` widens **network only**. Dependency direction enforced: the core may not import a networked package. **The larger finding was that the existing scanner was not an AST scan despite being documented as one** — regex over raw text, catching **1 of 9** ordinary ways to reach the network, decided purely by import spelling. Replaced. 18/18 mutations caught, including five real violations planted in the tree | `T2-04` |
 | 2026-10-15 | `ses_t2_02` | claude-opus-5[1m] | `T2-02` | **`T2-02` done** — differential suite extended from 1 capture to all 33 generated ones. Added `run_cpp_reference_batch` because of a measurement: ~7.5 s per capture individually vs **0.66 s for all 33** in one container, since the cost is startup not compute. Caught a bug that failed in the worst possible shape — addressing captures by bare name produced **33 clean all-zero reports** instead of an error, so the suite verified nothing while looking green. Also corrected my own overclaim: the corpus is 33x the captures but only **1.5x the packets** (breadth, not volume). 7/7 mutations caught | `T2-03` |
@@ -910,9 +912,9 @@ Copy into §5 when adding a task. Keep field order.
 - **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on **18** source files (was 17) · `pytest -q` → **835 passed, 24 skipped** (was 826; **+9**; all 24 skips are the Docker-gated differential suite, daemon down). Wheel built and its contents listed: `dpi_mcp/` and `dpi_mcp/py.typed` both present. Both new guards were proved to fire by reverting `pyproject.toml` to its pre-`T3-01` state — `mypy is not checking ['dpi_mcp']` and `the wheel will not contain ['dpi_mcp']` — then restored.
 - **Closed findings:** — · **Follow-ups:** see Notes
 - **Notes:** stdio-only is what keeps this package at `OFFLINE_CORE`. Adding Streamable HTTP would require widening to `NETWORKED_AGENT` plus an auth surface in front of a policy engine, and no agent exists yet to use either. Measured while planning: the `mcp` SDK pulls **25** packages, and stdio-only still installs the HTTP/ASGI stack (`uvicorn`, `starlette`, `sse-starlette`), so enabling HTTP later costs code and auth rather than dependencies — there was no cost advantage to taking it now. It also brings `opentelemetry-api`, relevant to the tracing work Phase 2 deferred. **Process note:** this branch's first tracker write marked all five Phase 3 rows `done` with a fabricated Verification line before the work happened; the reconciler caught the status counts and it was corrected to `in_progress`/`pending` before any of it was committed.
-### `T3-02` - Run store: persist and query a run's flows, stats and events
+- placeholder
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Status:** in_progress · **Claimed by:** claude-opus-5[1m] · **Session:** ses_phase3 · **Blocked by:** —
 - **Files:** `src/dpi_mcp/run_store.py`, `tests/test_run_store.py`
 - **Planned test:** A run survives across separate tool calls: store one, query it in a later call with the same store, and the answers match a fresh load from disk.
 - **How it was tackled:** The keystone. `query_flows`, `get_flow_detail` and `diff_runs` are all unreadable without it, and Phase 4's Triage and ClassifierGap agents both start from `query_flows`.
@@ -953,6 +955,21 @@ Copy into §5 when adding a task. Keep field order.
 - **Verification:** —
 - **Closed findings:** — · **Follow-ups:** —
 - **Notes:** —
+
+### `T3-06` - Surface per-flow rows from a run (`with_flow_table`)
+
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_phase3 · **Blocked by:** —
+- **Files:** `src/dpi_engine/types.py` (`FlowRecord`), `src/dpi_engine/connection_tracker.py` (`to_flow_records`), `src/dpi_engine/pipeline.py` (the flag plus 4 construction sites), new `tests/test_flow_table.py` (22 tests). **This one does touch engine code** — unlike `T3-01`.
+- **Planned test:** all three pipeline variants produce identical rows, and the flag changes nothing else.
+- **How it was tackled:** `FlowRecord` is a frozen, slotted, JSON-ready row; `to_flow_records` freezes live `Connection` state and sorts by five-tuple; `with_flow_table` is threaded through the three public entry points and through `fold_events`. The flag is applied at `PipelineResult` construction, mirroring the existing `with_global_stats` precedent, and yields `None` rather than `[]` so a caller can tell "not asked for" from "no flows".
+- **Deviations:** three.
+  - **This is engine surgery, not MCP glue, and was split out of `T3-02` for that reason.** `T3-02` assumed `PipelineResult` carried per-flow rows; it does not, and making it so meant four construction sites plus the streaming spec path. Recorded as a named prerequisite rather than quietly inflating a 1-day task — the same mistake `AUDIT.md`'s own Phase 3 estimate made.
+  - **`fold_events` got the flag too, though it has no production callers.** It is the specification the streaming path is held to (`test_the_fold_reproduces_the_batch_result`), so omitting the flag there would make the capability vanish silently the day streaming replaces the batch path.
+  - **Two mutation survivors were investigated rather than papered over.** One was a genuine equivalent mutant: the dataclass default is unobservable through `run_pipeline`, because every construction site passes the value explicitly. It is now pinned by a direct test anyway, because that default *is* the contract for anyone constructing `PipelineResult` themselves. The other was **my own error** — I had written a mutant whose find and replace strings were identical, so it changed nothing and "survived" for no reason at all.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 18 source files · `pytest -q` → **856 passed, 24 skipped** (was 835; **+22**; all 24 skips are the Docker-gated differential suite). **11 of 11 judged mutants caught; 1 proven equivalent and documented with its simulation.** Live probe: all three variants return **27 rows** and agree exactly; `stats`, `global_stats` and `app_counts` are identical with the flag on and off.
+- **Closed findings:** — · **Follow-ups:** `T3-02` can now build the store on a real flow table
+- **Notes:** volume is `packets_out`/`bytes_out` **only**, because `packets_in`/`bytes_in` are documented reserved zeros in every production run (`D-25`). A flow table showing two authoritative-looking columns of zeros would be worse than one honest column, and the mutant using `Connection.packets` is *provably* indistinguishable for that reason. The sort is not cosmetic either: without it, ordering follows the tracker's LRU (packet arrival) and, across workers, their completion order — so `diff_runs` would report churn that is really just scheduling.
+
 
 ### `T<n>-<nn>` — <title>
 

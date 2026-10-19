@@ -382,6 +382,53 @@ class Connection:
         return self.bytes_in + self.bytes_out
 
 
+@dataclass(frozen=True, slots=True)
+class FlowRecord:
+    """An immutable per-flow row, safe to keep after the tracker has moved on.
+
+    `Connection` is live mutable state owned by a `ConnectionTracker`, and a run's
+    results are folded and then thrown away. Anything that wants to *answer questions
+    about a run afterwards* -- an MCP `query_flows`, a `diff_runs` against an earlier
+    run -- needs a row that will not change under it, and needs one that can cross a
+    process boundary or be written to disk. `Connection` is neither.
+
+    **Enum fields are stored as their `.name`**, not the enum. That is `DEC-04`'s
+    rule applied to a new type: `AppType.name` is what gets persisted, so a stored row
+    stays readable across renames of the surrounding code, and needs no custom codec.
+    `AppType.UNKNOWN` stores as `"UNKNOWN"`, which is also the honest rendering of a
+    flow nothing could classify.
+
+    **Volume is `packets_out`/`bytes_out` only**, because `packets_in`/`bytes_in` are
+    documented as reserved zeros in every production run (see `Connection`'s comment
+    and `D-25`). Folding flows to derive a real inbound/outbound split would break
+    parity with the C++ original, so the totals here are the ones that are real
+    rather than two columns of zeros that look authoritative.
+    """
+
+    src_ip: int
+    dst_ip: int
+    src_port: int
+    dst_port: int
+    protocol: int
+    app: str
+    state: str
+    hostname: str = ""
+    packets: int = 0
+    bytes: int = 0
+    action: str = "FORWARD"
+
+    @property
+    def five_tuple(self) -> FiveTuple:
+        """The key `get_flow_detail` is addressed by."""
+        return FiveTuple(
+            src_ip=self.src_ip,
+            dst_ip=self.dst_ip,
+            src_port=self.src_port,
+            dst_port=self.dst_port,
+            protocol=self.protocol,
+        )
+
+
 @dataclass(slots=True)
 class DPIStats:
     """Aggregate run statistics. Mirrors OSC's DPIStats (types.h).

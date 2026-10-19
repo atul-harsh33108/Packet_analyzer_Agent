@@ -74,6 +74,7 @@ from dpi_engine.types import (
     Connection,
     ConnectionState,
     FiveTuple,
+    FlowRecord,
     PacketAction,
     canonical_flow_key,
 )
@@ -618,4 +619,37 @@ def combine_tracker_reports(
         top_domains=top_domains,
         unknown_connections=unknown,
         state_counts=state_counts,
+    )
+
+
+def to_flow_records(connections: list[Connection]) -> list[FlowRecord]:
+    """Freezes live `Connection` state into rows that outlive the tracker (`T3-06`).
+
+    Ordered deterministically by five-tuple, because the input arrives in whatever
+    order the tracker's LRU happens to hold (which depends on packet arrival) and
+    across workers in completion order. Two runs over the same capture must produce
+    the same `flow_table` ordering, or `diff_runs` would report spurious churn that
+    is really just worker scheduling.
+
+    Enum fields become `.name` (`DEC-04`'s persistence rule), so a stored row is plain
+    JSON with no codec. See `FlowRecord` for why volume is outbound-only.
+    """
+    return sorted(
+        (
+            FlowRecord(
+                src_ip=c.tuple.src_ip,
+                dst_ip=c.tuple.dst_ip,
+                src_port=c.tuple.src_port,
+                dst_port=c.tuple.dst_port,
+                protocol=c.tuple.protocol,
+                app=c.app_type.name,
+                state=c.state.name,
+                hostname=c.sni,
+                packets=c.packets_out,
+                bytes=c.bytes_out,
+                action=c.action.name,
+            )
+            for c in connections
+        ),
+        key=lambda r: (r.src_ip, r.dst_ip, r.src_port, r.dst_port, r.protocol),
     )

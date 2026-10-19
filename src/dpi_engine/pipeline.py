@@ -78,6 +78,7 @@ from dpi_engine.connection_tracker import (
     GlobalStats,
     TrackerStats,
     combine_tracker_reports,
+    to_flow_records,
 )
 from dpi_engine.events import (
     CaptureClosed,
@@ -118,6 +119,7 @@ from dpi_engine.types import (
     ConnectionState,
     DPIStats,
     FiveTuple,
+    FlowRecord,
     canonical_flow_key,
 )
 from dpi_engine.worker import (
@@ -173,6 +175,16 @@ class PipelineResult:
     #: per-flow state counts. This is what consumes each tracker's immutable
     #: snapshot, replacing OSC's racy GlobalConnectionTable.
     global_stats: GlobalStats | None = None
+    #: One immutable row per live flow, or `None` when the run did not ask for them
+    #: (`T3-06`). `global_stats` above is deliberately *aggregate only* --
+    #: distributions, totals, top domains -- so nothing in a `PipelineResult` can
+    #: answer "what happened to this specific flow". That is the right shape for a
+    #: report and the wrong one for an agent asking `get_flow_detail(five_tuple)`.
+    #:
+    #: `None` rather than `[]` when not requested, so a caller can tell "not asked
+    #: for" from "the run had no flows" -- the distinction `global_stats=None`
+    #: already makes.
+    flow_table: list[FlowRecord] | None = None
 
     @property
     def drop_rate_percent(self) -> float:
@@ -206,7 +218,7 @@ DEFAULT_REORDER_WINDOW = 1024
 # ---------------------------------------------------------------------------
 
 
-def fold_events(events: Iterable[Event]) -> PipelineResult:
+def fold_events(events: Iterable[Event], *, with_flow_table: bool = False) -> PipelineResult:
     """Derives `PipelineResult` by folding an event stream.
 
     This is the *only* place `PipelineResult` is constructed from a run's
@@ -234,6 +246,7 @@ def fold_events(events: Iterable[Event]) -> PipelineResult:
     detected_domains: dict[str, AppType] = {}
     blocked_flows: list[tuple[FiveTuple, AppType, str]] = []
     worker_results: list[WorkerResult] = []
+    flow_records: list[Connection] = []
     lb_results = []
     quic_packets = 0
     quic_undecryptable = 0
@@ -265,6 +278,8 @@ def fold_events(events: Iterable[Event]) -> PipelineResult:
             worker_results.append(event.result)
             quic_packets += event.result.quic_packets
             quic_undecryptable += event.result.quic_undecryptable
+            if with_flow_table:
+                flow_records.extend(event.result.connections)
 
         elif isinstance(event, LoadBalancerFinished):
             lb_results.append(event.result)
@@ -284,6 +299,7 @@ def fold_events(events: Iterable[Event]) -> PipelineResult:
         quic_packets=quic_packets,
         quic_undecryptable=quic_undecryptable,
         global_stats=_combined_global(worker_results),
+        flow_table=to_flow_records(flow_records) if with_flow_table else None,
     )
     return result
 
@@ -612,6 +628,8 @@ def _iter_inspectable(
 def _accumulate(
     stats: DPIStats,
     results: Sequence[WorkerResult],
+    *,
+    with_flow_table: bool = False,
 ) -> tuple[
     dict[AppType, int],
     dict[str, AppType],
@@ -619,6 +637,7 @@ def _accumulate(
     GlobalStats,
     int,
     int,
+    list[FlowRecord] | None,
 ]:
     """Merges worker results into the run-level totals.
 
@@ -659,7 +678,23 @@ def _accumulate(
         [(r.tracker_stats, r.connections) for r in results]
     )
 
-    return app_counts, detected_domains, blocked_flows, global_stats, quic_packets, quic_undecryptable
+    # `T3-06`: per-flow rows, opt-in. Built from the same `connections` lists
+    # `combine_tracker_reports` has just read, so nothing extra is retained for a
+    # caller who did not ask -- they are already in memory as part of each
+    # `WorkerResult` regardless.
+    flow_table: list[FlowRecord] | None = None
+    if with_flow_table:
+        flow_table = to_flow_records([c for r in results for c in r.connections])
+
+    return (
+        app_counts,
+        detected_domains,
+        blocked_flows,
+        global_stats,
+        quic_packets,
+        quic_undecryptable,
+        flow_table,
+    )
 
 
 def _combine_fast_path_stats(results: Sequence[WorkerResult]) -> FastPathStats:
@@ -686,6 +721,10 @@ def run_pipeline(
     reap_interval_packets: int = DEFAULT_REAP_INTERVAL_PACKETS,
     enable_quic: bool = True,
     with_global_stats: bool = True,
+    #: Retain one immutable `FlowRecord` per live flow in `PipelineResult.flow_table`
+    #: (`T3-06`). Off by default: the rows are only useful to a caller that will ask
+    #: questions about the run afterwards, and the report does not need them.
+    with_flow_table: bool = False,
     rule_broadcaster: RuleBroadcaster | None = None,
     bus: EventBus | None = None,
     fold_bidirectional: bool = True,
@@ -831,7 +870,8 @@ def run_pipeline(
         global_stats,
         quic_packets,
         quic_undecryptable,
-    ) = _accumulate(stats, [result])
+        flow_table,
+    ) = _accumulate(stats, [result], with_flow_table=with_flow_table)
 
     return PipelineResult(
         stats=stats,
@@ -843,6 +883,7 @@ def run_pipeline(
         quic_packets=quic_packets,
         quic_undecryptable=quic_undecryptable,
         global_stats=global_stats if with_global_stats else None,
+        flow_table=flow_table,
     )
 
 
@@ -866,6 +907,9 @@ def run_pipeline_multiprocess(
     live_rules: bool = False,
     fold_bidirectional: bool = True,
     reorder_window: int | None = DEFAULT_REORDER_WINDOW,
+    #: Retain one immutable `FlowRecord` per live flow in `PipelineResult.flow_table`
+    #: (`T3-06`). Off by default; see `run_pipeline`.
+    with_flow_table: bool = False,
 ) -> PipelineResult:
     """Reader-parses, hash-partitioned fast-path workers.
 
@@ -1017,7 +1061,8 @@ def run_pipeline_multiprocess(
                 global_stats,
                 quic_packets,
                 quic_undecryptable,
-            ) = _accumulate(stats, results)
+                flow_table,
+            ) = _accumulate(stats, results, with_flow_table=with_flow_table)
 
             if reorder_buffer is not None:
                 # Written during dispatch, so there is no second pass to run.
@@ -1048,6 +1093,7 @@ def run_pipeline_multiprocess(
                 quic_packets=quic_packets,
                 quic_undecryptable=quic_undecryptable,
                 global_stats=global_stats,
+                flow_table=flow_table,
             )
     finally:
         # This MUST run whether dispatch succeeded or raised (e.g.
@@ -1135,6 +1181,9 @@ def run_pipeline_staged(
     live_rules: bool = False,
     fold_bidirectional: bool = True,
     reorder_window: int | None = DEFAULT_REORDER_WINDOW,
+    #: Retain one immutable `FlowRecord` per live flow in `PipelineResult.flow_table`
+    #: (`T3-06`). Off by default; see `run_pipeline`.
+    with_flow_table: bool = False,
 ) -> PipelineResult:
     """Two-tier staged pipeline: reader -> load balancers -> fast paths.
 
@@ -1341,7 +1390,8 @@ def run_pipeline_staged(
                 global_stats,
                 quic_packets,
                 quic_undecryptable,
-            ) = _accumulate(stats, fp_results)
+                flow_table,
+            ) = _accumulate(stats, fp_results, with_flow_table=with_flow_table)
 
             if reorder_buffer is not None:
                 # Written during dispatch, so there is no second pass to run.
@@ -1373,6 +1423,7 @@ def run_pipeline_staged(
                 quic_packets=quic_packets,
                 quic_undecryptable=quic_undecryptable,
                 global_stats=global_stats,
+                flow_table=flow_table,
             )
     finally:
         # Teardown must be unconditional (D-12). `_collect` raises `RuntimeError`
