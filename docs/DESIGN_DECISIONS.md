@@ -645,6 +645,59 @@ matter overrides the classification. That is the workaround without a code chang
 curation cost should be driven by observed hostname shapes, not by six synthetic
 examples.
 
+### `DEC-08` — Phase 3 ships 7 of the 11 Layer 2 tools, over stdio only
+
+**Decided 2026-10-19 (user), from a capability audit of the Layer 2 tool surface.**
+
+`AGENTIC_ARCHITECTURE.md` lists 11 tools. `AUDIT.md` sizes Phase 3 as "~300 lines of
+glue over Layer 1, no agent logic, zero risk". Checking each tool against what the
+engine actually contains:
+
+| tool | verdict | stands on |
+|---|---|---|
+| `run_dpi` | ready | pipeline + `report.py` |
+| `stream_dpi_events` | ready | `events.py` |
+| `simulate_ruleset` | ready | `rules/simulator.py` (`T1-06`) |
+| `inspect_capture` | small build | `cap_source.py` exists; no profile type |
+| `query_flows` | medium build | events exist; **no queryable table, filter or index** |
+| `get_flow_detail` | medium build | same |
+| `diff_runs` | medium build | `T2-04` stores corpus *scores*, not DPI runs |
+| `get_fingerprints` | **blocked** | JA3 refs: **0**, JA4 refs: **0** — Phase 5 |
+| `query_anomalies` | **blocked** | `anomal` refs: **0** |
+| `list_rule_versions` | **blocked** | `RuleStore` refs: **0** — Phase 6 |
+| `revert_rule` | **blocked** | Phase 6 |
+
+**3 ready, 1 small, 3 medium, 4 blocked.** The estimate was wrong in the same way
+`A-05` was: it assumed capabilities the engine does not have.
+
+**Decision 1 — ship the 7 buildable tools.** The three "medium" tools all need the
+same missing piece, a run store that survives between `run_dpi` and a later
+`query_flows`, so building it once unlocks all three. Shipping only the three ready
+tools would mean Phase 4 immediately has to build the thing Phase 3 declined to, and
+Layer 3's agent table shows **both Triage and ClassifierGap start from
+`query_flows`**.
+
+**Decision 2 — the 4 blocked tools stay absent.** Not stubbed, not "not implemented".
+A tool that returns an empty answer is *worse* than an absent tool: an agent can
+believe it asked a question and received one. Absence is visible; a stub is a lie.
+
+**Decision 3 — stdio only; Streamable HTTP deferred.** This is what keeps
+`src/dpi_mcp/` at `OFFLINE_CORE`, so Phase 3 needs **no envelope widening** at all.
+Measured: the `mcp` SDK pulls **25** packages, and stdio-only still installs the
+HTTP/ASGI stack (`uvicorn`, `starlette`, `sse-starlette`), so enabling HTTP later
+costs code and auth rather than dependencies — there was no cost advantage to taking
+it now, and an unauthenticated network endpoint in front of a policy engine is not
+worth having before any agent exists to use it. `opentelemetry-api` arrives with the
+SDK, which is relevant to the tracing work Phase 2 deliberately deferred.
+
+**One free choice made along the way:** the tool implementations will not import the
+`mcp` SDK. That import belongs at the wiring boundary (`T3-05`), so every tool stays
+plain typed Python, testable and readable without a protocol library installed. The
+discipline the architecture doc says MCP forces is only real if the contracts do not
+depend on the protocol in order to be tested.
+
+| `DEC-08` | Phase 3 scope: all 11 Layer 2 tools, or only the buildable ones? **Decided 2026-10-19: the 7 buildable ones**, over **stdio only**; `get_fingerprints`, `query_anomalies`, `list_rule_versions` and `revert_rule` stay absent until their own phases | none - accepted, see below |
+
 ## Open trade-offs, deliberately not resolved
 
 - **A hand-rolled block cipher for QUIC** was considered and rejected. `cryptography` is a

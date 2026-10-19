@@ -88,8 +88,18 @@ NETWORKED_AGENT = Envelope("NETWORKED_AGENT", network=True)
 #: shipped tree went uninspected. A test asserts every package on disk has an entry
 #: here, which turns that silent gap into a failing test at the moment the second
 #: package is created.
+#:
+#: It has now fired once for real: creating `src/dpi_mcp/` for Phase 3 failed
+#: `test_every_shipped_package_declares_an_envelope` until the declaration below was
+#: added, which is the intended behaviour rather than an obstacle.
 PACKAGE_ENVELOPES: dict[str, Envelope] = {
     "dpi_engine": OFFLINE_CORE,
+    # Phase 3's MCP tool surface (Layer 2). OFFLINE_CORE, not NETWORKED_AGENT,
+    # because it serves **stdio** only: the client is a local host process and the
+    # server's entire I/O surface is inherited pipes. Adding Streamable HTTP
+    # (`DEC-08` defers it) would require widening this to NETWORKED_AGENT plus an
+    # auth surface in front of a policy engine.
+    "dpi_mcp": OFFLINE_CORE,
 }
 
 #: Capability -> the dotted call prefixes that violate it.

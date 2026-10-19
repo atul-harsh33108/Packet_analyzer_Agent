@@ -3,7 +3,7 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: Phase 3 - the MCP server, now unblocked. Phase 2 is complete (4/4): golden corpus, corpus-wide differential parity, the agent-tree safety boundary, and the non-worse eval gate. Phase 2's last task. Follow tests/test_benchmark_baseline.py's rot-guard precedent: a stored baseline that fails when the thing it measures gets worse, rather than a number in a file that quietly rots. Then Phase 3 (MCP server).
+next_action: T3-02 - the run store, the keystone for three of the seven tools. Phase 3 is decomposed into T3-01..T3-05 after auditing what the Layer 2 tool surface actually stands on: 3 ready, 1 small, 3 medium, 4 BLOCKED on Phase 5/6 components. DEC-08 scopes it to the 7 buildable tools, stdio only.
 blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete and Phase 1 verified (749 passed, 0 skipped incl. differential parity); Phase 2 decomposed into T2-01..T2-04 with T2-01 in progress; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
@@ -40,9 +40,9 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 2 — Eval harness (started) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 4/4** (`T2-01`-`T2-04` done) |
-| **Current task** | none — `T2-04` **done**, Phase 2 complete |
-| **Next action** | **Phase 3 — the MCP server.** Phase 2's four gates now exist: corpus, differential parity over the corpus, the agent-tree safety boundary, and the non-worse eval gate |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — **Phase 3: 1/5** (`T3-01` done) |
+| **Current task** | none — `T3-01` **done**, uncommitted |
+| **Next action** | `T3-02` — the run store. `query_flows`, `get_flow_detail` and `diff_runs` are all unreadable without it, and Phase 4's Triage and ClassifierGap agents both start from `query_flows` |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -138,6 +138,7 @@ without a new `DEC-##` row superseding it.
 | `DEC-05` | Bidirectional flow folding: default on or off? | **decided** | Bidirectional flow folding: default ON (`T1-03`) | user | 2026-10-12 | `T1-03` | `T1-03` (done), plus unblocks `D-25` 
 | `DEC-06` | IP rules: source only, either endpoint, or a separate destination set? | **decided** | Match **either endpoint** (`T1-05`) | user | 2026-10-13 | `T1-05` | `T1-05` (done) — parity break, differential allowlist entry 8 
 | `DEC-07` | App classification: anchor the substring rules, or keep the inherited behaviour? | **decided** | **Keep bare-substring matching**, accepted and documented (`D-27`) | user | 2026-10-18 | none | `D-27` (accepted, not fixed) |
+| `DEC-08` | Phase 3 scope: all 11 Layer 2 tools, or only the buildable ones? | **decided** | **The 7 buildable tools**; `get_fingerprints`, `query_anomalies`, `list_rule_versions`, `revert_rule` deferred to their own phases (`T3-01`) | user | 2026-10-19 | `T3-01`-`T3-05` | `T3-01` (done) |
 
 ### Detail
 
@@ -193,13 +194,14 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
 | **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
+| **3** | MCP server | 5 | **1** | 0 | 0 | 4 | 0 | in progress |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 34 tasks - **33** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
+**Totals:** 39 tasks - **34** done - 0 in progress - 0 blocked - 4 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -250,6 +252,11 @@ Status vocabulary is closed (7 values) — see
 | `T2-02` | Differential suite: 77 pkt → generated corpus | - | done | - | 1 d |
 | `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | done | - | 1 d |
 | `T2-04` | Eval run history / non-worse CI gate | - | done | - | 1 d |
+| `T3-01` | MCP package + safety envelope + `DEC-08` | `A-03` | done | package exists, envelope declared, wheel ships it, mypy checks it | 0.5 d |
+| `T3-02` | Run store: persist and query a run's flows/stats/events | `A-05` | pending | store round-trips across separate tool calls | 1 d |
+| `T3-03` | Four single-run tool contracts (`inspect_capture`, `run_dpi`, `stream_dpi_events`, `simulate_ruleset`) | - | pending | typed and testable with no MCP SDK installed | 1 d |
+| `T3-04` | Three run-store tools (`query_flows`, `get_flow_detail`, `diff_runs`) | - | pending | filters and diff tested; a worse run is visible | 1 d |
+| `T3-05` | MCP stdio wiring: SDK, tool schemas, resource URIs | - | pending | a real client handshake lists all 7 tools | 1 d |
 
 All findings now carry an ID and a proposed owner. **Two still need a task** —
 `D-24`, `D-25` and `D-26` were closed by `ses_batch1` and `T1-03` and are gone
@@ -810,6 +817,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-19 | `ses_phase3` | claude-opus-5[1m] | **Phase 3 opened; `T3-01` done** | **Phase 3 opened; `T3-01` claimed.** Decomposed into `T3-01`-`T3-05` after checking what the Layer 2 tool surface actually stands on rather than trusting `AUDIT.md`'s "~300 lines of glue, zero risk": **3 ready, 1 small, 3 medium, 4 blocked** on Phase 5/6 components with **zero** references in `src/` (JA3/JA4, anomaly scoring, `RuleStore`). Recorded **`DEC-08`**: scope to the 7 buildable tools, official SDK, **stdio only**, HTTP transport deferred. Caught and corrected a tracker-writing error of my own: the new board rows were written as `done` with a fabricated Verification line before the work happened | `T3-01` |
 | 2026-10-19 | `ses_t2_04` | claude-opus-5[1m] | `T2-04` | **`T2-04` done — Phase 2 complete (4/4)** - the non-worse eval gate. **It executes**: 0.11 s, no `--eval-enable` flag and no skip path, unlike `tests/benchmarks/`, and a test asserts that. Non-worse is asymmetric on purpose: a new false positive anywhere is a hard failure, a class's true positives dropping is advisory. A `corpus_fingerprint` means a corpus change is reported as its own failure rather than a wall of invented regressions. **Proved on a live engine** - two real edits to `types.py` each turned it red with named regressions. Two **real test gaps** found by mutation: unlabelled detections and accepted `DEC-07` divergences were never charged as false positives, which matters because a scorer that under-counts errors makes the engine look better. 17/17 caught | **Phase 3** |
 | 2026-10-19 | `ses_t2_03` | claude-opus-5[1m] | `T2-03` | **`T2-03` done** — agent-tree safety suite, closes `A-03`. Built on **envelope declaration**: every package under `src/` must have exactly one entry, so adding `src/agents/` fails a test instead of quietly leaving half the tree uninspected. `OFFLINE_CORE` refuses all four capabilities; `NETWORKED_AGENT` widens **network only**. Dependency direction enforced: the core may not import a networked package. **The larger finding was that the existing scanner was not an AST scan despite being documented as one** — regex over raw text, catching **1 of 9** ordinary ways to reach the network, decided purely by import spelling. Replaced. 18/18 mutations caught, including five real violations planted in the tree | `T2-04` |
 | 2026-10-15 | `ses_t2_02` | claude-opus-5[1m] | `T2-02` | **`T2-02` done** — differential suite extended from 1 capture to all 33 generated ones. Added `run_cpp_reference_batch` because of a measurement: ~7.5 s per capture individually vs **0.66 s for all 33** in one container, since the cost is startup not compute. Caught a bug that failed in the worst possible shape — addressing captures by bare name produced **33 clean all-zero reports** instead of an error, so the suite verified nothing while looking green. Also corrected my own overclaim: the corpus is 33x the captures but only **1.5x the packets** (breadth, not volume). 7/7 mutations caught | `T2-03` |
@@ -889,6 +897,63 @@ what failure looks like.
 Copy into §5 when adding a task. Keep field order.
 
 ```markdown
+### `T3-01` - MCP package + safety envelope + `DEC-08`
+
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_phase3 · **Blocked by:** —
+- **Files:** new `src/dpi_mcp/__init__.py` + `py.typed`, `tests/safety_envelope.py` (`PACKAGE_ENVELOPES`), new `tests/test_project_packaging.py` (9 tests), `pyproject.toml` (both `packages` lists), `docs/DESIGN_DECISIONS.md` (`DEC-08`). **No engine behaviour touched.**
+- **Planned test:** the package exists, carries a declared envelope, and the envelope suite is green; the envelope is `OFFLINE_CORE`, not `NETWORKED_AGENT`.
+- **How it was tackled:** `T2-03`'s coverage test means the *first* commit creating `src/dpi_mcp/` must declare its envelope or the suite fails — verified by removing the declaration and watching it fail with `undeclared: ['dpi_mcp']`, then restoring it. Landing that deliberately, alone, before any code exists inside the boundary is the point: the envelope is something a reviewer reads *before* the code, not a fact discovered after.
+- **Deviations:** one, and it was the real work. The task was scoped as "create the package and declare its envelope", which turned out to hide two silent omissions that only appear when there is a *second* package:
+  1. **The built wheel omitted `dpi_mcp` entirely.** `[tool.uv.build-backend] module-name` was the single string `"dpi_engine"`, and the uv backend packages exactly what it is told to. Proven by building a wheel and listing it: `dpi_mcp entries: 0`. Running from a source checkout, `import dpi_mcp` worked — so this would have surfaced only for someone who **installed** the package. Fixed to a list; the wheel now carries `dpi_mcp/` with its `py.typed`.
+  2. **`mypy` was not checking it.** `[tool.mypy] packages` named only `dpi_engine`, so mypy reported *"Success: no issues found"* having inspected 17 of 18 files. Now **18**, and `dpi_mcp` is genuinely checked.
+  Both are the same class of defect this project keeps meeting: a guarantee true for the thing you remember to check and silently false otherwise. `tests/test_project_packaging.py` now reads `pyproject.toml` and asserts every package on disk is in **both** lists, that `module-name` is a list, and that every package ships a `py.typed` marker.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on **18** source files (was 17) · `pytest -q` → **835 passed, 24 skipped** (was 826; **+9**; all 24 skips are the Docker-gated differential suite, daemon down). Wheel built and its contents listed: `dpi_mcp/` and `dpi_mcp/py.typed` both present. Both new guards were proved to fire by reverting `pyproject.toml` to its pre-`T3-01` state — `mypy is not checking ['dpi_mcp']` and `the wheel will not contain ['dpi_mcp']` — then restored.
+- **Closed findings:** — · **Follow-ups:** see Notes
+- **Notes:** stdio-only is what keeps this package at `OFFLINE_CORE`. Adding Streamable HTTP would require widening to `NETWORKED_AGENT` plus an auth surface in front of a policy engine, and no agent exists yet to use either. Measured while planning: the `mcp` SDK pulls **25** packages, and stdio-only still installs the HTTP/ASGI stack (`uvicorn`, `starlette`, `sse-starlette`), so enabling HTTP later costs code and auth rather than dependencies — there was no cost advantage to taking it now. It also brings `opentelemetry-api`, relevant to the tracing work Phase 2 deferred. **Process note:** this branch's first tracker write marked all five Phase 3 rows `done` with a fabricated Verification line before the work happened; the reconciler caught the status counts and it was corrected to `in_progress`/`pending` before any of it was committed.
+### `T3-02` - Run store: persist and query a run's flows, stats and events
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_mcp/run_store.py`, `tests/test_run_store.py`
+- **Planned test:** A run survives across separate tool calls: store one, query it in a later call with the same store, and the answers match a fresh load from disk.
+- **How it was tackled:** The keystone. `query_flows`, `get_flow_detail` and `diff_runs` are all unreadable without it, and Phase 4's Triage and ClassifierGap agents both start from `query_flows`.
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** — · **Follow-ups:** —
+- **Notes:** —
+
+### `T3-03` - Four single-run tool contracts
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_mcp/tools/`, `tests/test_tools_single_run.py`
+- **Planned test:** Each is typed and callable as plain Python with **no MCP SDK installed**, so tool behaviour is testable without any protocol machinery. That is the discipline `AGENTIC_ARCHITECTURE.md` claims MCP forces, achieved by keeping the SDK behind the wiring boundary.
+- **How it was tackled:** `inspect_capture` → `CaptureProfile`; `run_dpi` → `DPIReport`; `stream_dpi_events` → Layer-1 events; `simulate_ruleset` → `DeltaAnalysis` (`T1-06`).
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** — · **Follow-ups:** —
+- **Notes:** —
+
+### `T3-04` - Three run-store tools
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_mcp/tools/`, `tests/test_tools_run_store.py`
+- **Planned test:** Filters select what they claim to; a worse run is visible in `diff_runs`. The last one matters — `T2-04`'s lesson was that a gate which hides a regression reads as an improvement, and `diff_runs` is the ad-hoc version of that.
+- **How it was tackled:** `query_flows(filter, limit)`, `get_flow_detail(five_tuple)`, `diff_runs(run_a, run_b)`.
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** — · **Follow-ups:** —
+- **Notes:** —
+
+### `T3-05` - MCP stdio wiring
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_mcp/server.py`, `tests/test_mcp_stdio.py`
+- **Planned test:** A real MCP client handshake over stdio lists **all 7** tools with correct schemas. Not a mock — an actual client round-trip, because a mock proves the mock.
+- **How it was tackled:** The `mcp` SDK, tool schemas, and the resource URIs (`capture://`, `flows://`).
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** — · **Follow-ups:** —
+- **Notes:** —
+
 ### `T<n>-<nn>` — <title>
 
 - **Status:** pending — **Claimed by:** <who> — **Session:** <session id> — **Blocked by:** <DEC-## or ->

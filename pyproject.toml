@@ -83,7 +83,9 @@ known-first-party = ["dpi_engine"]
 
 [tool.mypy]
 python_version = "3.13"
-packages = ["dpi_engine"]
+packages = ["dpi_engine", "dpi_mcp"]  # every package under src/, asserted by
+# tests/test_project_packaging.py. Without dpi_mcp here, mypy reports
+# "Success: no issues found" having inspected none of it.
 strict = true
 warn_unreachable = true
 # The multiprocessing entry points take `multiprocessing.Queue` objects, which
@@ -138,5 +140,7 @@ build-backend = "uv_build"
 # The package is fully annotated and ships a py.typed marker (PEP 561), so
 # downstream users get the types. Without listing it here the marker would be
 # excluded from the wheel.
-module-name = "dpi_engine"
+# A list, not one name: the uv backend packages exactly what is listed here, and a
+# single name silently omitted src/dpi_mcp from the built wheel.
+module-name = ["dpi_engine", "dpi_mcp"]
 module-root = "src"
