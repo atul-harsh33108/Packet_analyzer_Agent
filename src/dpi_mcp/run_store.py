@@ -61,6 +61,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from dpi_engine.capture_profile import capture_digest
 from dpi_engine.events import (
     CaptureClosed,
     CaptureOpened,
@@ -598,20 +599,13 @@ def _pairs_str(items: list[Any], key: str) -> tuple[tuple[str, str], ...]:
 # Capture identity
 # ---------------------------------------------------------------------------
 
-
-def capture_digest(path: str | Path) -> tuple[str, int]:
-    """Returns `(sha256[:32], byte size)` for a capture, read in 1 MiB chunks.
-
-    Streamed rather than read whole: the engine is built to handle captures that do not
-    fit in memory, and a store that loads one entirely just to hash it would undo that.
-    """
-    digest = hashlib.sha256()
-    total = 0
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-            total += len(chunk)
-    return digest.hexdigest()[:32], total
+# `capture_digest` is imported from `dpi_engine.capture_profile` and re-exported here
+# (`T3-03`). It used to be defined in this module, but a capture's digest is a property
+# of the *capture*, and `inspect_capture` has to report the same value -- so the
+# definition moved to the engine and this module keeps the name working for callers and
+# for `test_run_store.py`. Two implementations of "sha256 of the capture" could disagree
+# about truncation, and a run id that disagrees with the profile it was built from is
+# worse than either being wrong alone.
 
 
 # ---------------------------------------------------------------------------

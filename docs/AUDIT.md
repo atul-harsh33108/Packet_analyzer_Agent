@@ -174,7 +174,7 @@ These are **not** undiscovered bugs. Each is a conscious decision to preserve C+
 
 ---
 
-## §2 — Defect register (`D-01`…`D-26`)
+## §2 — Defect register (`D-01`…`D-28`)
 
 > **Closure is tracked in [`TASK_TRACKER.md`](TASK_TRACKER.md) §6, not here.** This
 > section is the *description* of each finding and is its single home. A row below is
@@ -183,11 +183,11 @@ These are **not** undiscovered bugs. Each is a conscious decision to preserve C+
 > about a fact rather than about status, the tracker is describing current state and
 > this section describes what was found.
 
-Twenty-six defects were found, with no gaps in the numbering. **Twenty-one** are
+Twenty-eight defects were found, with no gaps in the numbering. **Twenty-three** are
 live in the port and appear in the table below: `D-01`…`D-16` plus
-`D-22`…`D-26`. The remaining **five** — `D-17`…`D-21` — are inherited C++
+`D-22`…`D-28`. The remaining **five** — `D-17`…`D-21` — are inherited C++
 behaviour carried forward deliberately and are described in §2.1. So the section
-heading, this paragraph and §2.1 all agree: 21 + 5 = 26.
+heading, this paragraph and §2.1 all agree: 23 + 5 = 28.
 
 Ordered by intrinsic severity, then product impact. `D-22` is grouped with
 `D-01` and `D-23` is promoted from `P-15`, so neither is in numeric order. All
@@ -387,7 +387,7 @@ Layer 1.5's anomaly model is **also not an LLM** and is deterministic — good. 
 
 ---
 
-## §5 — Documentation defect register (`M-01`…`M-07`)
+## §5 — Documentation defect register (`M-01`…`M-08`)
 
 | ID | File | Verdict |
 |---|---|---|
@@ -398,6 +398,7 @@ Layer 1.5's anomaly model is **also not an LLM** and is deterministic — good. 
 | `M-05` | `OSC/README.md` (36 KB) | Accurate as a C++ record; needs a superseded banner + one factual correction. |
 | `M-06` | `OSC/WINDOWS_SETUP.md` (10 KB) | Accurate; needs the same banner. |
 | `M-07` | `tests/differential/README.md` (5.4 KB) | One factual error (`R-04`). |
+| `M-08` | `TASK_TRACKER.md` | **A structural defect, found 2026-10-20 and fixed in `T3-03`.** Appendix A's template opens a fenced `markdown` code block, and the six `T3-01`…`T3-06` task records were inserted *before the template heading* — so they landed inside the fence and rendered as literal code, while §5 — the section that is supposed to hold them — contained no `T3-*` record at all. Each session appended correctly and none could see the previous one's work. The tracker has no test and the reconciler bounded task records nowhere, so six records were unreachable under a fully green gate. Same class as the clobbered `T3-02` heading: **a markdown structure that no check constrains.** |
 
 ### §5.1 — `M-01` `README.md`
 

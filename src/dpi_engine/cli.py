@@ -29,6 +29,7 @@ import argparse
 import sys
 import warnings
 
+from dpi_engine.capture_profile import profile_capture
 from dpi_engine.connection_tracker import (
     DEFAULT_MAX_CONNECTIONS,
     DEFAULT_REAP_INTERVAL_PACKETS,
@@ -179,37 +180,30 @@ def _apply_rule_args(rules: RuleManager, args: argparse.Namespace) -> None:
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
+    # Delegates to the engine's one capture-profile implementation (`T3-03`), which is
+    # also what the MCP `inspect_capture` tool calls. This used to be hand-rolled here,
+    # and a second copy in `dpi_mcp` would have been a fact with two homes: the day one
+    # of them learned about `orig_len` vs file size, the other would silently disagree.
     try:
-        with PcapReader(
+        profile = profile_capture(
             args.pcap_file,
             max_packet_size=args.max_packet_size,
             max_total_packets=args.max_total_packets,
-        ) as reader:
-            packet_count = 0
-            total_bytes = 0
-            min_len: int | None = None
-            max_len = 0
-            for pkt in reader:
-                packet_count += 1
-                total_bytes += pkt.orig_len
-                if min_len is None or pkt.orig_len < min_len:
-                    min_len = pkt.orig_len
-                if pkt.orig_len > max_len:
-                    max_len = pkt.orig_len
-            linktype = reader.linktype
-            snaplen = reader.snaplen
+        )
     except PcapError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    # `args.pcap_file`, not `profile.path`: the profile normalises the path, and a
+    # user who typed a forward slash should see their own string echoed back.
     print(f"File:            {args.pcap_file}")
-    print(f"Linktype:        {linktype} (Ethernet)")
-    print(f"Snaplen:         {snaplen}")
-    print(f"Packet count:    {packet_count}")
-    print(f"Total bytes:     {total_bytes}")
-    if packet_count:
-        print(f"Min pkt length:  {min_len}")
-        print(f"Max pkt length:  {max_len}")
+    print(f"Linktype:        {profile.linktype} (Ethernet)")
+    print(f"Snaplen:         {profile.snaplen}")
+    print(f"Packet count:    {profile.packet_count}")
+    print(f"Total bytes:     {profile.captured_bytes}")
+    if profile.packet_count:
+        print(f"Min pkt length:  {profile.min_packet_length}")
+        print(f"Max pkt length:  {profile.max_packet_length}")
     print()
     print("Capabilities:")
     caps = capabilities()
