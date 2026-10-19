@@ -3,7 +3,7 @@ schema: dpi-engine-tracker/v1
 status: active
 phase: 1
 current_task: none
-next_action: T2-04 - eval run history plus a non-worse CI gate. Phase 2's last task. Follow tests/test_benchmark_baseline.py's rot-guard precedent: a stored baseline that fails when the thing it measures gets worse, rather than a number in a file that quietly rots. Then Phase 3 (MCP server).
+next_action: Phase 3 - the MCP server, now unblocked. Phase 2 is complete (4/4): golden corpus, corpus-wide differential parity, the agent-tree safety boundary, and the non-worse eval gate. Phase 2's last task. Follow tests/test_benchmark_baseline.py's rot-guard precedent: a stored baseline that fails when the thing it measures gets worse, rather than a number in a file that quietly rots. Then Phase 3 (MCP server).
 blockers: [zero open decisions - DEC-01..DEC-06 all decided 2026-10-12/13; zero blocked tasks; zero unowned findings; Phase 0, 0.5 and 1 complete and Phase 1 verified (749 passed, 0 skipped incl. differential parity); Phase 2 decomposed into T2-01..T2-04 with T2-01 in progress; ALL DOCUMENTATION FINDINGS M-01..M-07 CLOSED]
 last_updated: 2026-10-15
 last_updated_by: claude-opus-5[1m]
@@ -40,9 +40,9 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 2 — Eval harness (started) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 3/4** (`T2-01`-`T2-03` done) |
-| **Current task** | none — `T2-03` **done**, uncommitted |
-| **Next action** | `T2-04` — eval run history and a non-worse CI gate, the last Phase 2 task. Follow the `tests/test_benchmark_baseline.py` rot-guard precedent |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — **Phase 2: 4/4** (`T2-01`-`T2-04` done) |
+| **Current task** | none — `T2-04` **done**, Phase 2 complete |
+| **Next action** | **Phase 3 — the MCP server.** Phase 2's four gates now exist: corpus, differential parity over the corpus, the agent-tree safety boundary, and the non-worse eval gate |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -192,14 +192,14 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0** | Harden | 11 | **11** | 0 | 0 | 0 | 0 | not met |
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
-| **2** | Eval harness | 4 | **3** | 0 | 0 | 1 | 0 | not started |
+| **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
 | 3 | MCP server | outline | — | — | — | — | — | not started |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 34 tasks - **32** done - 0 in progress - 0 blocked - 1 pending - 1 partial.
+**Totals:** 34 tasks - **33** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -249,7 +249,7 @@ Status vocabulary is closed (7 values) — see
 | `T2-01` | **Golden-capture corpus + scorer** | - | done | - | 3 d |
 | `T2-02` | Differential suite: 77 pkt → generated corpus | - | done | - | 1 d |
 | `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | done | - | 1 d |
-| `T2-04` | Eval run history / non-worse CI gate | - | pending | - | 1 d |
+| `T2-04` | Eval run history / non-worse CI gate | - | done | - | 1 d |
 
 All findings now carry an ID and a proposed owner. **Two still need a task** —
 `D-24`, `D-25` and `D-26` were closed by `ses_batch1` and `T1-03` and are gone
@@ -456,6 +456,7 @@ or `dropped` and say why.
 - **Test re-derivations (not weakenings):** `_compare` sorts `blocked_flows` (partitioning decides order, the claim is decision-identity); `test_every_flow_lands_on_exactly_one_fast_path` counts distinct **canonical keys** (43 five-tuples → 27 flows) while still pinning the fixture's 43; three `test_report` expectations moved to a new `unfolded_result` fixture, since a rendering test needs a report that still *contains* NEW states and UNKNOWN apps. `_worker_result_pickle_bytes` now spies on `_collect_streaming` **and** asserts it captured something — its old hook missed and it had been passing vacuously on `0 == 0`.
 - **Verification:** `ruff` and `mypy --strict` clean. **554 passed, 12 skipped** (from 538; +16 new). `tests/test_reorder_buffer.py` (15 tests) was mutation-checked: 6 deliberate mutations of `ReorderBuffer`, **all 6 caught**.
 - **Left undone, recorded rather than implied:** the two multiprocess variants still do **not** emit events — `T1-01` deviation (4) stands, and it is a separate piece of work, not a loose end of this one. The live-consumer contract doc is also unwritten.
+- **Closed findings:** **`D-25`** — `DEC-05` folding wired end to end, and `canonical_flow_key` moved to `types.py` so `load_balancer` can key its second hash step without an import cycle. Both hash steps then agree and `packets_in`/`bytes_in` become real for the first time, which is what `D-25` said was broken. **Also closes `T1-01` deviation (4)** for the reorder buffer: events now come from per-packet verdicts rather than a second pass. (From commit `836e172`; `D-13` was a *follow-up* here, closed later in `T1-06b`, not by this task.) · **Follow-ups:** see below — `D-13` and the live-consumer contract doc.
 - **Follow-ups:** `D-13` (LB-death orphans its fast paths until the parent's 120 s timeout) is still unowned *(closed 2026-10-15, `ses_t1_06b`)*. The staged wiring did **not** need per-packet verdicts forwarded through the LB tier — each fast path publishes straight to the shared `fp_output_queue` the parent already reads, and the LB only forwards *input* — so `D-13` did not bite here. It will bite whenever an LB death has to be detected promptly rather than by timeout.
 ### `T1-04` — Rule DSL with provenance
 
@@ -601,12 +602,16 @@ or `dropped` and say why.
 
 ### `T2-04` — Eval run history / non-worse CI gate
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** a run-history store under `tests/eval/` plus a gate test that compares a fresh corpus score against the last recorded one; follows the `tests/test_benchmark_baseline.py` rot-guard precedent
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_t2_04 · **Blocked by:** —
+- **Files:** new `tests/eval/history.py` (run record, non-worse comparison, append-only JSONL store), new `tests/eval/baseline.json` + `history.jsonl`, new `tests/test_eval_gate.py` (29 tests), plus two guards added to `tests/test_golden_corpus.py`. **No `src/` code touched.**
 - **Planned test:** a deliberately worse corpus result fails the gate; an equal or better one passes
-- **How it was tackled:** — · **Deviations:** — · **Verification:** —
-- **Closed findings:** — · **Follow-ups:** —
-- **Notes:** Layer 6's "Change tracking: every eval run recorded; any agent, prompt, model or rule-template change must be non-worse | CI gate". Naturally last — it needs results to compare. Note the tension to resolve when this is built: the baseline it compares against is itself a number in a repository, and therefore rot-prone in exactly the way `BENCHMARKS.md` already taught us to guard. `tests/test_benchmark_baseline.py` is the precedent to follow rather than invent a second mechanism.
+- **How it was tackled:** `score_corpus` already runs the real pipeline over all 33 captures, so the gate is that plus a comparison against a committed `baseline.json`. **It executes: measured 0.11 s, no `--eval-enable` flag and no skip path** — deliberately unlike `tests/benchmarks/`, which reports *passed* without running anything unless the flag is passed. A test asserts that, because a gate which quietly stops executing is the worst shape a CI gate can take. **Non-worse is asymmetric on purpose:** a new false positive in any class is a hard failure (the `D-27` shape, never bought with a gain elsewhere), while a class's `true_positives` *dropping* is advisory, because a flow may legitimately move between classes and failing on that would punish a correctness fix.
+- **Deviations:** two, both forced by measurement rather than preference.
+  - **A corpus change is reported as its own failure, not a regression.** The run carries a `corpus_fingerprint` over case names, classes, descriptions **and labels**. Without it, adding or relabelling a case shifts every count at once and the gate reports a wall of invented regressions, sending someone hunting an engine bug that does not exist. A fingerprint mismatch returns a single finding whose message says plainly that it is not an engine regression and that the baseline should be refreshed deliberately.
+  - **Rot guard added, because the baseline is itself a number in a repo.** `test_the_baseline_matches_the_newest_recorded_run` fails if `baseline.json` and the newest `history.jsonl` entry disagree (one was updated without the other), and a second test fails if the baseline was recorded against a different corpus. Same idea as `test_benchmark_baseline.py`.
+- **Verification:** `ruff check .` clean · `mypy` (`--strict`) clean on 17 source files · `pytest -q` → **826 passed, 24 skipped** (was 795; **+31**; all 24 skips are the Docker-gated differential suite, daemon down). **17 of 17 mutations and plants caught, 0 void**, plus a **live** probe: two real edits to `src/dpi_engine/types.py` (adding DoubleClick to GOOGLE's rule, and altering Twitter's domain rule) each turned the gate red with named regressions, and the tree was restored and re-verified green afterwards.
+- **Closed findings:** — · **Follow-ups:** **the gate is blind to six of sixteen SNI rules** — `INSTAGRAM`, `WHATSAPP`, `TELEGRAM`, `TIKTOK`, `SPOTIFY`, `ZOOM` are triggered by no corpus hostname, so a regression in any of them leaves every number untouched. `TestRuleCoverage` pins that set in both directions. Fixing it means extending the corpus, which re-derives the baseline and belongs in its own change.
+- **Notes:** Layer 6's "every eval run recorded; any change must be non-worse | CI gate", both delivered. The tension the tracker flagged — that the baseline is itself a number in a repo — is answered by the baseline/history agreement test rather than left as a caveat. Two **real test gaps** were found by mutation and closed: an unlabelled detection was surfaced in `.unexpected` but never charged as a false positive, and an allowlisted `DEC-07` divergence was accepted without being charged against its actual class. Both are dangerous in one direction specifically: a scorer that *under-counts* its own errors makes the engine look **better**, so the non-worse gate reads it as progress and stays green.
 
 ### `DOC-01` — root `README.md` corrections
 
@@ -805,6 +810,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-19 | `ses_t2_04` | claude-opus-5[1m] | `T2-04` | **`T2-04` done — Phase 2 complete (4/4)** - the non-worse eval gate. **It executes**: 0.11 s, no `--eval-enable` flag and no skip path, unlike `tests/benchmarks/`, and a test asserts that. Non-worse is asymmetric on purpose: a new false positive anywhere is a hard failure, a class's true positives dropping is advisory. A `corpus_fingerprint` means a corpus change is reported as its own failure rather than a wall of invented regressions. **Proved on a live engine** - two real edits to `types.py` each turned it red with named regressions. Two **real test gaps** found by mutation: unlabelled detections and accepted `DEC-07` divergences were never charged as false positives, which matters because a scorer that under-counts errors makes the engine look better. 17/17 caught | **Phase 3** |
 | 2026-10-19 | `ses_t2_03` | claude-opus-5[1m] | `T2-03` | **`T2-03` done** — agent-tree safety suite, closes `A-03`. Built on **envelope declaration**: every package under `src/` must have exactly one entry, so adding `src/agents/` fails a test instead of quietly leaving half the tree uninspected. `OFFLINE_CORE` refuses all four capabilities; `NETWORKED_AGENT` widens **network only**. Dependency direction enforced: the core may not import a networked package. **The larger finding was that the existing scanner was not an AST scan despite being documented as one** — regex over raw text, catching **1 of 9** ordinary ways to reach the network, decided purely by import spelling. Replaced. 18/18 mutations caught, including five real violations planted in the tree | `T2-04` |
 | 2026-10-15 | `ses_t2_02` | claude-opus-5[1m] | `T2-02` | **`T2-02` done** — differential suite extended from 1 capture to all 33 generated ones. Added `run_cpp_reference_batch` because of a measurement: ~7.5 s per capture individually vs **0.66 s for all 33** in one container, since the cost is startup not compute. Caught a bug that failed in the worst possible shape — addressing captures by bare name produced **33 clean all-zero reports** instead of an error, so the suite verified nothing while looking green. Also corrected my own overclaim: the corpus is 33x the captures but only **1.5x the packets** (breadth, not volume). 7/7 mutations caught | `T2-03` |
 | 2026-10-15 | `ses_t2_01` | claude-opus-5[1m] | `T2-01` | **`T2-01` done** - 33 synthetic labelled captures + a per-class precision/recall scorer. **The corpus found `D-27` on its first run**: most apps are matched by bare substring, so `cdn.facebook.com.attacker.example` classifies as `FACEBOOK`. The project already fixed this class twice (Twitter's rule was anchored, Cloudflare's `"cf-"` dropped) and left every other rule carrying it. Parity-preserving, so fixing it is a parity break needing a `DEC-07`. Mutation testing also caught a real weakness in my own tests: every gate asserted something that currently passes, so a broken gate was indistinguishable from a working one | `T2-02`; and a `DEC-07` decision on `D-27` |

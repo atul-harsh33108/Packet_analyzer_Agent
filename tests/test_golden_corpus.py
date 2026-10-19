@@ -212,6 +212,99 @@ class TestGatesCanActuallyFail:
             "precision number is measuring nothing"
         )
 
+    def test_an_unexpected_domain_is_counted_as_a_false_positive(
+        self, tmp_path: Path
+    ) -> None:
+        """**Surfaces as a *false positive*, not just as a listing.
+
+        Found by `T2-04`'s mutation harness: deleting the `bump(app, 1)` that
+        charges an unlabelled detection to its class left every test green. The test
+        above only checks the hostname reaches `.unexpected`, so removing the tally
+        it feeds was invisible.
+
+        That direction is dangerous rather than merely untidy. An engine that
+        *under-counts* its own errors looks **better** on every metric, so the
+        non-worse gate in `test_eval_gate.py` reads it as an improvement and stays
+        green. A scorer that quietly stops counting false positives cannot be caught
+        downstream, only here.
+        """
+        from dpi_engine.pipeline import run_pipeline
+        from golden.corpus import GoldenCase, GoldenClass
+        from golden.scoring import score_case
+
+        case = GoldenCase(
+            name="empty",
+            golden_class=GoldenClass.C2_BEACONING,
+            description="labels nothing",
+            expected=(),
+        )
+        result = run_pipeline(
+            materialise(tmp_path / "caps")["c2_dns_tunnel"], tmp_path / "out.pcap"
+        )
+        _, tallies = score_case(case, result)
+
+        total_fp = sum(fp for _, fp, _ in tallies.values())
+        assert total_fp > 0, (
+            "detections with no label must be charged as false positives against the "
+            "class that produced them. An unlabelled detection that is merely listed "
+            "costs precision nothing, so the engine would score better the more "
+            "spurious traffic it reported."
+        )
+        assert any(fp for _, fp, _ in tallies.values()), (
+            "the false positives must land on the class the engine actually "
+            f"assigned, not on a placeholder; tallies were {tallies}"
+        )
+
+    def test_an_allowlisted_divergence_is_counted_against_its_actual_class(
+        self, tmp_path: Path
+    ) -> None:
+        """A known divergence must still cost precision.
+
+        `KNOWN_DIVERGENCES` records `microsoft-update.evil.example` as *expected* to
+        diverge -- it is a documented `DEC-07` trade-off. "Expected" must mean
+        "acknowledged", never "free". The scorer's own comment says as much: a
+        divergence is counted against the **actual** class "so it cannot be hidden by
+        being 'expected'".
+
+        This test guards that comment. Without it, dropping the charge would *raise*
+        MICROSOFT's precision, every metric would improve, and the non-worse gate
+        would read it as progress.
+        """
+        from dpi_engine.pipeline import run_pipeline
+        from dpi_engine.types import AppType
+        from golden.corpus import ExpectedFlow, GoldenCase, GoldenClass
+        from golden.scoring import score_case
+
+        case = GoldenCase(
+            # The real case name: `KNOWN_DIVERGENCES` is keyed on (case, hostname),
+            # so an invented name would miss the allowlist and the divergence would
+            # come back as an *unaccepted* bug instead.
+            name="c2_lookalike_tld",
+            golden_class=GoldenClass.C2_BEACONING,
+            description="labels the known-divergent hostname correctly",
+            expected=(
+                ExpectedFlow(
+                    hostname="microsoft-update.evil.example", app=AppType.HTTPS
+                ),
+            ),
+        )
+        result = run_pipeline(
+            materialise(tmp_path / "caps")["c2_lookalike_tld"], tmp_path / "out.pcap"
+        )
+        case_score, tallies = score_case(case, result)
+
+        assert case_score.accepted, (
+            "this hostname is in KNOWN_DIVERGENCES, so the divergence must be "
+            "accepted rather than reported as an unaccepted bug"
+        )
+        microsoft_fp = tallies.get(AppType.MICROSOFT, (0, 0, 0))[1]
+        assert microsoft_fp > 0, (
+            "an accepted divergence must still be charged as a false positive "
+            "against the class the engine actually returned (MICROSOFT). If it is "
+            "not, MICROSOFT's precision improves while the engine is demonstrably "
+            "wrong -- and the non-worse gate reads that as a gain"
+        )
+
     def test_micro_recall_can_fail(self) -> None:
         """The *aggregate* recall must be able to report a miss.
 
