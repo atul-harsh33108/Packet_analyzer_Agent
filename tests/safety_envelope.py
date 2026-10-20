@@ -100,6 +100,18 @@ PACKAGE_ENVELOPES: dict[str, Envelope] = {
     # (`DEC-08` defers it) would require widening this to NETWORKED_AGENT plus an
     # auth surface in front of a policy engine.
     "dpi_mcp": OFFLINE_CORE,
+    # Phase 4's agent layer (Layers 3-5), `T4-01`. OFFLINE_CORE, and that is the
+    # *shape* of the package rather than a limitation of it: the runtime talks to
+    # a model **port**, the deterministic fake implements the port in-package, and
+    # the real client lives in its own package at `NETWORKED_AGENT` (`T4-07`,
+    # `DEC-11`). So the code that touches a capture cannot reach the network --
+    # which is the mirror image of the rule this suite already enforces for the
+    # core ("a core that transitively loads an HTTP client is offline in name
+    # only"). Here the danger is not that the engine phones home; it is that an
+    # agent reading a capture can be *told* what to do by whatever the capture
+    # contained. An agent that cannot reach the network cannot be redirected by
+    # a hostname in a DNS query.
+    "dpi_agents": OFFLINE_CORE,
 }
 
 #: Capability -> the dotted call prefixes that violate it.

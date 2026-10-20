@@ -798,6 +798,67 @@ wrong answer, and this decision is one of the places that rule is kept.
 
 | `DEC-10` | What happens when a streaming consumer is slower than the producer? **Decided 2026-10-20: drop-and-count** — a bounded queue; a full queue drops the event and counts it by type, and the counts are in the answer | none - accepted, see below |
 
+### `DEC-11` — the model enters through a port, and the runtime cannot reach the network
+
+**Decided 2026-10-20 (user), from the fact that a real model is not reproducible.**
+
+Phase 4 is the first thing in this project that needs a model, and the project
+has kept the LLM out of the deterministic path on purpose — the engine stays
+deterministic, permanently, or the differential suite and the latency budget are
+lost. That is a constraint on the *packet* path. The question here is different:
+how does a model enter a codebase whose whole test suite is a gate?
+
+**The decision: a model *port* in the runtime, a deterministic fake in CI, and a
+real model only when a key is present.** The runtime depends on a `Protocol` and
+on nothing else, so the agent package never imports a provider. CI drives the
+fake, which is deterministic, free, and *records the requests it was given* —
+which is what lets a test assert what the prompt actually contained. The real
+client is an optional extra, exercised when a key is present, exactly as the
+differential suite is exercised when Docker is present.
+
+**And the runtime lives in its own package, at `OFFLINE_CORE`.** The real client
+is in a different package, at `NETWORKED_AGENT`. So the code that reads a
+capture **cannot reach the network**, and the safety suite proves it by checking
+*imports* as well as calls.
+
+That last part is the one worth arguing for, because it is the mirror image of
+a rule the project already enforces. The core's own test says it: *a core that
+transitively loads an HTTP client is offline in name only*. The agent layer has
+the same failure with the arrows reversed — an agent that can reach the network
+can be *told* what to do by whatever it read in a capture, and a hostname in a
+DNS query is attacker-controlled by assumption. So the agent runtime is
+`OFFLINE_CORE` for the same reason the engine is: not because it is careful, but
+because it is structurally unable.
+
+The alternative — a real model as the primary path — was rejected because a real
+model is not reproducible even at `temperature=0`, so the suite could no longer
+be a gate. It would become a measurement to be interpreted, which is a different
+kind of artefact from a gate, and the design's own list of what will kill the
+project starts with *shipping an agent before you can tell whether a change
+helped or broke things*.
+
+### `DEC-12` — the verdict's ground truth is derived from the corpus
+
+**Decided 2026-10-20 (user), from the corpus's own construction.**
+
+Phase 4's first exit criterion is *verdict accuracy against the golden corpus*.
+The corpus labels **app classes**, and a verdict (a severity, a set of
+categories) is a judgement rather than a class — so where does its ground truth
+come from?
+
+**Derived, not asserted.** Each synthetic corpus case knows how it was built, so
+its expected verdict is derivable from that. This is the same *true by
+construction* argument `T2-01` used for the class labels, and the same reason:
+hand-asserted ground truth is a second place for the truth to live, and it is
+the one the project has already refused to accept.
+
+The alternative — a rubric, with a human writing the expected verdict for each
+case — was rejected on the same grounds. A rubric measures something looser
+than accuracy, and *accuracy* is the word the exit criterion uses.
+
+| `DEC-11` | How does the model enter Phase 4? **Decided 2026-10-20: a model port, a deterministic fake in CI, and a real model only when a key is present** — and the runtime lives in its own package at `OFFLINE_CORE`, so the code that reads a capture provably cannot reach the network | none - accepted, see above |
+| `DEC-12` | Where does the verdict's ground truth come from? **Decided 2026-10-20: derived from the corpus** — each synthetic case knows how it was built, so its expected verdict is derivable; no hand-asserted verdicts | none - accepted, see above |
+
 ## Open trade-offs, deliberately not resolved
 
 - **A hand-rolled block cipher for QUIC** was considered and rejected. `cryptography` is a

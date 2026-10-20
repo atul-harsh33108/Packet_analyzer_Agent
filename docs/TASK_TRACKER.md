@@ -1,10 +1,10 @@
 ---
 schema: dpi-engine-tracker/v1
 status: active
-phase: 1
-current_task: T3-07
-next_action: T3-07 (IN PROGRESS, claimed ses_phase3) - `stream_dpi_events`, the seventh of `DEC-08`'s seven. Measured before designing: **only the single-process pipeline takes a `bus`** - the multiprocess and staged variants aggregate in child processes and publish one `WorkerFinished` each, so there is nothing to stream - so the tool is single-process by construction, not by a parameter that is refused. The engine's `EventBus` has **no queue, no threading and no backpressure** by design, so the buffering is the tool's, and the decision that matters is what happens when the consumer is slower than the producer: drop-and-count (the run store's `events_omitted` precedent) or block-and-signal. Delivery rides MCP progress notifications (`ctx.session.report_progress`), and a client that never asked for progress must be told it saw nothing rather than left to assume
-blockers: [zero blocked tasks; no task waits on another. ONE DECISION OPEN, and it belongs to the user: the queue policy when a streaming consumer is slower than the producer - drop-and-count (the run store's precedent) or block-and-signal (backpressure with an escape hatch). Zero open decisions are *blocking* work: `DEC-01`..`DEC-09` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18, and D-29 (allocated 2026-10-20 by T3-08, unowned); D-28 closed by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 7/8]
+phase: 4
+current_task: T4-01
+next_action: T4-01 (IN PROGRESS, claimed ses_phase4) - the agent runtime, the keystone the other six Phase 4 tasks stand on: an explicit state graph, a ReAct loop bounded by a step budget, a token budget and a wall-clock timeout, typed verdicts, and a durable trace. **The runtime is `OFFLINE_CORE` and provably cannot reach the network** (`DEC-11`): the model is a *port*, the deterministic fake implements it in-package, and the real client lives in its own package at `NETWORKED_AGENT` (`T4-07`). That is the structural form of the rule the project already tests for the core - a core that transitively loads an HTTP client is offline in name only - applied to the agent layer, where the risk is the mirror image: an agent that can reach the network can be *told* to by whatever it read in a capture. Then `T4-02`, the untrusted-data discipline, which must land before any agent that puts capture text in front of a model.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18, and D-29 (allocated 2026-10-20 by T3-08, unowned); D-28 closed by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 complete (8/8); Phase 4 at 0/7]
 last_updated: 2026-10-20
 last_updated_by: claude-opus-5[1m]
 session: ses_phase3
@@ -39,16 +39,16 @@ session workflow — what to read, in what order, when to stop — read
 
 | Field | Value |
 |---|---|
-| **Phase** | 3 — MCP server (in progress) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — **Phase 3: 8/8 (complete)** |
-| **Current task** | **Phase 3 is complete (8/8).** The next task is the operator's to choose: decompose Phase 4 (read-only agents), or close the three gaps Phase 3 left behind (below) |
-| **Next action** | **Phase 3 is done, and its exit status is "complete"** — but three gaps it left are recorded rather than absorbed, and the first of them is about the gate itself: **`src/dpi_mcp/` is outside the 85% coverage floor**, because `[tool.coverage.run] source` is `dpi_engine` alone, so the whole phase's deliverable sits outside the gate that is supposed to police it (it measures 100% today, and closing the gap is one line, but it is a gate change and that is the operator's call). The others: **the CLI has no command that writes a run to the store**, so the store is populated only by the MCP server; and **`D-29`** (a call reached through a value is invisible to the scanner) is still unowned. Then: decompose Phase 4, which is an *outline* with no task IDs, exactly as Phase 2 was |
+| **Phase** | 4 — Read-only agents (in progress) |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 8/8 (complete) — **Phase 4: 1/7** |
+| **Current task** | `T4-02` — the untrusted-data discipline (**pending**: the framing and the injection classifier, and the injection eval set that makes "100% refusal" a number rather than a promise) |
+| **Next action** | `T4-02`: the `<untrusted_capture_data>` framing, the injection classifier on ingest, and the injection eval set. It lands **before** `T4-03` and `T4-04` on purpose: a framing added after an agent exists is a framing an agent already bypasses. And the framing alone is not the control — a prompt that *asks* to be ignored is not a control, which is why the exit criterion is about the **classifier**'s refusal. Three of Phase 3's gaps are still open behind it: **`src/dpi_mcp/` is outside the 85% coverage floor**, the **CLI has no command that writes a run to the store**, and **`D-29`** is unowned |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without an ID. **Three are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed) and **`D-29`** (found by `T3-08`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — is caught by **neither** scanner pass; measured, and the two comments that claimed otherwise were corrected). `D-28` is **closed** (`T3-08`). `D-29` is the one item here with no task, and it wants one |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (8 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_phase3` — `T3-07` done, **Phase 3 complete (8/8)** |
+| **Session** | `ses_phase4` — `T4-01` done, **Phase 4 at 1/7** |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -163,6 +163,8 @@ without a new `DEC-##` row superseding it.
 | `DEC-08` | Phase 3 scope: all 11 Layer 2 tools, or only the buildable ones? | **decided** | **The 7 buildable tools**; `get_fingerprints`, `query_anomalies`, `list_rule_versions`, `revert_rule` deferred to their own phases (`T3-01`) | user | 2026-10-19 | `T3-01`-`T3-05` | `T3-01` (done) |
 | `DEC-09` | Does the `mcp` SDK's dependency tree widen `OFFLINE_CORE`, and how is "stdio only" enforced? | **decided** | **Option A + B**: the SDK is an **optional extra** (`mcp`), never a core dependency; `OFFLINE_CORE` keeps its **calls-only** meaning (it constrains what this tree *does*, not what its dependencies contain); and "stdio only" stops being a comment - the HTTP stack's entry points join the `network` rules, and `server.py` may import only the SDK's stdio/server/types modules | user | 2026-10-20 | `T3-05` | `T3-05` (done) |
 | `DEC-10` | What happens when a streaming consumer is slower than the producer? | **decided** | **Drop-and-count**: the queue is bounded, a full queue **drops** the event and counts it by type, and the counts are in the answer. The live channel is a *view*, not the answer; the engine's bus must not block on an agent; and the two bounded structures this codebase already has (the reorder window, the store's event log) both drop and count rather than block | user | 2026-10-20 | `T3-07` | `T3-07` (done) |
+| `DEC-11` | How does the model enter Phase 4? | **decided** | **A model port in the runtime, a deterministic fake in CI, and a real model only when a key is present.** The gate stays reproducible and free; the *quality* is measured when a key is there. The runtime and the fake live in `src/dpi_agents/` at `OFFLINE_CORE`, and the real client lives in its own package at `NETWORKED_AGENT`, so **the agent runtime is provably unable to reach the network** | user | 2026-10-20 | `T4-01` | `T4-01` (done) |
+| `DEC-12` | Where does the verdict's ground truth come from? | **decided** | **Derived from the corpus.** Each synthetic case knows how it was built, so its expected verdict is derivable - the same *true by construction* argument `T2-01` used for the class labels. No hand-asserted verdicts: hand-asserted ground truth is what `T2-01` deliberately avoided | user | 2026-10-20 | `T4-05` | `T4-05` |
 
 ### Detail
 
@@ -219,12 +221,12 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
 | **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
 | **3** | MCP server | 8 | **8** | 0 | 0 | 0 | 0 | **complete** |
-| 4 | Read-only agents | outline | — | — | — | — | — | not started |
+| **4** | Read-only agents | 7 | **1** | 0 | 0 | 6 | 0 | in progress |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 42 tasks - **41** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
+**Totals:** 49 tasks - **42** done - 0 in progress - 0 blocked - 6 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -303,6 +305,14 @@ the rows below are the findings that outlived their first disposition.
 | `D-28` | The envelope scanner's regex net reads `x.compile(` as bare `compile(`, so `re.compile(...)` violates `OFFLINE_CORE`. `run_store.py` was written to avoid the module because of it | **closed 2026-10-20 (`T3-08`)** — `(?<![\w.])` in place of `\b`, **plus** the two rules the net had been covering by accident (`builtins.compile`, `builtins.__import__`). The one-character fix alone would have opened a hole | done |
 
 ---
+
+| `T4-01` | The agent runtime: explicit state graph, ReAct loop with budgets, typed verdicts, the durable trace, the model port | `DEC-11` | done | the runtime completes a node under a fake model, respects all three budgets, and writes a replayable trace; 9/9 mutants caught | 1 d |
+| `T4-02` | The untrusted-data discipline: `<untrusted_capture_data>` framing, the injection classifier on ingest, the injection eval set | - | pending | capture-derived text cannot reach a model unframed, and the injection evals are 100% refused | 1 d |
+| `T4-03` | Triage: read-only, `query_flows` only, typed `TriageVerdict` | - | pending | a verdict is produced from a real capture, with the flows it names | 1 d |
+| `T4-04` | The Explainer: a streamed narrative over the read tools | - | pending | a narrative cites the flows and the counters it used | 1 d |
+| `T4-05` | The verdict evaluation: verdict labels derived from the corpus, the scorer, the trace check | `DEC-12` | pending | verdict accuracy is measured, and every verdict has a replayable trace | 1 d |
+| `T4-06` | Memory and RAG: episodic (the trace store) and semantic (the knowledge store), citations enforced | - | pending | every claim in a narrative cites a source, and a citation that does not support it is caught | 1 d |
+| `T4-07` | The real model client, and the opt-in quality run | `DEC-11` | pending | with a key present, a real model's verdicts are measured against the same corpus | 0.5 d |
 
 ## 5. Task records
 
@@ -871,6 +881,95 @@ or `dropped` and say why.
 - **Follow-ups:** **`D-29`**, allocated here and open/unowned: a call reached through a *value* is invisible to both passes — `getattr(os, "system")("id")` and `from os import *` + `system("id")` both report **nothing** (measured). It fails *open*, so unlike `D-28` it is a real hole in what the gate is worth; written up in `AUDIT.md` §2 with a suggested approach (resolve a callee that is itself a `Call`; expand star aliases). Wants its own task and its own mutation proof. · `def compile(...)` is still reported (a definition is not a call; the net has no AST) — same class as `D-28`, left because the shipped tree defines no such name and a correct fix needs the AST. · `run_store.py` may now use `re.compile`; the allowlist stays because it is the better shape, not because it is forced. · The `T3-04` coverage-scope item (`src/dpi_mcp` outside `[tool.coverage.run] source`) is unchanged. · Pre-existing and unrelated: `ruff format --check` is red on **54** files, already characterised as a non-gate in §8.
 - **Notes:** A safety gate's false positive and false negative are one bug class, not two: the net's over-matching was hiding two names it was the only detector for, so the honest scope was "change the mechanism without changing the set of forbidden calls", and the test asserts the *resolved* name to keep the two mechanisms distinguishable. The general lesson is that `AUDIT.md`'s write-up was accurate about the symptom and wrong about the size of the fix — a description of a defect is not a design for its repair, which is why this got its own task instead of being edited in place. The net remains deliberately coarse: it still reports a comment or docstring that mentions `compile(`, which is its stated purpose (it cannot see whether text is code).
 
+### `T4-01` - The agent runtime
+
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_phase4 · **Blocked by:** — (`DEC-11` decided 2026-10-20 by the user, before the work started)
+- **Files:** new `src/dpi_agents/` (`__init__.py`, `model.py` — the port and the fake, `runtime.py` — the loop and the budgets, `trace.py`, `py.typed`), `tests/safety_envelope.py` (`PACKAGE_ENVELOPES` gains `dpi_agents`), `pyproject.toml` (both package lists), new `tests/test_agent_runtime.py`, `tests/test_agent_safety_envelope.py` (the import-level rule).
+- **Test added:** **16** — 13 in `tests/test_agent_runtime.py` and 3 in the safety suite. What is tested is not "does it call the model" but the properties the design leans on: a node that asks for tools gets observations back and can then answer; **every** way a run can fail to produce a verdict says so and produces *no* verdict; and the trace is written as the run happens and reads back afterwards.
+- **How it was tackled:** Four modules, each with one job. The **port** (`model.py`) is a `Protocol`, so the runtime depends on a model and on nothing else — which is what makes the package `OFFLINE_CORE` *provably* rather than by review. The **fake** (`ScriptedModel`) replays a script and **records the requests it was given**, which is what lets a test assert what the prompt contained; the prompt is where the untrusted-data framing lives (`T4-02`), so a test that cannot see the prompt cannot test the prompt. The **trace** (`trace.py`) is JSON Lines, appended and flushed per step: a trace format that needs the framework to read is a trace format nobody reads. The **runtime** (`runtime.py`) is the ReAct loop with the three budgets (steps, tokens, wall-clock) and a verdict that is *parsed* rather than trusted.
+- **Deviations:** two, recorded rather than absorbed.
+  1. **The graph is a sequence, not a state machine with conditional edges.** The design's Layer 3 graph branches (Triage into ClassifierGap, AnomalyDeep or Policy), but Phase 4 is **Explainer and Triage only** and those two are linear. The branching nodes are Phase 5 and Phase 6, and a graph that grows its edges when they are needed is a smaller thing to get right than one built for them in advance.
+  2. **The tool surface is a port, and the MCP-backed adapter comes with the first agent that needs it** (`T4-03`). The design's `tools/` are typed wrappers over the MCP tool surface, and that is where they will be — but building them before there is an agent to call them would be a wrapper with no user.
+- **Verification:** `uv run ruff check .` clean · `uv run mypy` clean on **32** source files (was 28) · `uv run pytest -q` → **1187 passed, 24 skipped** (was 1171; **+16**) · mutation harness **9/9 caught, 0 survived**, sources restored byte-for-byte — the step, token and wall-clock budgets each get a mutant, and so do the verdict parse, the tool-error flag, the trace itself, the state passed between nodes and the model's own words in the trace.
+- **Closed findings:** —
+- **Follow-ups:** the three Phase 3 gaps, still open behind this phase: **`src/dpi_mcp/` is outside the 85% coverage floor**, the **CLI has no command that writes a run to the store**, and **`D-29`** is unowned.
+- **Notes:** Two things the code does not say on its own. **The runtime cannot reach the network, and that is checked rather than believed**: the envelope scanner catches *calls*, so the safety suite also checks *imports* — no module in `src/dpi_agents/` may import an HTTP client, and the SDK's HTTP transports are forbidden in either direction (the `mcp` SDK itself is allowed: it is a protocol library, and the agent layer has to speak it to reach the tools). That is the mirror image of the rule the suite already enforces for the core — *a core that transitively loads an HTTP client is offline in name only* — and the risk here is the same failure with the arrows reversed: an agent that can reach the network can be *told* to by whatever it read in a capture. **And a run that ends without a verdict says so**: the budgets, an unparsable answer and a node with no parser each produce `verdict=None` with a stated reason, because a run that timed out and returned half a verdict is how a security tool tells a story it did not earn.
+- **Notes (surveyed 2026-10-20):** what the survey found, before any code. The design's Phase 4 is **Explainer + Triage only**, and its exit criteria are *verdict accuracy on the golden corpus*, *100% refusal on injection evals* and *a replayable trace for every verdict*. What exists to build it on: the 7-tool MCP server, the run store, the golden corpus (33 synthetic captures, labels true by construction), the scorer, the non-worse gate, and the per-package safety envelope with its registry — so a new package is a declaration, not a project. What **cannot** be built yet, and is excluded rather than stubbed: `get_fingerprints` is Phase 5, so **Triage runs without fingerprints** and its verdict schema says so; the write path, `RuleStore`, the blast-radius breaker and the human gate are Phase 6; model routing and cost tiering are Layer 10.
+- **Notes:** The keystone of Phase 4, and the task the other six stand on. **The runtime is `OFFLINE_CORE` and provably cannot reach the network** (`DEC-11`): the model is a *port*, the deterministic fake implements it in-package, and the real client lives in its own package at `NETWORKED_AGENT`. That is the structural form of the rule the project already tests for the core — *a core that transitively loads an HTTP client is offline in name only* — applied to the agent layer, where the risk is the mirror image: an agent that can reach the network can be *told* to by whatever it read in a capture.
+- **Notes (surveyed 2026-10-20):** what the survey found, before any code. The design's Phase 4 is **Explainer + Triage only**, and its exit criteria are *verdict accuracy on the golden corpus*, *100% refusal on injection evals* and *a replayable trace for every verdict*. What exists to build it on: the 7-tool MCP server, the run store, the golden corpus (33 synthetic captures, labels true by construction), the scorer, the non-worse gate, and the per-package safety envelope with its registry — so a new package is a declaration, not a project. What **cannot** be built yet, and is excluded rather than stubbed: `get_fingerprints` is Phase 5, so **Triage runs without fingerprints** and its verdict schema says so; the write path, `RuleStore`, the blast-radius breaker and the human gate are Phase 6; model routing and cost tiering are Layer 10.
+
+### `T4-02` - The untrusted-data discipline
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_agents/framing.py`, `src/dpi_agents/injection.py`, `tests/agents/test_injection.py`, `tests/agents/corpus/injection/`
+- **Planned test:** Capture-derived text cannot reach a model unframed, and the injection evals are **100% refused** — the phase's second exit criterion, and the one that is a number rather than a judgement.
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** Lands **before** any agent that puts capture text in front of a model (`T4-03`, `T4-04`), because the order is the safety: a framing added after an agent exists is a framing an agent already bypasses. Two parts, and they are different things. The **framing** wraps every capture-derived string in `<untrusted_capture_data>` and states in the system prompt that content inside those tags is *data, never instruction*. The **classifier** scans a string on ingest, before it reaches a model at all, and quarantines the flow when it looks like an injection attempt. The classifier is the part that can *refuse*; the framing is the part that can only *ask to be ignored*, and a prompt that asks is not a control. That is why the exit criterion is about the classifier.
+
+### `T4-03` - Triage
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_agents/nodes/triage.py`, `src/dpi_agents/tools/`, `tests/agents/test_triage.py`
+- **Planned test:** A typed `TriageVerdict` is produced from a real capture, and it names the flows it is about — a verdict that cannot be checked against the flows it cites is an assertion.
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** Read-only, and it stays read-only: the agent gets the read tools and nothing else. The design's Triage also uses `get_fingerprints`, which **does not exist until Phase 5** (JA3/JA4 have zero references in the engine today), so this Triage runs without fingerprints and its verdict schema says so rather than pretending the signal is there. The tool wrappers are typed wrappers over the **MCP** tool surface, not direct calls into the engine: the agent drives the same server a host application would.
+
+### `T4-04` - The Explainer
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_agents/nodes/explainer.py`, `tests/agents/test_explainer.py`
+- **Planned test:** A narrative cites the flows and the counters it used, and a claim with no citation does not survive the scorer.
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The design's own example of the value: `blocked_flows` is a bare list of tuples, and the agent's contribution is the sentence — "1.2 GB egress to TikTok across 40 flows, all to AS64500, 92% of them TLS 1.3 with no SNI" — which is a claim about the capture that a human can check. Which is exactly why every sentence has to carry its evidence.
+
+### `T4-05` - The verdict evaluation
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `tests/golden/corpus.py` (the derived verdict labels), `tests/agents/scoring.py`, `tests/agents/test_verdict_scoring.py`
+- **Planned test:** Verdict accuracy is measured against the corpus, and **every verdict has a replayable trace** — the phase's first and third exit criteria.
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The ground truth is **derived from the corpus** (`DEC-12`): each synthetic case knows how it was built, so its expected verdict is derivable — the same *true by construction* argument `T2-01` used for the class labels. Hand-asserted verdicts are what `T2-01` deliberately avoided, and a hand-written expectation for 33 cases is a second place for the truth to live.
+
+### `T4-06` - Memory and RAG
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_agents/memory/`, `src/dpi_agents/rag/`, `tests/agents/test_rag.py`
+- **Planned test:** Every claim in a narrative cites a source, and a citation that does not support the claim is caught rather than trusted.
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** Two of the four memory kinds, not four: **episodic** (the trace store — the run's own history) and **semantic** (the knowledge store). Procedural memory is the *how we do this* memory, and there is no procedure yet to remember. Citation enforcement is the point of the layer: a RAG system that retrieves without checking whether the retrieved text supports the claim is a hallucination with extra steps.
+
+### `T4-07` - The real model client, and the opt-in quality run
+
+- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
+- **Files:** `src/dpi_model_client/`, `tests/agents/test_model_client.py`, `tests/agents/quality/`
+- **Planned test:** With a key present, a real model's verdicts are measured against the same corpus the fake is measured against.
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** Its **own package**, at `NETWORKED_AGENT`, so the agent runtime stays `OFFLINE_CORE` and is **provably unable to reach the network** (`DEC-11`). That is the structural form of the rule the project already tests for the core — *a core that transitively loads an HTTP client is offline in name only* — applied to the agent layer, where the risk is the mirror image: an agent that can reach the network can be *told* to by whatever it read in a capture. The run is **opt-in** (no key, no run), exactly as the differential suite skips without Docker.
+
 ## 6. Findings status
 
 Findings live in `AUDIT.md`. This table tracks **closure**, not description.
@@ -970,6 +1069,8 @@ A deviation is not a failure — it is the plan being corrected by evidence.
 | 2026-10-20 | `T3-07` | the streaming tool answers with its events | the events are delivered as MCP **progress notifications**, and the answer carries the run plus the counts | MCP gives a server exactly one out-of-band channel, and it is the right one: the point of the tool is to deliver events *as they happen*, not to deliver them at the end in a bigger array. The consequence is that a client which asked for no progress would receive nothing, so the answer says `progress_requested: false` and `events_delivered: 0` — otherwise a client could not tell an empty view from a broken one. | no - the plan did not say how the events travel |
 | 2026-10-20 | `T3-07` | the events reach the wire in some form | the **engine** publishes `event_to_dict`, and the boundary uses it | The events had no wire form, and the alternative was a projection in the MCP layer: a second copy of the engine's fields, which is the `D-16` failure mode in the one place it would be easiest to introduce. `CaptureProfile.to_dict` already set the pattern — the owner publishes the projection. The wire form is deliberately small: `WorkerFinished` carries the fast path's whole result, and that is not a thing to hand to a client. | no - a small engine addition, not a change of any decision |
 | 2026-10-20 | `T3-07` | the stream's events are stored with the run | the run is stored; its **events are not** | The store's event log would claim a completeness the lossy stream cannot support: `events_omitted` counts what the *store* could not represent, not what the *stream* dropped, so a log missing three dropped `FlowCreated` events would report itself as complete. The store's log is therefore **"not offered"** — the distinction `T3-02` built — and the drops are in the tool's answer, by type. | no - the store's contract, applied at the boundary |
+| 2026-10-21 | `T4-01` | the agent graph is a state machine with conditional edges, as Layer 3 draws it | it is a **sequence** of nodes | Phase 4 is Explainer and Triage only, and those two are linear. The branching nodes — ClassifierGap, AnomalyDeep, Policy — are Phase 5 and Phase 6, and a graph that grows its edges when they are needed is a smaller thing to get right than one built for them in advance. A node that ends without a verdict stops the sequence, because the nodes after it would be reasoning from a state that does not exist. | no - the plan did not specify the graph's shape |
+| 2026-10-21 | `T4-01` | the agent's tools are typed wrappers over the MCP tool surface | the runtime has a **tool port**, and the MCP-backed wrapper arrives with the first agent that needs it (`T4-03`) | The design's `tools/` directory is the right home for the wrappers and that is where they will land — but a wrapper with no caller is a wrapper with no test, and the port is what the runtime actually needs. | no - the wrappers land in `T4-03`, where there is something to call them |
 | - | - | - | - | - | - |
 
 **Rule:** if a deviation changes a task's scope, estimate, or gate, also update
@@ -985,6 +1086,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-21 | `ses_phase4` | claude-opus-5[1m] | `T4-01` | **`T4-01` done - Phase 4 at 1/7** - the agent runtime, the keystone the other six Phase 4 tasks stand on. **The runtime is `OFFLINE_CORE` and provably so** (`DEC-11`): the model is a *port*, the deterministic fake implements it in-package, and the real client lives in its own package at `NETWORKED_AGENT` (`T4-07`). That is the mirror image of the rule the safety suite already enforces for the core - *a core that transitively loads an HTTP client is offline in name only* - and the risk here is the same failure with the arrows reversed: an agent that can reach the network can be *told* to by whatever it read in a capture. So the suite checks **imports** as well as calls: no module in `src/dpi_agents/` may import an HTTP client, and the SDK's HTTP transports are forbidden in either direction (the SDK itself is allowed - it is a protocol library, and the agent layer has to speak it to reach the tools). **A run that ends without a verdict says so**: the step, token and wall-clock budgets, an unparsable answer and a node with no parser each produce `verdict=None` with a stated reason, because a run that timed out and returned half a verdict is how a security tool tells a story it did not earn. The fake **records the requests it was given**, which is what lets a test assert what the prompt contained - and the prompt is where `T4-02`'s framing will live. 9/9 mutants caught, 0 survived, sources restored byte-for-byte. 1187 passed / 24 skipped (+16) | `T4-02`, the untrusted-data discipline, which must land before any agent that puts capture text in front of a model |
 | 2026-10-20 | `ses_phase3` | claude-opus-5[1m] | `T3-07` | **`T3-07` done - **Phase 3 complete (8/8)** - and the task's real content was a **decision**, not code: what happens when a streaming consumer is slower than the producer. **Drop-and-count** (`DEC-10`), because the live channel is a *view* and the answer is the run's summary, because the engine's bus must not block on an agent, and because the two bounded structures this codebase already has — the reorder window and the store's event log — both drop and count. **Three measurements changed the design before any code was written**: only the single-process pipeline takes a `bus` (the other two modes publish one aggregate per worker, so there is nothing to stream and the tool offers no `mode` it would have to refuse); the engine's `EventBus` has no queue by design, so the buffer is the tool's to build; and the SDK's progress channel is a **no-op when the caller did not ask for progress**, which was measured (`ctx.meta` is `{'progress_token': 2}` with a callback, `None` without) — so a client that asked for none is *told* it saw nothing. **The mutation harness found a gap in my own tests:** M8 survived, because the protocol test only checked the *kinds* of the events that arrived, so the wire form's contents were unpinned; the engine's tests now pin every event's fields and the mutant is caught. The engine gained `event_to_dict`, because a projection of the engine's fields in the MCP layer would be a second home for them. 1171 passed / 24 skipped (+19) | **Phase 3 is complete** - the three gaps it leaves are recorded, and the first is about the gate itself: `src/dpi_mcp/` is outside the 85% coverage floor |
 | 2026-10-20 | `ses_phase3` | claude-opus-5[1m] | `T3-05` | **`T3-05` done - Phase 3 at 7/8** - the MCP server, and the first thing in this project that had to be written against an API it did not know: `mcp` **2.3.0** takes its handlers as constructor callbacks rather than decorators and its models take snake_case names, so writing against the remembered 1.x API would have produced a file that could not run. **Measured first, wrote second.** The catalogue lives in a module with no SDK import, so the contracts are checkable without a protocol library — and the drift guard is: every hand-written JSON schema against `inspect.signature` of the function it describes, because a schema is a second copy of the parameter list. **Four deviations, all recorded**: the gate said 7 tools and there are 6 (`stream_dpi_events` is `T3-07`'s); the resources are `dpi://runs` rather than the sketch's `capture://`/`flows://`, because a resource is for browsing the server's own state and the flows are a *query*; `SimulationReport.to_dict()` went into the **engine**, so the boundary does not keep a second copy of those fields; and the server **stores** the run `run_dpi` produced, because nothing else did and three of the six tools had nothing to query. `DEC-09`'s enforcement is proved twice over: six mutants delete one of the new network rules, two mutate the server's imports, and **8/8** are caught. The server binds one `store_root` and the agent never sees a path. 1151 passed / 24 skipped (+25) | `T3-07` |
 | 2026-10-20 | `ses_phase3` | claude-opus-5[1m] | `T3-08` | **`T3-08` done - `D-28` closed - Phase 3 at 6/8** - and the recorded fix was **half a fix**. `AUDIT.md` described one character class; a probe run *before* editing showed the lookbehind would also silence `builtins.compile(...)` and `builtins.__import__(...)`, the two `dynamic_exec` names whose rules were missing, because the net was the only thing catching them (by the same dot bug). So the fix is the lookbehind **plus** two rules, and the tests assert the *resolved* name — `builtins.compile` is the rule, `compile` would have been the net — so neither half can be dropped silently. 14 new tests, 11 of which failed first; **8/8 mutants caught, 1 proven equivalent**. The tree had never been red, because `test_no_package_violates_its_own_envelope` has no allowlist: **`run_store.py` had been written to avoid `re.compile` rather than the scanner being fixed**, which is exactly the evasion `AUDIT.md` warned the false positive would teach. Found and measured two more holes while rewriting the net's rationale comment: `getattr(os, "system")` and `from os import *` + `system(...)` are caught by **neither** pass, so two comments claiming otherwise were corrected and the gaps recorded — **`D-29`**, allocated in this session and left open/unowned because it fails *open* (a different class from `D-28`, and a detector for it is exactly as easy to write vacuously as the net was). | `T3-05`, preceded by the `OFFLINE_CORE`-vs-SDK decision |

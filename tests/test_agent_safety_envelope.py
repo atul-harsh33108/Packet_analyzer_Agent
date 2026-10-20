@@ -448,6 +448,76 @@ class TestTheServerCannotBecomeANetworkServer:
         assert "mcp.server.sse" in imported
 
 
+class TestTheAgentLayerCannotReachTheNetwork:
+    """`DEC-11`: the runtime is `OFFLINE_CORE`, and provably so.
+
+    The envelope scanner checks *calls*; this checks *imports*. An import of an
+    HTTP client in a package held to `OFFLINE_CORE` is exactly the failure the
+    core's own test names: *"a core that transitively loads an HTTP client is
+    offline in name only"*. Here the risk is the mirror image -- an agent that
+    can reach the network can be *told* to by whatever it read in a capture, so
+    the code that reads captures must not be able to phone home at all.
+
+    The `mcp` SDK is allowed, because it is a *protocol* library and the agent
+    layer has to speak it to reach the tools. Its HTTP transports are not: the
+    same rule the MCP server is held to (`TestTheServerCannotBecomeANetworkServer`).
+    """
+
+    #: Modules that can reach the network, by their full import name.
+    _NETWORK_MODULES = (
+        "httpx",
+        "httpx2",
+        "urllib.request",
+        "requests",
+        "socket",
+        "aiohttp",
+        "http.client",
+        "uvicorn",
+        "starlette",
+        "sse_starlette",
+    )
+
+    #: The SDK's HTTP transports, in either direction.
+    _MCP_HTTP_TRANSPORTS = (
+        "mcp.client.streamable_http",
+        "mcp.client.sse",
+        "mcp.server.sse",
+        "mcp.server.streamable_http",
+        "mcp.server.streamable_http_manager",
+    )
+
+    def _agent_modules(self) -> list[Path]:
+        return sorted((SRC_ROOT / "dpi_agents").rglob("*.py"))
+
+    def test_the_agent_layer_imports_no_network_stack(self) -> None:
+        modules = self._agent_modules()
+        assert modules, "the agent package is missing; the rule would pass vacuously"
+        for path in modules:
+            imported = _imported_modules(path.read_text(encoding="utf-8"))
+            for forbidden in self._NETWORK_MODULES:
+                assert forbidden not in imported, (
+                    f"{path.name} imports {forbidden!r}. The agent runtime is "
+                    "`OFFLINE_CORE`: the code that reads a capture must not be able "
+                    "to reach the network, because a capture can tell it to."
+                )
+
+    def test_the_agent_layer_imports_no_http_transport(self) -> None:
+        for path in self._agent_modules():
+            imported = _imported_modules(path.read_text(encoding="utf-8"))
+            for forbidden in self._MCP_HTTP_TRANSPORTS:
+                assert forbidden not in imported, (
+                    f"{path.name} imports {forbidden!r}. The agent layer speaks the "
+                    "MCP tool surface; it does not serve HTTP."
+                )
+
+    def test_the_scan_can_fail(self) -> None:
+        """A scan that cannot fail is not a scan."""
+        source = "import httpx\nfrom mcp.client.sse import sse_client\n"
+        imported = _imported_modules(source)
+        assert "httpx" in imported
+        assert "mcp.client.sse" in imported
+
+
 # ---------------------------------------------------------------------------
 # The boundary must hold in the real tree, and in the direction that matters
 # ---------------------------------------------------------------------------
