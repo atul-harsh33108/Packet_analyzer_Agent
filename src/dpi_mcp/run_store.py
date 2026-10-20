@@ -88,6 +88,8 @@ __all__ = [
     "RunSummary",
     "capture_digest",
     "diff_records",
+    "flow_from_json",
+    "flow_to_json",
     "record_from_result",
 ]
 
@@ -398,7 +400,7 @@ class RunRecord:
             "app_counts": [list(pair) for pair in self.app_counts],
             "detected_domains": [list(pair) for pair in self.detected_domains],
             "blocked_flows": [flow.to_json() for flow in self.blocked_flows],
-            "flows": [_flow_to_json(flow) for flow in self.flows],
+            "flows": [flow_to_json(flow) for flow in self.flows],
         }
 
     def computed_run_id(self) -> str:
@@ -422,7 +424,7 @@ class RunRecord:
             "app_counts": [list(pair) for pair in self.app_counts],
             "detected_domains": [list(pair) for pair in self.detected_domains],
             "blocked_flows": [flow.to_json() for flow in self.blocked_flows],
-            "flows": [_flow_to_json(flow) for flow in self.flows],
+            "flows": [flow_to_json(flow) for flow in self.flows],
             "event_log": (
                 None if self.event_log is None else [event.to_json() for event in self.event_log]
             ),
@@ -461,7 +463,7 @@ class RunRecord:
                 BlockedFlow.from_json(item) for item in _list_of_mapping(raw, "blocked_flows")
             ),
             flows=tuple(
-                _flow_from_json(item) for item in _list_of_mapping(raw, "flows")
+                flow_from_json(item) for item in _list_of_mapping(raw, "flows")
             ),
             event_log=event_log,
             events_omitted=_pairs_int(_list(raw, "events_omitted"), "events_omitted"),
@@ -516,10 +518,14 @@ class RunSummary:
 # Kept here rather than on `FlowRecord` because the wire format belongs to the store.
 # `types.py` is the engine's vocabulary and has no notion of persistence; putting a
 # JSON codec on the type would make the engine own a storage decision.
+#
+# Public since `T3-04`: the run-store tools answer with the same rows this writes, and
+# `get_flow_detail` reads its argument back through the same projection. A second
+# copy of the field list would be a second place for the two to drift apart.
 # ---------------------------------------------------------------------------
 
 
-def _flow_to_json(flow: FlowRecord) -> dict[str, Any]:
+def flow_to_json(flow: FlowRecord) -> dict[str, Any]:
     return {
         "src_ip": flow.src_ip,
         "dst_ip": flow.dst_ip,
@@ -535,7 +541,7 @@ def _flow_to_json(flow: FlowRecord) -> dict[str, Any]:
     }
 
 
-def _flow_from_json(raw: Mapping[str, Any]) -> FlowRecord:
+def flow_from_json(raw: Mapping[str, Any]) -> FlowRecord:
     return FlowRecord(
         src_ip=_int(raw, "src_ip"),
         dst_ip=_int(raw, "dst_ip"),
@@ -891,8 +897,8 @@ class FlowChange:
         return {
             "five_tuple": list(self.five_tuple),
             "changed_fields": list(self.changed_fields),
-            "before": _flow_to_json(self.before),
-            "after": _flow_to_json(self.after),
+            "before": flow_to_json(self.before),
+            "after": flow_to_json(self.after),
         }
 
 
@@ -932,8 +938,8 @@ class RunDiff:
         return {
             "run_a": self.run_a,
             "run_b": self.run_b,
-            "added": [_flow_to_json(flow) for flow in self.added],
-            "removed": [_flow_to_json(flow) for flow in self.removed],
+            "added": [flow_to_json(flow) for flow in self.added],
+            "removed": [flow_to_json(flow) for flow in self.removed],
             "changed": [change.to_json() for change in self.changed],
             "counters": [delta.to_json() for delta in self.counters],
             "flows_changed": self.flows_changed,

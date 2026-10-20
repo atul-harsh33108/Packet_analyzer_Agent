@@ -2,9 +2,9 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 1
-current_task: T3-04
-next_action: T3-04 (pending) - three run-store tools (`query_flows`, `get_flow_detail`, `diff_runs`) in `src/dpi_mcp/tools/` over the `T3-02` store. Decide how "no such flow" reaches an agent: `RunStore.flow` returns None deliberately and the tool layer owns the translation. Then `T3-05` (stdio wiring, SDK confined to `server.py`) and `T3-07` (`stream_dpi_events`).
-blockers: [zero open decisions - DEC-01..DEC-08 all decided; zero blocked tasks; no task waits on another. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18, and D-28 recorded 2026-10-20 - a scanner false positive still awaiting its own task; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 4/7]
+current_task: D-28
+next_action: D-28 (unowned finding, no task ID yet) - the safety envelope's secondary regex net reports `re.compile(...)` as `dynamic_exec` because `\bcompile\s*\(` matches after a `.`; one-character fix (a negative lookbehind for `.`), plus a mutation that proves the fix bites and an owning task ID. It now has three call sites of pressure: `run_store.py` documents avoiding a regex because of it, so the fix is what lets the store use a stdlib module it has every reason to use. Then T3-05 (bind one `store_root` per server), which needs the `OFFLINE_CORE`-vs-SDK decision recorded first (a `DEC-09` candidate).
+blockers: [zero open decisions - DEC-01..DEC-08 all decided; zero blocked tasks; no task waits on another. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18, and D-28 recorded 2026-10-20 - a scanner false positive still awaiting its own task; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 5/7]
 last_updated: 2026-10-20
 last_updated_by: claude-opus-5[1m]
 session: ses_phase3
@@ -40,15 +40,15 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 3 — MCP server (in progress) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — **Phase 3: 4/7** |
-| **Current task** | `T3-04` — three run-store tools (`query_flows`, `get_flow_detail`, `diff_runs`) |
-| **Next action** | `T3-04`: the three run-store tools in `src/dpi_mcp/tools/`, over the `T3-02` store. The one open design question is how "no such flow" reaches an agent — `RunStore.flow` returns `None` deliberately, and the tool layer owns that translation |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — **Phase 3: 5/7** |
+| **Current task** | `T3-04` — three run-store tools (`query_flows`, `get_flow_detail`, `diff_runs`) (**done**, `ses_phase3`) |
+| **Next action** | `D-28`: the safety envelope's regex net reports `re.compile(...)` as `dynamic_exec`, three call sites of pressure in now, no owning task ID. One-character fix plus a mutation that proves it bites. Then `T3-05` — which needs the `OFFLINE_CORE`-vs-SDK decision recorded first |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without a recorded disposition, but **three are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed) and `D-28` (a safety-scanner false positive with its one-character fix written up in `AUDIT.md`). That is recorded state, not drift — `D-28` in particular was left for its own task rather than fixed inside a run-store task |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (8 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_phase3` — `T3-03` done, **Phase 3 at 4/7**, uncommitted (tracker repairs + this task) |
+| **Session** | `ses_phase3` — `T3-04` done, **Phase 3 at 5/7**, uncommitted (this task + the `T3-03` tracker repairs) |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -76,6 +76,17 @@ malformed-input fixtures and two multiprocess-parity runs. `DEC-05`/`DEC-06` rem
 deliberate allowlisted divergences; `tests/test_parity_breaks.py` (5 tests) verifies
 the port side of each claim, which the differential suite cannot do because it pins
 folding off to preserve parity.
+
+**`T3-04` closed (`ses_phase3`) — Phase 3 at 5/7.** The three run-store tools. All three are
+adapters over `T3-02`'s store, which already has the queries, so the work was **contract
+design**: how an agent sees each answer. The decision the task was carrying is now made —
+a **malformed** five-tuple is an error, a **well-formed** one that the run never saw is a
+result, and `found` is what keeps the two apart. A capped list reports `matched` and
+`returned` together, so a partial answer can be *shown* to be partial. Mutation found three
+gaps: two filter tests that could not fail (`action` and `state` — the fixture forwards and
+classifies everything) and one **in my own harness**, where `abs()` on the drop-rate delta
+survived the "worse run is visible" test because that delta is positive. Visibility and sign
+are different properties. 27/27 caught, 2 proven equivalent.
 
 **`T3-03` closed (`ses_phase3`) — Phase 3 at 4/7.** Three synchronous Layer 2 tool
 contracts, each a thin adapter over an entry point that already existed, plus the one
@@ -205,13 +216,13 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
 | **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
-| **3** | MCP server | 7 | **4** | 0 | 0 | 3 | 0 | in progress |
+| **3** | MCP server | 7 | **5** | 0 | 0 | 2 | 0 | in progress |
 | 4 | Read-only agents | outline | — | — | — | — | — | not started |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 41 tasks - **37** done - 0 in progress - 0 blocked - 3 pending - 1 partial.
+**Totals:** 41 tasks - **38** done - 0 in progress - 0 blocked - 2 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -272,7 +283,7 @@ Status vocabulary is closed (7 values) — see
 | `T3-01` | MCP package + safety envelope + `DEC-08` | `A-03` | done | package exists, envelope declared, wheel ships it, mypy checks it | 0.5 d |
 | `T3-02` | Run store: persist and query a run's flows/stats/events | `T3-06` | done | content-addressed ids; malformed input raises and never reads as empty; 100% covered; 22/22 mutants caught | 1 d |
 | `T3-03` | Three synchronous single-run tool contracts (`inspect_capture`, `run_dpi`, `simulate_ruleset`) | - | done | all three typed and callable as plain Python with no MCP SDK installed, proven **structurally** (no tool module imports `mcp`) *and* behaviourally (a subprocess that forces `import mcp` to raise *and checks that the block worked*); 24/24 mutants caught, 2 proven equivalent | 1 d |
-| `T3-04` | Three run-store tools (`query_flows`, `get_flow_detail`, `diff_runs`) | - | pending | filters and diff tested; a worse run is visible | 1 d |
+| `T3-04` | Three run-store tools (`query_flows`, `get_flow_detail`, `diff_runs`) | - | done | filters and diff tested; a worse run is visible | 1 d |
 | `T3-05` | MCP stdio wiring: SDK, tool schemas, resource URIs | - | pending | a real client handshake lists all 7 tools | 1 d |
 | `T3-06` | Surface per-flow rows from a run (`with_flow_table`) | - | done | all three variants agree; the flag changes nothing else | 1 d |
 | `T3-07` | `stream_dpi_events` over a blocking pipeline | - | pending | a consumer that stops consuming neither deadlocks the run nor buffers without bound | 0.5 d |
@@ -787,14 +798,14 @@ or `dropped` and say why.
 
 ### `T3-04` - Three run-store tools
 
-- **Status:** pending · **Claimed by:** — · **Session:** — · **Blocked by:** —
-- **Files:** `src/dpi_mcp/tools/`, `tests/test_tools_run_store.py`
-- **Planned test:** Filters select what they claim to; a worse run is visible in `diff_runs`. The last one matters — `T2-04`'s lesson was that a gate which hides a regression reads as an improvement, and `diff_runs` is the ad-hoc version of that.
-- **How it was tackled:** `query_flows(filter, limit)`, `get_flow_detail(five_tuple)`, `diff_runs(run_a, run_b)`.
-- **Deviations:** —
-- **Verification:** —
-- **Closed findings:** — · **Follow-ups:** —
-- **Notes:** —
+- **Status:** done · **Claimed by:** claude-opus-5[1m] · **Session:** ses_phase3 · **Blocked by:** —
+- **Files:** `src/dpi_mcp/tools/runs.py` (new), `tests/test_tools_run_store.py` (new, 48 tests); `src/dpi_mcp/run_store.py` (the flow codec promoted to `flow_to_json`/`flow_from_json`), `src/dpi_mcp/tools/__init__.py` (re-exports).
+- **Planned test:** filters select what they claim to; a worse run is visible in `diff_runs`. The last one matters — `T2-04`'s lesson was that a gate which hides a regression reads as an improvement, and `diff_runs` is the ad-hoc version of that. Specifically: a run that drops more must show a **positive** `drop_rate_change_percent` and an increased `dropped_packets` counter, not merely "a diff exists".
+- **How it was tackled:** `query_flows(run_id, store_root, filter..., limit)`, `get_flow_detail(run_id, flow, store_root)`, `diff_runs(run_a, run_b, store_root)`. The store already has `query`, `flow` and `diff`, so this is **contract design, not capability**. The decision it was carrying: a **malformed** five-tuple is an error (a typo must not read as "no such flow"), while a **well-formed** one that matches nothing is a *result* — so `get_flow_detail` returns an explicit `found` flag rather than a bare `null`, which a client cannot distinguish from an empty field.
+- **Deviations:** 3 rows in §7 (`store_root` explicit; the codec promoted rather than copied; `matched`/`returned` added to the `query_flows` result)
+- **Verification:** `uv run ruff check .` clean · `uv run mypy` clean on **25** source files (was 24) · `uv run pytest -q` **1112 passed, 24 skipped** (was 1064/24; the 24 are Docker-gated differential). Mutation harness: **27/27 caught, 0 survived, 2 proven equivalent**, sources restored byte-for-byte. Coverage of the two touched modules measured explicitly — `src/dpi_mcp/tools/runs.py` and `src/dpi_mcp/run_store.py` at **100% statements and branches** — because the configured floor does not reach this package (see Follow-ups).
+- **Closed findings:** — · **Follow-ups:** **the 85% coverage floor does not cover `src/dpi_mcp/` at all.** `[tool.coverage.run] source = ["dpi_engine"]`, set at `T0-01` when the engine was the whole of `src/`; `src/dpi_mcp/` is now five shipping modules and the direction the product is being built towards, and every branch of it is outside the gate. Measured this session: the package is at **100% statements and branches today**, so adding `"dpi_mcp"` to `source` costs nothing and is a one-line change — but it *is* a gate change, which is a scope decision rather than a `T3-04` detail. Also: `T3-05` binds one `store_root` per server rather than exposing it to the agent, so the operator sets it and the agent cannot read an arbitrary directory
+- **Notes:** `store_root` is an explicit argument, not a module global, for the same reason `T3-03` made `output` explicit: a tool whose configuration is ambient cannot be tested twice in one process, and `T3-05` will bind it per server rather than exposing it to the agent. `query_flows` never asks the store to cap — it queries in full and slices itself — because the tool has to report **how many it withheld**, and `matched > returned` is the only form of "partial" that a caller can verify (`T3-02`'s `events_omitted` argument, one layer up). **Two filter arguments had tests that could not fail** — the fixture forwards every flow and classifies every flow, so `action="BLOCK"` and `state="BLOCKED"` are the only queries whose answer changes when the argument is dropped; both tests were added before the harness ran, and the harness confirmed they now bite. **A third gap the harness found was in the harness itself**: `abs()` on the drop-rate delta survives the "a worse run is visible" test, because that delta is positive — visibility and *sign* are different properties, and only the reversed-pair test pins the sign. The flow-row key set is pinned (`FLOW_KEYS`) because the codec is public now and a renamed field would otherwise only be noticed by a client.
 
 ### `T3-05` - MCP stdio wiring
 
@@ -917,6 +928,9 @@ A deviation is not a failure — it is the plan being corrected by evidence.
 | 2026-10-20 | `T3-03` | `run_dpi(path, ruleset, mode)`, `simulate_ruleset(ruleset, capture)` | `run_dpi(capture, output, ruleset, *, mode=...)`, `simulate_ruleset(capture, candidate, *, output_dir, ...)` | The design's signatures cannot be implemented as written: every `run_pipeline*` entry point **writes a filtered pcap**, so an output path is part of the contract. The tool takes it explicitly rather than writing to a temporary directory the caller never named, because a tool whose side effects cannot be found is worse than one that is slightly less convenient. The capture argument is called `capture` in all three tools although the design writes `path` for two of them — one name for one thing matters more at a protocol boundary than matching an inconsistent document. | no - `IMPLEMENTATION_PLAN.md` has no `T3-*` table; the tool list is unchanged |
 | 2026-10-20 | `T3-03` | three synchronous contracts only | also closed **`M-08`** and repaired the `§3`/`§6`/`AUDIT.md` count drift | `T3-03` found that six task records (`T3-01`..`T3-06`) were trapped inside Appendix A's code fence and that `D-27` had been counted in no column of §6 since it was allocated. §10 says a defect closed by a change with no test is not closed, so `M-08` needed a test; the tracker had none, and `tests/test_tracker_integrity.py` is now it. Absorbing a documentation defect into a code task is unusual and is recorded rather than done quietly. | no - `AUDIT.md` and this file are the documents; the plan has no task table for them |
 | 2026-10-20 | `T3-03` | each tool's options forwarded and verified | `enable_quic`'s mapping is **unproven** | No capture in this repository carries QUIC (`tests/fixtures/`, the differential edge cases and the generated corpus all lack it), so `enable_quic=True` and `False` produce byte-identical results and no test can tell a forwarded argument from a defaulted one. `fold_bidirectional`, the other option of the same shape, *is* observable (27 flow rows folded against 43 unfolded) and is pinned. Forging a QUIC Initial would test the forgery rather than the mapping, so the gap is recorded: an agent that disables QUIC would not be told that nothing happened. | no - needs a QUIC fixture, which is its own work |
+| 2026-10-20 | `T3-04` | `query_flows(filter, limit)`, `get_flow_detail(five_tuple)`, `diff_runs(run_a, run_b)` | `query_flows(run_id, *, store_root, filter..., limit)`, `get_flow_detail(run_id, flow, *, store_root)`, `diff_runs(run_a, run_b, *, store_root)` | Every tool needs to know *which store*, and the design's signatures have no room for it. It is an explicit keyword rather than a module global, for the reason `T3-03` made `output` explicit: configuration that is ambient cannot be exercised twice in one process, and it hides where a read or a write goes. `T3-05` will bind one root per server — the agent gets a `run_id`, not a path, so an agent cannot point a tool at a directory the operator did not choose. | no - `IMPLEMENTATION_PLAN.md` has no `T3-*` table; the tool list is unchanged |
+| 2026-10-20 | `T3-04` | the tools read the store through its public API | the flow codec was **promoted** from private to public (`_flow_to_json`/`_flow_from_json` → `flow_to_json`/`flow_from_json`) | The tools answer with the store's own rows and `get_flow_detail` reads its argument back through the same five fields. Keeping the codec private would have meant a second copy of an eleven-field projection in the tool layer — the `D-16` two-homes failure mode, this time over a wire format where drift is silent: both copies would keep working while disagreeing. Promoting it cost two renames; the alternative costs a class of bug. | no - an internal visibility change, no scope change |
+| 2026-10-20 | `T3-04` | a query returns the flows it selected | it also returns `matched` and `returned` | A capped list is otherwise indistinguishable from a short one, which is `T3-02`'s `events_omitted` argument one layer up: **a partial answer that cannot be shown to be partial is a wrong answer.** Reporting both counts is what forces the tool to query in full and cap afterwards rather than letting the store cap — two counts, one extra line, and the caller can verify the truncation itself instead of trusting it. | no - a widened result, not a changed task |
 | - | - | - | - | - | - |
 
 **Rule:** if a deviation changes a task's scope, estimate, or gate, also update
@@ -932,6 +946,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-20 | `ses_phase3` | claude-opus-5[1m] | `T3-04` | **`T3-04` done — Phase 3 at 5/7** — the three run-store tools, all thin adapters over `T3-02`'s store, so the task was **contract design**: how an agent sees each answer. The decision it was carrying is made: a **malformed** five-tuple raises, a **well-formed** one the run never saw is a *result* with `found: False`, because a client that gets `null` for both retries the query instead of fixing it. `query_flows` reports `matched` *and* `returned` so a capped answer is provably partial rather than apparently complete. **Mutation found two tests of mine that could not fail** — the fixture forwards every flow and classifies every flow, so only `action="BLOCK"` and `state="BLOCKED"` change when the argument is dropped; both were added before the harness ran. **And one gap was in the harness itself:** `abs()` on the drop-rate delta survives "a worse run is visible", because that delta is positive — visibility and sign are different properties, and only the reversed-pair test pins the sign. The flow-row key set is now pinned because the codec went public (`flow_to_json`/`flow_from_json`) instead of being copied. 27/27 mutants caught, 2 proven equivalent. **Measuring coverage exposed a scope gap rather than a number:** `[tool.coverage.run] source` is `dpi_engine` only, so the entire `src/dpi_mcp/` package — five modules now, and the direction the product is heading — sits outside the 85% floor. It measures **100%** today, so closing the gap is one line, but that is a gate change and is left as a Follow-up for the operator to approve | `D-28` |
 | 2026-10-20 | `ses_phase3` | claude-opus-5[1m] | `T3-03` | **`T3-03` done — Phase 3 at 4/7** — the three synchronous Layer 2 contracts, each a thin adapter over an engine entry point that already existed. `CaptureProfile` went into the *engine*, not the MCP package, because `dpi-engine inspect` was already computing those facts inline — the `D-16` two-homes failure mode, avoided by making the CLI call the shared function rather than keeping a copy. **The scaffold's own trap was real:** `capture_digest` measures the file *on disk* and "Total bytes" measures `orig_len`, 21% apart on this fixture, so the fields are `file_bytes`/`captured_bytes` and a hand-built `caplen=20, orig_len=200` record pins the difference where confusing them is 3.3x. **It created a defect and caught it in the same session** — hashing before parsing shipped a bare `OSError` where the CLI promises a clean `PcapError`, caught by an existing test the moment the order changed. The "runs with no MCP SDK" claim is proven twice over, structurally and by a probe that *checks its own block worked*, because the SDK's absence makes an import check vacuous. **Also found `M-08`**: six task records were trapped inside Appendix A's code fence and had been invisible for three sessions; the tracker is now guarded by 8 tests, verified 10/10 by re-introducing the real defects. 24/24 mutants caught, 2 proven equivalent | `T3-04` |
 | 2026-10-20 | `ses_phase3` | claude-opus-5[1m] | `T3-02` | **`T3-02` done** — the run store, the keystone for three of the seven tools, and the first Phase 3 task whose contract is mostly about what must *not* happen. Content-addressed run ids make re-storing an identical run idempotent and make a *differing* payload under the same id a hard error, so nondeterminism surfaces instead of hiding. Events are kept at flow scale because `FlowClassified` fires per **packet**; what is dropped is counted by type and the original sequence numbers are kept, so a partial log is provably partial rather than apparently complete. Malformed input raises and never reads as empty — and that guard caught a real hole in my own first draft, a non-dict `event_log` entry escaping as `AttributeError`. `run_store.py` at **100%** coverage, **22/22 mutants caught, 0 void**. Also **recorded `D-28`** rather than fixed: this was the first shipped module to call `re.compile`, which exposed a long-latent false positive in the safety scanner's regex net | `T3-03` |
 | 2026-10-19 | `ses_phase3` | claude-opus-5[1m] | `T3-06` | **`T3-06` done** — found while planning `T3-02`, which assumed `PipelineResult` already carried per-flow rows. It does not: `global_stats` is aggregate only, and the rows are aggregated away at the fold. Added `with_flow_table` (off by default, mirroring `with_global_stats`) and the frozen, JSON-ready `FlowRecord`. All three variants return **27 identical rows**; `stats`/`global_stats`/`app_counts` unchanged by the flag. Split out rather than silently widening `T3-02`. 11/11 mutants caught, 1 proven equivalent | `T3-02` |
