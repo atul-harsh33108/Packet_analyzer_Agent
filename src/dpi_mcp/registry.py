@@ -28,8 +28,6 @@ Three things live here, and each is deliberately owned by exactly one place:
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,14 +36,21 @@ from typing import Any
 from dpi_engine.capture_profile import CaptureProfile
 from dpi_engine.pcap_io import DEFAULT_MAX_PACKET_SIZE, DEFAULT_MAX_TOTAL_PACKETS
 from dpi_engine.rules.simulator import SimulationReport
-from dpi_mcp.run_store import RunRecord, RunStore, record_from_result
-from dpi_mcp.tools.runs import diff_runs, get_flow_detail, query_flows
+from dpi_mcp.run_store import RunStore, record_from_result
+from dpi_mcp.tools.runs import (
+    diff_runs,
+    get_flow_detail,
+    query_flows,
+    ruleset_fingerprint,
+    run_outcome,
+)
 from dpi_mcp.tools.single_run import (
     RunMode,
     inspect_capture,
     run_dpi,
     simulate_ruleset,
 )
+from dpi_mcp.tools.streaming import stream_dpi_events
 
 __all__ = [
     "RESOURCE_TEMPLATES",
@@ -83,6 +88,11 @@ class ToolSpec:
     `handler` is called with keyword arguments: the agent's arguments, plus the
     ones named in `bound`. `bound` parameters never appear in `input_schema`, so
     an agent cannot supply them even by accident.
+
+    `kind` is `"call"` for a tool that answers with a value, and `"stream"` for
+    one that produces events while it runs. The difference is not cosmetic: a
+    streaming tool's answer arrives *after* its events, and the server has to
+    drive it rather than call it.
     """
 
     name: str
@@ -90,6 +100,7 @@ class ToolSpec:
     input_schema: dict[str, Any]
     handler: Callable[..., Any]
     bound: tuple[str, ...] = ()
+    kind: str = "call"
     #: The function whose signature `input_schema` describes, when it is not the
     #: handler. `run_dpi`'s handler is a composition (it also stores the run), so
     #: the schema describes the *tool*, not the composition. Checked by
@@ -215,38 +226,6 @@ _FIVE_TUPLE = _object(
 # ---------------------------------------------------------------------------
 
 
-def run_outcome(record: RunRecord, *, output: str | Path | None = None) -> dict[str, Any]:
-    """A stored run's results, without its flow table.
-
-    The flows stay behind `query_flows`: a capture with a hundred thousand flows
-    must not arrive as one message. Everything else comes from the store's own
-    encoder, so there is no second projection of a record to drift from the
-    first -- the `D-16` failure mode, in the one place it would be easiest to
-    introduce.
-    """
-    payload = record.to_json()
-    payload.pop("flows", None)
-    payload.pop("event_log", None)
-    if output is not None:
-        payload["output"] = str(output)
-    return payload
-
-
-def _rules_fingerprint(ruleset: object) -> str:
-    """A stable fingerprint of the rules document a run was produced with.
-
-    The store wants a caller-supplied fingerprint and will not invent one, because
-    a hash of "whatever was loaded" looks authoritative while being unable to see
-    a rule added to a live manager mid-run. This hashes the *document the agent
-    sent*, which is exactly what was in force. No rules is the empty string, not
-    a hash of `null`.
-    """
-    if ruleset is None:
-        return ""
-    canonical = json.dumps(ruleset, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-
-
 def _run_dpi_and_store(**arguments: Any) -> dict[str, Any]:
     """`run_dpi`, and then the storing that makes the run-store tools able to answer.
 
@@ -270,7 +249,7 @@ def _run_dpi_and_store(**arguments: Any) -> dict[str, Any]:
     record = record_from_result(
         result,
         capture_path=capture,
-        ruleset=_rules_fingerprint(ruleset),
+        ruleset=ruleset_fingerprint(ruleset),
     )
     RunStore(store_root).save(record)
     return run_outcome(record, output=output)
@@ -382,6 +361,62 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         handler=_run_dpi_and_store,
         bound=("store_root", "with_flow_table"),
         described=run_dpi,
+    ),
+    ToolSpec(
+        name="stream_dpi_events",
+        description=(
+            "Classify a capture and deliver the engine's events as they happen, as "
+            "progress notifications. The events are the engine's own: one per packet "
+            "parsed, and one per flow created, classified, blocked or evicted. The "
+            "answer, when the run ends, is the run's id and its results. **The events "
+            "arrive only if the client asked for progress notifications**; a client "
+            "that did not is told so, rather than left to assume it saw them. "
+            "Single-process only: the engine's other two modes publish one aggregated "
+            "result each rather than a live stream."
+        ),
+        input_schema=_object(
+            {
+                "capture": {
+                    "type": "string",
+                    "description": "Path to the pcap file to classify.",
+                },
+                "output": {
+                    "type": "string",
+                    "description": "Path to write the forwarded packets to.",
+                },
+                "ruleset": {
+                    **(_RULES_DOCUMENT),
+                    "description": "The policy in force. Omit for no rules at all.",
+                },
+                "enable_quic": {
+                    "type": "boolean",
+                    "description": "Decrypt QUIC Initial packets to read their SNI.",
+                    "default": True,
+                },
+                "fold_bidirectional": {
+                    "type": "boolean",
+                    "description": (
+                        "Fold a connection's two directions into one flow. On by "
+                        "default: a block then applies to both directions."
+                    ),
+                    "default": True,
+                },
+                "max_packet_size": {
+                    "type": "integer",
+                    "description": "Largest record to accept, in bytes.",
+                    "default": DEFAULT_MAX_PACKET_SIZE,
+                },
+                "max_total_packets": {
+                    "type": "integer",
+                    "description": "Largest number of records to read.",
+                    "default": DEFAULT_MAX_TOTAL_PACKETS,
+                },
+            },
+            ["capture", "output"],
+        ),
+        handler=stream_dpi_events,
+        bound=("store_root", "queue_size"),
+        kind="stream",
     ),
     ToolSpec(
         name="simulate_ruleset",

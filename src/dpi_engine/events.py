@@ -29,7 +29,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 from collections.abc import Callable, Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dpi_engine.types import AppType, FiveTuple
 
@@ -52,6 +52,7 @@ __all__ = [
     "PacketParsed",
     "Recorder",
     "WorkerFinished",
+    "event_to_dict",
 ]
 
 
@@ -194,6 +195,88 @@ class LoadBalancerFinished(Event):
 
     lb_id: int
     result: _LoadBalancerResult
+
+
+# ---------------------------------------------------------------------------
+# The wire form
+# ---------------------------------------------------------------------------
+#
+# Owned here, because the engine owns the events. A boundary that kept its own
+# copy of these fields would be a second home for them, and the two would drift
+# apart silently -- the `D-16` failure mode, in the one place it would be
+# easiest to introduce.
+
+
+def _five_tuple_to_dict(five_tuple: FiveTuple) -> dict[str, int]:
+    """A five-tuple as a **named** object.
+
+    Named rather than a bare array: five numbers in a row do not say which is
+    the port, and a consumer that has to guess will guess.
+    """
+    return {
+        "src_ip": five_tuple.src_ip,
+        "dst_ip": five_tuple.dst_ip,
+        "src_port": five_tuple.src_port,
+        "dst_port": five_tuple.dst_port,
+        "protocol": five_tuple.protocol,
+    }
+
+
+def event_to_dict(event: Event) -> dict[str, Any]:
+    """One event as JSON-ready data.
+
+    Deliberately small. `WorkerFinished` carries the fast path's whole result --
+    every connection it saw, and a bitmap of per-packet decisions -- and that is
+    not a thing to hand to a client: the run's *result* is what the caller asked
+    for, and the event's job here is to say that the fast path finished.
+
+    An event type this function does not know is given its type name and
+    nothing else. That is the safe direction: a consumer sees that something
+    happened, rather than seeing nothing at all.
+    """
+    if isinstance(event, CaptureOpened):
+        return {"kind": "CaptureOpened", "path": event.path, "linktype": event.linktype}
+    if isinstance(event, CaptureClosed):
+        return {"kind": "CaptureClosed"}
+    if isinstance(event, PacketParsed):
+        return {
+            "kind": "PacketParsed",
+            "sequence_index": event.sequence_index,
+            "byte_len": event.byte_len,
+            "inspected": event.inspected,
+            "is_tcp": event.is_tcp,
+            "is_udp": event.is_udp,
+            "forwarded": event.forwarded,
+        }
+    if isinstance(event, FlowCreated):
+        return {"kind": "FlowCreated", "five_tuple": _five_tuple_to_dict(event.five_tuple)}
+    if isinstance(event, FlowClassified):
+        return {
+            "kind": "FlowClassified",
+            "five_tuple": _five_tuple_to_dict(event.five_tuple),
+            "app": event.app_type.name,
+            "sni": event.sni,
+        }
+    if isinstance(event, FlowBlocked):
+        return {
+            "kind": "FlowBlocked",
+            "five_tuple": _five_tuple_to_dict(event.five_tuple),
+            "app": event.app_type.name,
+            "sni": event.sni,
+        }
+    if isinstance(event, FlowEvicted):
+        return {"kind": "FlowEvicted", "five_tuple": _five_tuple_to_dict(event.five_tuple)}
+    if isinstance(event, LimitExceeded):
+        return {
+            "kind": "LimitExceeded",
+            "limit_kind": event.kind,
+            "detail": event.detail,
+        }
+    if isinstance(event, WorkerFinished):
+        return {"kind": "WorkerFinished", "worker_id": event.worker_id}
+    if isinstance(event, LoadBalancerFinished):
+        return {"kind": "LoadBalancerFinished", "lb_id": event.lb_id}
+    return {"kind": type(event).__name__}
 
 
 # ---------------------------------------------------------------------------

@@ -46,7 +46,9 @@ from mcp.types import (
     Tool,
 )
 
+from dpi_engine.events import event_to_dict
 from dpi_mcp.registry import RESOURCE_TEMPLATES, TOOL_SPECS, ServerContext
+from dpi_mcp.tools.streaming import DEFAULT_QUEUE_SIZE
 
 __all__ = ["build_server", "main"]
 
@@ -125,6 +127,8 @@ def build_server(*, store_root: str | Path) -> Server:
 
         arguments = dict(params.arguments or {})
         bound = {name: _bound_value(name, context) for name in spec.bound}
+        if spec.kind == "stream":
+            return await _run_stream(_ctx, spec, arguments, bound)
         try:
             # The engine is blocking and a pipeline run is measured in seconds.
             # On the event loop that would freeze the server's ability to answer
@@ -215,13 +219,60 @@ def _bound_value(name: str, context: ServerContext) -> Any:
 
     The bound names are the server's to choose. `store_root` is where runs live;
     `with_flow_table` is forced on because the store refuses a run with no flow
-    table, and an empty table would read as a capture with no flows.
+    table, and an empty table would read as a capture with no flows;
+    `queue_size` is how many events may wait for a consumer before the producer
+    starts dropping them (`DEC-10`).
     """
     if name == "store_root":
         return context.store_root
     if name == "with_flow_table":
         return True
+    if name == "queue_size":
+        return DEFAULT_QUEUE_SIZE
     raise KeyError(f"no server-bound parameter named {name!r}")
+
+
+def _progress_requested(ctx: Any) -> bool:
+    """Whether the caller asked for progress notifications.
+
+    Measured, not assumed: the SDK's `report_progress` is a **no-op** when the
+    caller did not request progress, so a streaming tool that sent events
+    without checking would report a delivery that never happened.
+    """
+    meta = getattr(ctx, "meta", None)
+    return isinstance(meta, dict) and meta.get("progress_token") is not None
+
+
+async def _run_stream(
+    ctx: Any, spec: Any, arguments: dict[str, Any], bound: dict[str, Any]
+) -> CallToolResult:
+    """Drive a streaming tool, and deliver its events as progress notifications.
+
+    The events are the tool's; the *delivery* is the protocol's, and the two are
+    reported separately. `events_delivered` is what the **client** received, so a
+    client that never asked for progress is told it saw nothing rather than
+    being left to infer it from an empty stream.
+    """
+    stream = spec.handler(**arguments, **bound)
+    progress_requested = _progress_requested(ctx)
+    delivered = 0
+    stream.start()
+    try:
+        async for event in stream.events():
+            if progress_requested:
+                await ctx.session.report_progress(
+                    delivered + 1, message=json.dumps(event_to_dict(event))
+                )
+            delivered += 1
+        outcome = await stream.finish()
+    except Exception as exc:
+        traceback.print_exc(file=sys.stderr)
+        return _error(f"{type(exc).__name__}: {exc}")
+
+    payload = outcome.to_json()
+    payload["events_delivered"] = delivered if progress_requested else 0
+    payload["progress_requested"] = progress_requested
+    return _text_result(payload)
 
 
 def _match_resource(template: str, uri: str) -> str | None:

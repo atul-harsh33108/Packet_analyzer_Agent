@@ -41,9 +41,9 @@ from dpi_mcp.registry import RESOURCE_TEMPLATES, TOOL_SPECS
 #: dropping one is a deliberate act with a failing test attached -- the same
 #: treatment `QUERY_KEYS` and `FLOW_KEYS` got in `T3-04`.
 #:
-#: `DEC-08`'s seven tools are six here: `stream_dpi_events` is `T3-07`'s and
-#: does not exist yet. A server that advertised a tool it cannot run would be
-#: worse than one that advertises six.
+#: These are `DEC-08`'s seven. `stream_dpi_events` was the last of them
+#: (`T3-07`); the four tools `DEC-08` deferred stay absent rather than stubbed,
+#: because a tool that returns "not implemented" is worse than an absent one.
 DECLARED_TOOLS = {
     "inspect_capture",
     "run_dpi",
@@ -51,6 +51,7 @@ DECLARED_TOOLS = {
     "query_flows",
     "get_flow_detail",
     "diff_runs",
+    "stream_dpi_events",
 }
 
 #: The resources this server offers.
@@ -312,6 +313,76 @@ class TestTheWholeWorkflow:
             assert report["drop_rate_change_percent"] >= 0
 
         asyncio.run(_with_session(tmp_path / "store", scenario))
+
+
+class TestTheStreamingTool:
+    """`T3-07`: the events arrive as progress notifications, over the protocol."""
+
+    def test_events_arrive_as_progress_notifications(self, tmp_path: Path) -> None:
+        """A real client, a real notification stream.
+
+        The events travel in the notification's `message`, which is the only
+        channel MCP gives a server for out-of-band data, and they are the
+        engine's own -- `CaptureOpened`, `PacketParsed` and the rest.
+        """
+
+        async def scenario(session: ClientSession) -> tuple[list[str], dict[str, Any]]:
+            seen: list[str] = []
+
+            async def on_progress(
+                progress: float, total: float | None, message: str | None
+            ) -> None:
+                assert total is None
+                assert progress > 0
+                if message is not None:
+                    seen.append(message)
+
+            result = await session.call_tool(
+                "stream_dpi_events",
+                {
+                    "capture": str(TEST_DPI_PCAP),
+                    "output": str(tmp_path / "streamed.pcap"),
+                },
+                progress_callback=on_progress,
+            )
+            return seen, _payload(result)
+
+        seen, payload = asyncio.run(_with_session(tmp_path / "store", scenario))
+        assert seen, "no progress notifications arrived"
+        kinds = {json.loads(message)["kind"] for message in seen}
+        assert "CaptureOpened" in kinds
+        assert "PacketParsed" in kinds
+        assert payload["progress_requested"] is True
+        assert payload["events_delivered"] == len(seen)
+        assert payload["events_produced"] >= len(seen)
+        assert payload["run_id"]
+        assert (tmp_path / "streamed.pcap").exists()
+
+    def test_a_client_that_asked_for_no_progress_is_told_it_saw_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        """The honest answer when the channel was never opened.
+
+        The SDK's `report_progress` is a no-op when the caller did not request
+        progress, so a client that did not ask would otherwise be left to infer
+        from an empty stream that the run produced nothing.
+        """
+
+        async def scenario(session: ClientSession) -> dict[str, Any]:
+            result = await session.call_tool(
+                "stream_dpi_events",
+                {
+                    "capture": str(TEST_DPI_PCAP),
+                    "output": str(tmp_path / "streamed.pcap"),
+                },
+            )
+            return _payload(result)
+
+        payload = asyncio.run(_with_session(tmp_path / "store", scenario))
+        assert payload["progress_requested"] is False
+        assert payload["events_delivered"] == 0
+        assert payload["events_produced"] > 0, "the run did produce events"
+        assert payload["run_id"]
 
 
 # ---------------------------------------------------------------------------

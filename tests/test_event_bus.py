@@ -31,6 +31,7 @@ from dpi_engine import pipeline
 from dpi_engine.events import (
     CaptureClosed,
     CaptureOpened,
+    Event,
     EventBus,
     FlowBlocked,
     FlowClassified,
@@ -40,6 +41,7 @@ from dpi_engine.events import (
     PacketParsed,
     Recorder,
     WorkerFinished,
+    event_to_dict,
 )
 from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType, FiveTuple, canonical_flow_key
@@ -458,3 +460,131 @@ def test_an_empty_stream_folds_to_an_empty_result() -> None:
     assert result.app_counts == {}
     assert result.fast_path_stats is None
     assert result.drop_rate_percent == 0.0
+
+
+# ---------------------------------------------------------------------------
+# The wire form (`T3-07`)
+# ---------------------------------------------------------------------------
+#
+# The engine owns the events' wire form, for the same reason it owns
+# `CaptureProfile`'s: a boundary that kept its own copy of these fields would be
+# a second home for them, and the two would drift apart silently.
+
+
+def test_an_event_names_its_kind() -> None:
+    assert event_to_dict(CaptureOpened(path="a.pcap", linktype=1))["kind"] == "CaptureOpened"
+    assert event_to_dict(CaptureClosed())["kind"] == "CaptureClosed"
+    assert event_to_dict(
+        PacketParsed(
+            sequence_index=0, byte_len=10, inspected=True, is_tcp=True, is_udp=False, forwarded=True
+        )
+    )["kind"] == "PacketParsed"
+
+
+def test_a_five_tuple_is_named_and_not_a_bare_array() -> None:
+    """Five numbers in a row do not say which is the port."""
+    five_tuple = FiveTuple(src_ip=1, dst_ip=2, src_port=3, dst_port=4, protocol=6)
+    payload = event_to_dict(FlowCreated(five_tuple=five_tuple))
+    assert payload["five_tuple"] == {
+        "src_ip": 1,
+        "dst_ip": 2,
+        "src_port": 3,
+        "dst_port": 4,
+        "protocol": 6,
+    }
+
+
+def test_an_app_is_named_by_its_stable_key() -> None:
+    """`AppType.name`, not its display name: `DEC-04` made that the persisted key."""
+    five_tuple = FiveTuple(src_ip=1, dst_ip=2, src_port=3, dst_port=4, protocol=6)
+    payload = event_to_dict(
+        FlowClassified(five_tuple=five_tuple, app_type=AppType.TWITTER, sni="api.twitter.com")
+    )
+    assert payload["app"] == "TWITTER"
+    assert payload["sni"] == "api.twitter.com"
+    assert payload["kind"] == "FlowClassified"
+
+
+def test_a_limit_event_says_which_limit() -> None:
+    """The event's own `kind` is the limit's kind, so the discriminator is named."""
+    payload = event_to_dict(LimitExceeded(kind="max_packets", detail="100"))
+    assert payload["kind"] == "LimitExceeded"
+    assert payload["limit_kind"] == "max_packets"
+    assert payload["detail"] == "100"
+
+
+def test_an_opened_capture_carries_its_identity() -> None:
+    """The path and the link type are what the event is *for*."""
+    payload = event_to_dict(CaptureOpened(path="a.pcap", linktype=1))
+    assert payload == {"kind": "CaptureOpened", "path": "a.pcap", "linktype": 1}
+
+
+def test_a_parsed_packet_carries_its_decision() -> None:
+    """`forwarded` is the rule decision, and `inspected` is the reader's own
+    distinction -- a frame that never reached a flow has to say so."""
+    payload = event_to_dict(
+        PacketParsed(
+            sequence_index=7,
+            byte_len=100,
+            inspected=True,
+            is_tcp=True,
+            is_udp=False,
+            forwarded=False,
+        )
+    )
+    assert payload == {
+        "kind": "PacketParsed",
+        "sequence_index": 7,
+        "byte_len": 100,
+        "inspected": True,
+        "is_tcp": True,
+        "is_udp": False,
+        "forwarded": False,
+    }
+
+
+def test_the_worker_aggregate_is_not_carried_to_the_wire() -> None:
+    """`WorkerFinished` holds the fast path's whole result.
+
+    Every connection it saw, and a bitmap of per-packet decisions: not a thing
+    to hand to a client. The event says the fast path finished; the run's
+    result is what the caller asked for.
+    """
+    payload = event_to_dict(WorkerFinished(worker_id=0, result=object()))  # type: ignore[arg-type]
+    assert payload == {"kind": "WorkerFinished", "worker_id": 0}
+
+
+def test_an_unknown_event_type_is_named_rather_than_dropped() -> None:
+    """A future event type is still delivered: the consumer sees that something
+    happened, which is the safe direction."""
+
+    class SomethingNew(Event):
+        pass
+
+    assert event_to_dict(SomethingNew()) == {"kind": "SomethingNew"}
+
+
+def test_every_event_is_json_ready() -> None:
+    """The wire form has to survive `json.dumps`, or the boundary finds out late."""
+    import json
+
+    events = [
+        CaptureOpened(path="a.pcap", linktype=1),
+        CaptureClosed(),
+        PacketParsed(
+            sequence_index=0, byte_len=10, inspected=True, is_tcp=True, is_udp=False, forwarded=True
+        ),
+        FlowCreated(five_tuple=FiveTuple(1, 2, 3, 4, 6)),
+        FlowClassified(
+            five_tuple=FiveTuple(1, 2, 3, 4, 6), app_type=AppType.TWITTER, sni="x.example"
+        ),
+        FlowBlocked(
+            five_tuple=FiveTuple(1, 2, 3, 4, 6), app_type=AppType.TWITTER, sni="x.example"
+        ),
+        FlowEvicted(five_tuple=FiveTuple(1, 2, 3, 4, 6)),
+        LimitExceeded(kind="max_packets", detail="100"),
+    ]
+    for event in events:
+        payload = event_to_dict(event)
+        assert json.loads(json.dumps(payload)) == payload
+        assert payload["kind"] == type(event).__name__

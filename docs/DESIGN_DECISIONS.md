@@ -759,6 +759,45 @@ the moment the SDK is a hard dependency or HTTP transport ships.
 
 | `DEC-09` | Does the SDK's dependency tree widen `OFFLINE_CORE`, and how is "stdio only" enforced? **Decided 2026-10-20: option A + B** — the SDK is an **optional extra**, `OFFLINE_CORE` keeps its **calls-only** meaning, and "stdio only" is **enforced**: the HTTP stack's entry points are network calls, and `server.py` may import only the SDK's stdio modules | none - accepted, see above |
 
+### `DEC-10` — a slow streaming consumer loses events, and is told how many
+
+**Decided 2026-10-20 (user), from the shape of the engine's own event bus.**
+
+`T3-07` is the first thing in this project that streams. The engine publishes typed
+events on an `EventBus` — a fan-out with **no queue, no threading and no backpressure**,
+because the buffering belongs to the consumer. So the buffer had to be built, and
+the question it raised is the one this decision answers: **what happens when the
+consumer is slower than the producer?**
+
+**The decision: drop-and-count.** The queue is bounded; when it is full the event
+is dropped and counted by type, and the counts are in the answer.
+
+Three reasons, in order of weight:
+
+- **The live channel is a view, not the answer.** The authoritative summary comes back
+  in the tool's result, complete, whatever happened to the stream. A consumer that
+  missed an event has missed a diagnostic, not a fact.
+- **The engine's bus must not block on an agent.** The bus is a library interface
+  called from the pipeline's hot path; making it wait on a remote consumer's pace
+  couples the engine to a client it knows nothing about.
+- **The bounded structures this codebase already has agree.** The reorder window
+  (`DEC-01`) drops rather than blocks, and the run store's event log keeps what it
+  can represent and *counts the rest* in `events_omitted`.
+
+The alternative — block-and-signal, i.e. backpressure with an escape hatch — was
+considered and not taken: it loses no events while the consumer is present, but it
+runs the analysis at the consumer's pace, and a slow client slowing the engine is
+its own kind of wrong. What was rejected outright is an **unbounded** buffer, which
+is `D-01`/`D-02` again, one layer up.
+
+**What is dropped is never silent.** The counts are in the answer, by event type, and
+the answer says how many the client actually received — which is a different number
+when the client asked for no progress notifications, because MCP's progress channel
+is a no-op in that case. A partial view that cannot be shown to be partial is a
+wrong answer, and this decision is one of the places that rule is kept.
+
+| `DEC-10` | What happens when a streaming consumer is slower than the producer? **Decided 2026-10-20: drop-and-count** — a bounded queue; a full queue drops the event and counts it by type, and the counts are in the answer | none - accepted, see below |
+
 ## Open trade-offs, deliberately not resolved
 
 - **A hand-rolled block cipher for QUIC** was considered and rejected. `cryptography` is a
