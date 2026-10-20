@@ -101,12 +101,11 @@ SCHEMA = "dpi-run/v1"
 #: in a later tool call; without this, `load("../../etc/passwd")` would be a path
 #: traversal rather than a bad argument.
 #:
-#: Checked against an explicit character allowlist rather than a regex. Partly because
-#: an allowlist is the more obviously correct shape -- every character this store ever
-#: writes into an id comes from `hexdigest()[:16]` -- and partly because `re.compile` is
-#: itself reported as `dynamic_exec` by the safety envelope's secondary regex net
-#: (`D-28`), so a regex here would mean the store could only stay inside `OFFLINE_CORE`
-#: by avoiding a stdlib module it has every reason to use.
+#: Checked against an explicit character allowlist rather than a regex: an allowlist is
+#: the more obviously correct shape, and every character this store ever writes into an
+#: id comes from `hexdigest()[:16]`. A regex was avoided here for a while because
+#: `re.compile` was itself reported as `dynamic_exec` (`D-28`, fixed in `T3-08`); the
+#: allowlist stays because it is the right shape, not because the scanner now allows it.
 _RUN_ID_LENGTH = 16
 _RUN_ID_ALPHABET = frozenset("0123456789abcdef")
 

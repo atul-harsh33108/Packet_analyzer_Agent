@@ -163,6 +163,7 @@ _CASES: list[tuple[str, str, str]] = [
     ("scapy sendp", "from scapy.all import sendp\nsendp(pkt)", "live_capture"),
     ("eval", "eval('1+1')", "dynamic_exec"),
     ("exec", "exec('x=1')", "dynamic_exec"),
+    ("compile", "compile('x', '<s>', 'exec')", "dynamic_exec"),
     ("dynamic import", "__import__('os').system('id')", "dynamic_exec"),
 ]
 
@@ -239,6 +240,110 @@ def load(p: Path) -> dict:
         assert scan_source(source, NETWORKED_AGENT), (
             f"{label}: NETWORKED_AGENT should still refuse this; the agent envelope "
             "is meant to widen network access only"
+        )
+
+
+# ---------------------------------------------------------------------------
+# `D-28` (`T3-08`): an attribute call is not a bare call
+# ---------------------------------------------------------------------------
+#
+# The net resolves nothing. It looks for a literal rule prefix followed by `(`, and
+# `\b` looked like the right left edge -- but `\b` matches between `.` and `c`, so
+# `re.compile(` was read as a bare `compile(` and every use of `re.compile` in the
+# shipped tree violated `OFFLINE_CORE`. `run_store.py` avoided the module to stay
+# green; a scanner that punishes the stdlib teaches people to spell calls
+# differently, which is the evasion the scanner exists to catch.
+#
+# The repair is a negative lookbehind. It is not, however, a one-line repair:
+# `builtins.compile(` and `builtins.__import__(` are also preceded by a dot, they are
+# genuine `dynamic_exec` calls, and the net was the **only** thing catching them --
+# `_CAPABILITY_RULES["dynamic_exec"]` lists `builtins.eval` and `builtins.exec` but
+# not those two. So the lookbehind alone would have traded one false positive for
+# two false negatives. Both directions are asserted here, and the resolved name is
+# the assertion: a rule reports `builtins.compile`, the net can only report `compile`.
+
+_PHANTOMS: list[tuple[str, str]] = [
+    ("re.compile", 'import re\npattern = re.compile(r"[0-9]+")\n'),
+    ("re.compile then used", 'import re\np = re.compile(r"a+")\nm = p.match("aaa")\n'),
+    ("a method named compile", 'builder.compile("template")\n'),
+    ("a method named eval", 'handler.eval("1+1")\n'),
+    ("a method named exec", 'shell.exec("ls -la")\n'),
+    ("a longer identifier ending in the name", "recompile(pattern)\n"),
+]
+
+#: Genuine calls whose left edge looks exactly like an attribute's.
+_ATTRIBUTE_REACHABLE: list[tuple[str, str, str]] = [
+    (
+        "builtins.compile",
+        'import builtins\nbuiltins.compile("x", "<s>", "exec")\n',
+        "builtins.compile",
+    ),
+    (
+        "builtins.compile via alias",
+        'import builtins as b\nb.compile("x", "<s>", "exec")\n',
+        "builtins.compile",
+    ),
+    ("builtins.__import__", 'import builtins\nbuiltins.__import__("os")\n', "builtins.__import__"),
+    (
+        "builtins.__import__ via alias",
+        'import builtins as b\nb.__import__("os")\n',
+        "builtins.__import__",
+    ),
+    ("builtins.eval", 'import builtins\nbuiltins.eval("1+1")\n', "builtins.eval"),
+    ("builtins.exec", 'import builtins\nbuiltins.exec("x=1")\n', "builtins.exec"),
+]
+
+
+class TestAnAttributeCallIsNotABareCall:
+    """`D-28`: the net must not invent a forbidden call out of an attribute."""
+
+    @pytest.mark.parametrize(("label", "source"), _PHANTOMS, ids=[c[0] for c in _PHANTOMS])
+    def test_an_attribute_call_is_not_reported(self, label: str, source: str) -> None:
+        violations = scan_source(source, OFFLINE_CORE, path="<probe>")
+        assert violations == [], (
+            f"{label}: reported {[(v.capability, v.resolved) for v in violations]}. "
+            "An attribute call is not the bare builtin it is named after."
+        )
+
+    @pytest.mark.parametrize(
+        ("label", "source", "resolved"),
+        _ATTRIBUTE_REACHABLE,
+        ids=[c[0] for c in _ATTRIBUTE_REACHABLE],
+    )
+    def test_a_forbidden_call_behind_an_attribute_is_still_reported(
+        self, label: str, source: str, resolved: str
+    ) -> None:
+        """The half the one-character fix would have dropped.
+
+        Asserting the *resolved* name is what separates the rule from the net: the
+        rule knows the call is `builtins.compile`, the net only knows the text ends
+        in `compile(`. Pinning `compile` here would pass for the wrong reason.
+        """
+        violations = scan_source(source, OFFLINE_CORE, path="<probe>")
+        reported = [(v.capability, v.resolved) for v in violations]
+        assert reported == [("dynamic_exec", resolved)], (
+            f"{label}: expected exactly dynamic_exec/{resolved}, got {reported or 'nothing'}"
+        )
+
+    def test_the_net_still_catches_a_call_assembled_as_text(self) -> None:
+        """Non-vacuity for the net itself.
+
+        After the repair the AST pass covers every executable spelling, so a blank
+        `(?<!...)` that never matches would keep this file green. The net's remaining
+        job is the call that is *built* rather than written: the AST sees a string,
+        and the text still says `os.system(`. The left context there is a quote, so
+        this also pins the lookbehind to "not a word character and not a dot" --
+        whitespace-only would lose it.
+        """
+        source = """
+import os
+
+COMMAND = "os.system('id')"
+"""
+        violations = scan_source(source, OFFLINE_CORE, path="<probe>")
+        reported = [(v.capability, v.resolved) for v in violations]
+        assert reported == [("subprocess", "os.system")], (
+            f"expected the text net to report os.system, got {reported or 'nothing'}"
         )
 
 

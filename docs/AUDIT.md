@@ -174,7 +174,7 @@ These are **not** undiscovered bugs. Each is a conscious decision to preserve C+
 
 ---
 
-## §2 — Defect register (`D-01`…`D-28`)
+## §2 — Defect register (`D-01`…`D-29`)
 
 > **Closure is tracked in [`TASK_TRACKER.md`](TASK_TRACKER.md) §6, not here.** This
 > section is the *description* of each finding and is its single home. A row below is
@@ -183,11 +183,11 @@ These are **not** undiscovered bugs. Each is a conscious decision to preserve C+
 > about a fact rather than about status, the tracker is describing current state and
 > this section describes what was found.
 
-Twenty-eight defects were found, with no gaps in the numbering. **Twenty-three** are
+Twenty-nine defects were found, with no gaps in the numbering. **Twenty-four** are
 live in the port and appear in the table below: `D-01`…`D-16` plus
-`D-22`…`D-28`. The remaining **five** — `D-17`…`D-21` — are inherited C++
+`D-22`…`D-29`. The remaining **five** — `D-17`…`D-21` — are inherited C++
 behaviour carried forward deliberately and are described in §2.1. So the section
-heading, this paragraph and §2.1 all agree: 23 + 5 = 28.
+heading, this paragraph and §2.1 all agree: 24 + 5 = 29.
 
 Ordered by intrinsic severity, then product impact. `D-22` is grouped with
 `D-01` and `D-23` is promoted from `P-15`, so neither is in numeric order. All
@@ -220,6 +220,7 @@ status lives in the tracker rather than here.
 | **`D-15`** | Low | Medium | `pcap_io.py:126-131`, `packet_parser.py:159` | **No pcapng.** `dpkt.pcap.Reader` rejects the magic, surfacing `PcapFormatError("not a valid pcap file")` for a perfectly valid pcapng file — a misleading diagnostic for the second-most-common capture format. | pcapng reader, or at minimum detect the `0x0A0D0D0A` magic and raise `PcapError("pcapng is not supported; convert with `editcap -F pcap`")`. |
 | **`D-16`** | Low | Low | `rule_manager.py:401,323` | Rules-file persistence keys are **human-readable display names** (`"Twitter/X"`, `"GitHub"`). Renaming a display string silently invalidates every previously saved rules file. A case-insensitive lookup was added for *input*, so the input and persistence paths still use two different maps. The obviously stable key (`AppType.name`) is unused. | Persist `AppType.name`; accept display names as an input-only alias with a deprecation path. |
 | **`D-28`** | Low | Low | `tests/safety_envelope.py:323` | **The envelope scanner's secondary regex net reports attribute calls as bare ones.** The primary AST pass resolves `re.compile(...)` correctly to `re.compile`, which is not forbidden — but the fallback net then matches the raw text with `\bcompile\s*\(`, and `\b` matches between `.` and `c`, so `re.compile(` is reported as `dynamic_exec` and the shipped file fails its envelope. **Any** `x.compile(`, `x.eval(` or `x.exec(` is affected. Found by `T3-02`, whose `run_store.py` was the first shipped module to call `re.compile` — the scanner has been wrong since `T2-03` and simply never had a trigger. This fails *closed* (a false alarm, not a missed call), so it is not a hole in `A-03`'s guarantee, and the workaround the alarm encourages — spelling the call some other way — is exactly the evasion the scanner exists to catch. That is the cost: a guard whose false positives teach people to work around it stops being a guard. | One character class: `(?<![\w.])` in place of `\b` in the same pattern, so a prefix preceded by `.` (or a word character) is not a bare-name match while ` compile(` still is. **Needs its own task with its own mutation proof** — it is a change to a safety invariant, and the mutation harness already demonstrates how easily a scanner edit becomes a vacuous pass. Do **not** add a regression test that pins the current behaviour: `D-06` records what happens when a test locks a bug in. |
+| **`D-29`** | Medium | Medium | `tests/safety_envelope.py` (`scan_source`) | **A forbidden call reached through a value is invisible to both passes.** `getattr(os, "system")("id")` has no `(` after the name, so the text net cannot see it, and the AST sees an outer `Call` whose callee is an inner `ast.Call` rather than a name or attribute, so `_dotted` returns `None`. The same shape hides `from os import *` plus `system("id")`: `resolve()` never expands the recorded `"*"` alias, and `system(` is not a rule prefix. Found by `T3-08` while rewriting the net's rationale comment, which claimed `getattr` was the reason the net exists — two comments asserted coverage that measurement shows does not exist. This fails *open* (a missed call, not a false alarm), so unlike `D-28` it is a hole in what `A-03`'s guarantee is worth: the gate can be evaded by spelling, which is the class `T2-03` set out to end. | Teach the AST pass to resolve a callee that is itself a `Call`: match `getattr(<module-or-builtins>, "<name>")` where the literal names a rule, and expand a star alias when the head of a dotted name is unresolvable. Both are AST work — a regex cannot see either, and widening the text net to `system(` would flag every unrelated method of that name. Needs its own task and its own mutation proof, because a detector for this shape is exactly as easy to write vacuously as the net was. |
 
 ### §2.1 — C++ bugs the port inherited (carried forward, not introduced)
 

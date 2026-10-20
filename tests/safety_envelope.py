@@ -150,6 +150,12 @@ _CAPABILITY_RULES: dict[str, tuple[str, ...]] = {
         "__import__",
         "builtins.eval",
         "builtins.exec",
+        # These two are here because the text net used to catch them only as a side
+        # effect of its `\b` bug: `builtins.compile(` read as a bare `compile(`. With
+        # the bug fixed (`T3-08`) nothing else names them; `builtins.eval`/`exec` were
+        # already listed, so this closes the same hole for the other two names.
+        "builtins.compile",
+        "builtins.__import__",
     ),
     "subprocess": (
         "subprocess.run",
@@ -213,8 +219,11 @@ class _AliasResolver(ast.NodeVisitor):
         for alias in node.names:
             local = alias.asname or alias.name
             if alias.name == "*":
-                # A star import can shadow anything; record it so the regex
-                # secondary pass can double-check.
+                # A star import can shadow anything, and this records the module --
+                # but `resolve()` does not expand `"*"`, and the text net below needs
+                # a literal `os.system(`, so `from os import *` + `system("id")` is
+                # detected by **neither** pass. Recording it is not a defence; the gap
+                # is `T3-08`'s first follow-up.
                 self.aliases.setdefault("*", node.module)
                 continue
             self.aliases[local] = f"{node.module}.{alias.name}"
@@ -313,14 +322,25 @@ def scan_source(
                     record(capability, resolved, node.lineno)
                     break
 
-    # Secondary net: regex over the raw text, so an odd string form
-    # ("import urllib.request" inside a docstring-free literal, a call built with
-    # getattr) still trips. AST alone would miss `getattr(os, "system")`.
+    # Secondary net: regex over the raw text, so a call that is *written as text*
+    # still trips -- the AST has no Call node for `COMMAND = "os.system('id')"`, and
+    # `source` keeps string literals. It resolves nothing, so it can only name the
+    # rule prefix, never the dotted callee.
+    #
+    # The left edge is `(?<![\w.])` rather than `\b`: a word boundary sits between
+    # `.` and `c`, so `re.compile(` read as a bare `compile(` and every attribute call
+    # in the tree violated its envelope (`D-28`). "Not preceded by a word character or
+    # a dot" keeps `"os.system(` and `[os.system(` and drops `x.compile(`.
+    #
+    # Known gaps, in neither pass: a call reached through a value rather than a name.
+    # `getattr(os, "system")(...)` has no `(` after the name and the AST sees an outer
+    # Call on an inner one; `from os import *` + `system(...)` has no dotted path at
+    # all. Both are recorded as follow-ups rather than papered over here.
     for capability, prefixes in _CAPABILITY_RULES.items():
         if not forbidden[capability]:
             continue
         for prefix in prefixes:
-            pattern = re.compile(rf"\b{re.escape(prefix)}\s*\(")
+            pattern = re.compile(rf"(?<![\w.]){re.escape(prefix)}\s*\(")
             for m in pattern.finditer(source):
                 record(
                     capability,
