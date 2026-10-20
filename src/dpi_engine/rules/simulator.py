@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+from typing import Any
 
 from dpi_engine.events import EventBus, FlowBlocked, PacketParsed
 from dpi_engine.pipeline import PipelineResult, run_pipeline
@@ -55,6 +56,21 @@ class FlowDelta:
     # counter that is always 0, or only sometimes right, is worse than no counter.
     # Aggregate packet counts are on `SimulationReport` and come straight from
     # `DPIStats`.
+
+    def to_dict(self) -> dict[str, Any]:
+        """The delta as JSON-ready data.
+
+        Owned here rather than at the boundary that needs it (`T3-05`). The MCP
+        layer must not keep its own copy of these fields: two projections of one
+        report drift apart silently, and the drifting one is the one an agent
+        reads. The five-tuple becomes a **named** object rather than a bare
+        array, because five numbers in a row do not say which is the port.
+        """
+        return {
+            "flow_key": dict(self.flow_key._asdict()),
+            "app_type": self.app_type.name,
+            "sni": self.sni,
+        }
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -123,6 +139,37 @@ class SimulationReport:
     @property
     def unchanged_blocked_deltas(self) -> tuple[FlowDelta, ...]:
         return self.unchanged_blocked
+
+    def to_dict(self) -> dict[str, Any]:
+        """The report as JSON-ready data.
+
+        The engine owns this projection for the same reason `CaptureProfile` owns
+        its own: the MCP surface (`T3-05`) must not grow a second copy of these
+        fields. The two output paths become strings because `Path` is not JSON,
+        and the derived counters are included because they are the answers a
+        reader actually wants -- `packets_changed` in particular, which is not
+        the difference of the two dropped counts.
+        """
+        return {
+            "newly_blocked": [delta.to_dict() for delta in self.newly_blocked],
+            "newly_allowed": [delta.to_dict() for delta in self.newly_allowed],
+            "unchanged_blocked": [delta.to_dict() for delta in self.unchanged_blocked],
+            "baseline_blocked": self.baseline_blocked,
+            "candidate_blocked": self.candidate_blocked,
+            "baseline_dropped": self.baseline_dropped,
+            "candidate_dropped": self.candidate_dropped,
+            "baseline_forwarded": self.baseline_forwarded,
+            "candidate_forwarded": self.candidate_forwarded,
+            "baseline_total_packets": self.baseline_total_packets,
+            "candidate_total_packets": self.candidate_total_packets,
+            "drop_rate_change_percent": self.drop_rate_change_percent,
+            "total_loss": self.total_loss,
+            "baseline_output": str(self.baseline_output),
+            "candidate_output": str(self.candidate_output),
+            "flows_changed": self.flows_changed,
+            "packets_changed": self.packets_changed,
+            "net_packets_dropped": self.net_packets_dropped,
+        }
 
     def summary(self) -> str:
         """A one-line human-readable summary, for CLI and log output."""

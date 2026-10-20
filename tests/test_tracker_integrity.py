@@ -204,6 +204,38 @@ def test_the_phase_rollup_matches_the_board(tlines: list[str]) -> None:
     assert checked >= 6, f"only {checked} rollup rows checked; the parse has gone stale"
 
 
+def test_section_one_states_the_same_phase_progress_as_the_rollup(tlines: list[str]) -> None:
+    """§1 is the only block a cold-starting agent reads, so it is the most
+    expensive place for a stale number to live.
+
+    The drift this guards against happened twice in one session: §1's progress
+    line was left at 5/8 while §3 moved, because the two are edited at different
+    moments and nothing compared them. §3 is checked against the board; §1 was
+    checked against nothing.
+    """
+    progress = next(
+        (ln for ln in tlines if ln.startswith("| **Phase progress** |")), None
+    )
+    assert progress is not None, "§1 has no Phase progress row"
+    cells = [c.strip() for c in progress.strip().strip("|").split("|")]
+    stated = re.search(r"Phase 3:\s*(\d+)/(\d+)", cells[1])
+    assert stated is not None, f"§1 does not state Phase 3's progress: {progress!r}"
+
+    start, stop = section_bounds(tlines, "## 3. ")
+    rollup = next(
+        (ln for ln in tlines[start:stop] if ROLLUP_ROW.match(ln) and "| **3** |" in ln),
+        None,
+    )
+    assert rollup is not None, "§3 has no Phase 3 row"
+    cells = [c.strip() for c in rollup.strip().strip("|").split("|")]
+    total = _first_int(cells[2])
+    done = _first_int(cells[3])
+    assert total is not None and done is not None, f"unparsable Phase 3 row: {rollup!r}"
+    assert (int(stated.group(2)), int(stated.group(1))) == (total, done), (
+        f"§1 says Phase 3 is {stated.group(1)}/{stated.group(2)}; §3 says {done}/{total}"
+    )
+
+
 def test_the_stated_totals_match_the_board(tlines: list[str]) -> None:
     rows = board_rows(tlines)
     totals = next((ln for ln in tlines if ln.startswith("**Totals:**")), None)

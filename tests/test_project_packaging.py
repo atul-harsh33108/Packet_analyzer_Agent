@@ -151,6 +151,40 @@ class TestEveryPackageDeclaresItIsTyped:
                 )
 
 
+class TestTheMcpSdkIsAnExtraAndNotADependency:
+    """`DEC-09`: the SDK is optional, and the duplication that makes it so is guarded.
+
+    The SDK is named twice -- once as the `[mcp]` extra that an end user opts
+    into, and once in the dev group so the test suite actually runs against it.
+    Two names for one pin is two facts, and facts drift. This asserts they have
+    not.
+    """
+
+    def test_the_sdk_is_not_a_runtime_dependency(self, pyproject: dict) -> None:
+        runtime = pyproject.get("project", {}).get("dependencies", [])
+        assert not any(spec.startswith("mcp") for spec in runtime), (
+            f"the SDK must stay an optional extra, not a runtime dependency: {runtime}. "
+            "It brings an ASGI server and a web framework with it, and a pcap "
+            "analyser should not make every user install a web stack."
+        )
+
+    def test_the_extra_and_the_dev_group_pin_the_same_version(
+        self, pyproject: dict
+    ) -> None:
+        extra = pyproject.get("project", {}).get("optional-dependencies", {}).get("mcp", [])
+        dev = pyproject.get("dependency-groups", {}).get("dev", [])
+        assert extra, "the SDK must be offered as the [mcp] extra"
+        assert any(spec.startswith("mcp") for spec in dev), (
+            f"the SDK must be in the dev group so the stdio tests run instead of "
+            f"skipping: {dev}"
+        )
+        assert sorted(extra) == sorted(spec for spec in dev if spec.startswith("mcp")), (
+            f"the extra pins {extra} and the dev group pins "
+            f"{[s for s in dev if s.startswith('mcp')]}. They are the same dependency "
+            "and must be the same pin."
+        )
+
+
 class TestTheScanIsReal:
     def test_there_are_more_than_one_packages(self) -> None:
         """Non-vacuity for this whole module.

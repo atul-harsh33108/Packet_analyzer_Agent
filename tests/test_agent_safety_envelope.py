@@ -347,6 +347,107 @@ COMMAND = "os.system('id')"
         )
 
 
+def _imported_modules(source: str) -> set[str]:
+    """Every module named by an import in `source`, fully qualified."""
+    tree = ast.parse(source)
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            modules.add(node.module)
+    return modules
+
+
+# ---------------------------------------------------------------------------
+# `DEC-09`: the SDK's dependency tree is not a licence to open a socket
+# ---------------------------------------------------------------------------
+#
+# The SDK is an optional extra that installs an ASGI server, a web framework and
+# an HTTP client. Installing it does not make a network call legal - it makes one
+# *possible*, and the difference between those two is exactly what a gate
+# exists to police. The server is stdio-only, so the calls that would stop it
+# being so are network calls.
+
+_HTTP_CALLS: list[tuple[str, str]] = [
+    ("uvicorn.run", "import uvicorn\nuvicorn.run(app)"),
+    ("uvicorn.Server", "from uvicorn import Server\nServer(config)"),
+    (
+        "starlette app",
+        "import starlette.applications\nstarlette.applications.Starlette(routes=[])",
+    ),
+    (
+        "sse response",
+        "from sse_starlette.sse import EventSourceResponse\nEventSourceResponse([])",
+    ),
+    (
+        "mcp sse transport",
+        "from mcp.server.sse import SseServerTransport\nSseServerTransport('/messages/')",
+    ),
+    (
+        "mcp streamable http manager",
+        "from mcp.server.streamable_http_manager import StreamableHTTPSessionManager\n"
+        "StreamableHTTPSessionManager()",
+    ),
+    ("httpx2 get", "import httpx2\nhttpx2.get('http://x')"),
+]
+
+
+class TestTheHttpStackIsANetworkCapability:
+    """`DEC-09`: the calls that would make this tree a network service."""
+
+    @pytest.mark.parametrize(
+        ("label", "source"), _HTTP_CALLS, ids=[c[0] for c in _HTTP_CALLS]
+    )
+    def test_it_is_reported_as_a_network_call(self, label: str, source: str) -> None:
+        violations = scan_source(source, OFFLINE_CORE, path="<probe>")
+        assert "network" in {v.capability for v in violations}, (
+            f"{label}: expected a network violation, got "
+            f"{[(v.capability, v.resolved) for v in violations] or 'nothing'}. "
+            "The SDK installs this stack; nothing here may call it."
+        )
+
+
+class TestTheServerCannotBecomeANetworkServer:
+    """`DEC-09`: stdio only, enforced at the import level too.
+
+    The scanner checks *calls*. This checks *imports*, for the one file allowed
+    to import the SDK at all: the SDK's HTTP transports are **modules**, so
+    importing one is how a stdio server becomes a network server without a
+    single call that a call-based rule would notice.
+    """
+
+    def test_the_server_imports_only_the_stdio_modules(self) -> None:
+        source = (SRC_ROOT / "dpi_mcp" / "server.py").read_text(encoding="utf-8")
+        imported = _imported_modules(source)
+        sdk_modules = {name for name in imported if name == "mcp" or name.startswith("mcp.")}
+        assert sdk_modules, "the server must import the SDK it serves"
+        for name in sdk_modules:
+            assert name in {"mcp.server", "mcp.server.stdio", "mcp.types"}, (
+                f"{name} is not a stdio module. The SDK's HTTP transports are how a "
+                "stdio server becomes a network server, and importing one is enough."
+            )
+
+    def test_the_server_does_not_import_the_asgi_stack(self) -> None:
+        source = (SRC_ROOT / "dpi_mcp" / "server.py").read_text(encoding="utf-8")
+        imported = _imported_modules(source)
+        for forbidden in ("uvicorn", "starlette", "sse_starlette", "httpx", "httpx2"):
+            assert forbidden not in imported, (
+                f"{forbidden} must not be imported by the server: it is the stack that "
+                "serves HTTP, and importing it is the first step to doing that."
+            )
+
+    def test_the_import_scan_can_fail(self) -> None:
+        """A scan that cannot fail is not a scan.
+
+        The same discipline `T3-03` applied to its structural check.
+        """
+        source = "import uvicorn\nfrom mcp.server.sse import SseServerTransport\n"
+        imported = _imported_modules(source)
+        assert "uvicorn" in imported
+        assert "mcp.server.sse" in imported
+
+
 # ---------------------------------------------------------------------------
 # The boundary must hold in the real tree, and in the direction that matters
 # ---------------------------------------------------------------------------

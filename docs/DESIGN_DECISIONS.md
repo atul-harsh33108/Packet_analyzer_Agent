@@ -698,6 +698,67 @@ depend on the protocol in order to be tested.
 
 | `DEC-08` | Phase 3 scope: all 11 Layer 2 tools, or only the buildable ones? **Decided 2026-10-19: the 7 buildable ones**, over **stdio only**; `get_fingerprints`, `query_anomalies`, `list_rule_versions` and `revert_rule` stay absent until their own phases | none - accepted, see below |
 
+### `DEC-09` — the SDK's dependency tree vs `OFFLINE_CORE`, and how "stdio only" is enforced
+
+**Decided 2026-10-20 (user), from a measurement of what the SDK actually installs.**
+
+`DEC-08` kept `src/dpi_mcp/` at `OFFLINE_CORE` on the grounds that it serves **stdio**
+only. That left a question the decision did not answer: the `mcp` SDK is not a
+protocol library, it is a protocol library *plus a web stack*. Measured against
+`mcp` 2.3.0, it pulls **19 distributions** — an ASGI server (`uvicorn`), a web framework
+(`starlette`), SSE support, an HTTP client (`httpx2`), `pyjwt[crypto]`,
+`python-multipart`, `opentelemetry-api`, and `pywin32` on Windows. A package held to
+`OFFLINE_CORE`, which says "offline", would be carrying a web server.
+
+So the question is what "offline" is a claim **about**: what this tree *does*, or what
+it *contains*.
+
+**Decision 1 (packaging) — the SDK is an optional extra, never a runtime dependency.**
+`[project.optional-dependencies] mcp`, alongside the existing `[quic]` extra, and the
+runtime stays `dpkt` alone. The SDK is *also* in the dev group, for the reason QUIC
+is: a test that skips when a dependency is missing is not evidence that anything
+works. The two names are asserted to be the same pin, so the duplication cannot
+drift.
+
+**Decision 2 (meaning) — `OFFLINE_CORE` keeps its calls-only meaning, stated out loud.**
+The envelope constrains what this tree **does** — resolved capability *calls* — not
+what a dependency contains. A scanner that read source text for import statements
+would be a different instrument with a different failure mode (it would forbid
+importing a library to *not* use it, and it could not tell a transitive import from
+a direct one). The alternative — widening `dpi_mcp` to `NETWORKED_AGENT` — was
+rejected because it permits *every* network call in the tool layer to fix a problem
+about one transport.
+
+**Decision 3 (enforcement) — "stdio only" stops being a comment.** It was asserted in
+three files and checked by none. Two things now test it:
+
+- the HTTP stack's entry points (`uvicorn.run`, `uvicorn.Server`,
+  `starlette.applications.Starlette`, `sse_starlette.sse.EventSourceResponse`, the
+  SDK's own `mcp.server.sse.SseServerTransport` and
+  `mcp.server.streamable_http_manager.StreamableHTTPSessionManager`, and the
+  `httpx2` client) are **network calls**, so calling any of them anywhere in the
+  tree violates `OFFLINE_CORE`; and
+- an **import-level** test asserts `server.py` imports only the SDK's stdio, server
+  and types modules. The scanner checks calls; the SDK's HTTP transports are
+  *modules*, so importing one is how a stdio server becomes a network server
+  without a single call a call-based rule would notice.
+
+**One free choice made along the way:** the SDK's **low-level** `Server` API is used
+rather than `FastMCP`. `FastMCP.run(transport=...)` hides the transport in a string
+argument, while the low-level API's transport is visible in the import list — and the
+low-level API wants explicit tool schemas, which is what this package needed anyway.
+The cost is more code in `server.py`; the benefit is that the transport is a fact in
+the file rather than a value in a string.
+
+**Deferred, and deliberately:** an import-level *capability* — "no package held to
+`OFFLINE_CORE` may load an HTTP client at all" — is the strongest form of this, and it
+is the one that matches the existing test's own words ("a core that transitively
+loads an HTTP client is offline in name only"). It would flag `server.py` itself and
+needs a per-file exemption the envelope model does not have. It becomes necessary
+the moment the SDK is a hard dependency or HTTP transport ships.
+
+| `DEC-09` | Does the SDK's dependency tree widen `OFFLINE_CORE`, and how is "stdio only" enforced? **Decided 2026-10-20: option A + B** — the SDK is an **optional extra**, `OFFLINE_CORE` keeps its **calls-only** meaning, and "stdio only" is **enforced**: the HTTP stack's entry points are network calls, and `server.py` may import only the SDK's stdio modules | none - accepted, see above |
+
 ## Open trade-offs, deliberately not resolved
 
 - **A hand-rolled block cipher for QUIC** was considered and rejected. `cryptography` is a

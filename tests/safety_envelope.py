@@ -131,6 +131,27 @@ _CAPABILITY_RULES: dict[str, tuple[str, ...]] = {
         "asyncio.open_connection",
         "socket.getaddrinfo",
         "socket.gethostbyname",
+        # The `mcp` SDK's own HTTP stack (`DEC-09`, `T3-05`). The SDK is an
+        # optional extra, and installing it does not make a network call
+        # legal - it makes a network call *possible*, which is a different
+        # thing and exactly the difference a gate exists to police. The
+        # server is stdio-only, and these are the calls that would stop it
+        # being so: an ASGI server to serve on, an app to serve, and the
+        # SDK's two HTTP transports. `httpx2` is the HTTP client this SDK
+        # version depends on; `httpx` above is the name it used to have.
+        "uvicorn.run",
+        "uvicorn.Server",
+        "starlette.applications.Starlette",
+        "sse_starlette.sse.EventSourceResponse",
+        "sse_starlette.sse.App",
+        "mcp.server.sse.SseServerTransport",
+        "mcp.server.streamable_http_manager.StreamableHTTPSessionManager",
+        "httpx2.get",
+        "httpx2.post",
+        "httpx2.put",
+        "httpx2.delete",
+        "httpx2.patch",
+        "httpx2.request",
     ),
     "live_capture": (
         "socket.socket",

@@ -13,6 +13,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The MCP server (`T3-05`, `DEC-09`): an **optional** extra, never a core
+# dependency. The runtime stays `dpkt` alone -- the SDK brings an ASGI server,
+# a web framework and an HTTP client with it, and a pcap analyser should not
+# make every user install a web stack.
+mcp = [
+    "mcp>=2.3,<3",
+]
 # QUIC Initial packets are encrypted with keys derived from the cleartext DCID,
 # so a passive observer can decrypt them -- but that needs real AES, and this
 # project will not hand-roll a block cipher. Detection and classification as
@@ -23,6 +30,7 @@ quic = [
 
 [project.scripts]
 dpi-engine = "dpi_engine.cli:main"
+dpi-mcp = "dpi_mcp.server:main"
 
 [dependency-groups]
 dev = [
@@ -31,6 +39,12 @@ dev = [
     # In the dev group as well as the [quic] extra so the QUIC test suite
     # actually runs in CI rather than silently skipping.
     "cryptography>=42",
+    # The MCP SDK as well as the [mcp] extra, for the same reason as QUIC
+    # above: so the stdio handshake test actually runs in CI rather than
+    # silently skipping. `DEC-09` made the SDK an optional extra, not an
+    # optional *test* -- a test that skips when a dependency is missing is not
+    # evidence that anything works.
+    "mcp>=2.3,<3",
     # Lint + typecheck. Both are configured in this file (see [tool.ruff] and
     # [tool.mypy]) so `uv run ruff check` and `uv run mypy` are reproducible
     # for anyone who clones the repo.
