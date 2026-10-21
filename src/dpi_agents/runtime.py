@@ -32,6 +32,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
+from dpi_agents.framing import PROMPT_VERSION, system_prompt
 from dpi_agents.model import Model, ModelMessage, ModelReply, ModelRequest, ToolCall
 from dpi_agents.trace import Trace
 
@@ -170,13 +171,13 @@ class Agent:
                 return self._no_verdict(node, "token budget", step, tokens, elapsed)
 
             request = ModelRequest(
-                system=node.system,
+                system=system_prompt(node.system),
                 messages=tuple(messages),
                 tools=node.tools,
             )
             reply = await self._model.complete(request)
             tokens += reply.usage.total_tokens
-            self._record_model(reply)
+            self._record_model(reply, request)
 
             if not reply.tool_calls:
                 return self._finish(node, reply, step, tokens, started)
@@ -218,11 +219,21 @@ class Agent:
 
     # -- recording ---------------------------------------------------------
 
-    def _record_model(self, reply: ModelReply) -> None:
+    def _record_model(self, reply: ModelReply, request: ModelRequest) -> None:
+        """Record what was asked and what came back.
+
+        The **system prompt is recorded too**, with its version. A trace that
+        cannot say which prompt produced a verdict cannot be replayed against
+        it, and the design asks for prompts to be versioned in git and
+        eval-gated \u2014 which is only meaningful if the version travels with the
+        answer.
+        """
         self._trace.record(
             "model",
             {
                 "text": reply.text,
+                "system": request.system,
+                "prompt_version": PROMPT_VERSION,
                 "tool_calls": [
                     {"name": call.name, "arguments": dict(call.arguments)}
                     for call in reply.tool_calls
