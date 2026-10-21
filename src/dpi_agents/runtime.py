@@ -54,10 +54,16 @@ class ToolResult:
     tool call is *information for the model*: "that run id does not exist" is
     something the model can act on, and the design's ReAct loop expects
     observations, not crashes.
+
+    `withheld` carries what the tool's screening refused \u2014 the rule and the
+    text \u2014 so the **trace** can record what was kept from the model. The
+    withheld text never reaches the model; the trace is a file, and a file is
+    where an operator looks to see what the attack was.
     """
 
     content: str
     is_error: bool = False
+    withheld: tuple[str, ...] = ()
 
 
 class ToolPort(Protocol):
@@ -253,6 +259,9 @@ class Agent:
                 "arguments": dict(call.arguments),
                 "content": result.content,
                 "is_error": result.is_error,
+                # What the screening refused, recorded here and **not** in the
+                # content: the model never sees the text, but the operator can.
+                "withheld": list(result.withheld),
             },
         )
 

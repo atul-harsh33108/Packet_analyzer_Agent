@@ -50,15 +50,30 @@ class InjectionVerdict:
 #: hostname and a great deal of meaning to an evasion.
 _INVISIBLE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
 
+#: The separators between the words of a name.
+#:
+#: **This is the one that nearly got away.** The design's own example of a
+#: hostile hostname is `ignore-previous-instructions.example.com` -- and a
+#: hostname separates its words with *hyphens*, not with spaces. Rules written
+#: for prose (which is how the rules were first written) match the phrase
+#: "ignore previous instructions" and miss the hostname entirely. The
+#: integration test in `tests/test_agent_triage.py` is what found it: the unit
+#: test's hostile set was prose, so the classifier looked fine while the
+#: design's own example walked straight through it.
+_SEPARATORS = re.compile(r"[-._\s]+")
+
 
 def normalise(text: str) -> str:
     """The form the rules match against.
 
-    Casefolded, with invisible characters removed and whitespace collapsed. A
-    string that differs only by typography is the same string to a model, so it
-    is the same string to the classifier.
+    Casefolded, with invisible characters removed and **every word separator
+    flattened to a space**. A hostname, a domain and a sentence are separated
+    differently, and an attacker picks the one the reader is least likely to
+    think about.
     """
-    return " ".join(_INVISIBLE.sub("", text).casefold().split())
+    return " ".join(
+        _SEPARATORS.sub(" ", _INVISIBLE.sub("", text).casefold()).split()
+    )
 
 
 #: The rules, in the order they are tried.
@@ -95,7 +110,7 @@ _RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "framing_tag",
-        re.compile(r"<\s*/?\s*untrusted_capture_data\s*>"),
+        re.compile(r"<\s*/?\s*untrusted\s+capture\s+data\s*>"),
     ),
     (
         "instruction_delivery",
@@ -113,15 +128,20 @@ _RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "credential_request",
         re.compile(
-            r"\b(?:api[_ -]?keys?|passwords?|secrets?|credentials?|tokens?)\b[^.]{0,40}?"
-            r"\b(?:send|post|include|reveal|share|print)\b"
-            r"|\b(?:send|post|include|reveal|share|print)\b[^.]{0,40}?"
+            # Bounded by **words**, not by characters: the normaliser has already
+            # flattened the separators, so a character bound would quietly start
+            # spanning sentences. The trailing `\s+` matters: the bound consumes
+            # whole words, so without it the noun would have to follow the last
+            # one *directly*, with no space.
+            r"\b(?:api[_ -]?keys?|passwords?|secrets?|credentials?|tokens?)\b"
+            r"(?:\s+\S+){0,8}\s+\b(?:send|post|include|reveal|share|print)\b"
+            r"|\b(?:send|post|include|reveal|share|print)\b(?:\s+\S+){0,8}\s+"
             r"\b(?:api[_ -]?keys?|passwords?|secrets?|credentials?|tokens?)\b"
         ),
     ),
     (
         "tool_call_marker",
-        re.compile(r"<\s*/?\s*tool_call\s*>|\bfunction_call\s*:|\bto=functions\b"),
+        re.compile(r"<\s*/?\s*tool\s+call\s*>|\bfunction\s+call\s*:|\bto=functions\b"),
     ),
 )
 
