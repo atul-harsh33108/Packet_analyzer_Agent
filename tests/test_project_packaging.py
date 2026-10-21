@@ -185,6 +185,29 @@ class TestTheMcpSdkIsAnExtraAndNotADependency:
         )
 
 
+class TestTheSharedFixturesAreTheSharedFixtures:
+    """The fixtures directory holds the shared fixtures, and nothing else.
+
+    A test that writes beside a shared fixture leaves a file **in the tree**,
+    and the suite stays green while it does \u2014 the failure is invisible until
+    someone commits it. That is exactly what happened once: an engine run wrote
+    its output pcap next to `tests/fixtures/test_dpi.pcap` and the file was
+    committed. So the directory is pinned, and adding a fixture is a deliberate
+    act with a failing test attached.
+    """
+
+    EXPECTED = {"test_dpi.pcap"}
+
+    def test_nothing_else_is_in_there(self) -> None:
+        fixtures = SRC.parent / "tests" / "fixtures"
+        present = {path.name for path in fixtures.iterdir() if path.is_file()}
+        assert present == self.EXPECTED, (
+            f"the fixtures directory holds {sorted(present)}; expected "
+            f"{sorted(self.EXPECTED)}. A file here is usually a test that wrote "
+            "beside a shared fixture."
+        )
+
+
 class TestTheScanIsReal:
     def test_there_are_more_than_one_packages(self) -> None:
         """Non-vacuity for this whole module.

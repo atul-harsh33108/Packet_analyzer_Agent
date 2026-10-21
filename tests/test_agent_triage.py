@@ -62,9 +62,17 @@ def _case() -> GoldenCase:
 
 
 def _store_a_run(capture: Path, store_root: Path) -> str:
-    """Run the engine over `capture` and store the run. Returns the run id."""
+    """Run the engine over `capture` and store the run. Returns the run id.
+
+    The engine's output capture goes next to the **store**, never next to the
+    capture: the shared fixture lives in the repository, and a test that writes
+    beside it leaves a file in the tree.
+    """
     result = run_pipeline(
-        str(capture), capture.with_suffix(".out.pcap"), RuleManager(), with_flow_table=True
+        str(capture),
+        store_root.parent / "forwarded.pcap",
+        RuleManager(),
+        with_flow_table=True,
     )
     record = record_from_result(result, capture_path=capture, commit="test")
     RunStore(store_root).save(record)
