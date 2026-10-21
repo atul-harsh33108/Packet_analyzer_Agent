@@ -20,15 +20,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp import ClientSession
-from mcp.shared.memory import create_client_server_memory_streams
 
+from agent_harness import connected, store_a_run, tool_schemas
 from conftest import TEST_DPI_PCAP
 from dpi_agents.model import ModelReply, ScriptedModel, ToolCall
 from dpi_agents.nodes.triage import TRIAGE_TOOL_NAMES, triage_node
@@ -36,11 +33,8 @@ from dpi_agents.runtime import Agent
 from dpi_agents.schemas import TriageVerdict
 from dpi_agents.tools import McpToolPort
 from dpi_agents.trace import Trace
-from dpi_engine.pipeline import run_pipeline
-from dpi_engine.rule_manager import RuleManager
 from dpi_engine.types import AppType
-from dpi_mcp.run_store import RunStore, record_from_result
-from dpi_mcp.server import build_server
+from dpi_mcp.run_store import RunStore
 from golden.corpus import ExpectedFlow, GoldenCase, write_case
 
 #: The design's own example of a hostname carrying an order.
@@ -61,65 +55,13 @@ def _case() -> GoldenCase:
     )
 
 
-def _store_a_run(capture: Path, store_root: Path) -> str:
-    """Run the engine over `capture` and store the run. Returns the run id.
-
-    The engine's output capture goes next to the **store**, never next to the
-    capture: the shared fixture lives in the repository, and a test that writes
-    beside it leaves a file in the tree.
-    """
-    result = run_pipeline(
-        str(capture),
-        store_root.parent / "forwarded.pcap",
-        RuleManager(),
-        with_flow_table=True,
-    )
-    record = record_from_result(result, capture_path=capture, commit="test")
-    RunStore(store_root).save(record)
-    return record.run_id
-
-
-@asynccontextmanager
-async def _connected(store_root: Path) -> AsyncIterator[ClientSession]:
-    """A client session talking to a real MCP server, over the in-memory pair."""
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
-        server = build_server(store_root=store_root)
-        task = asyncio.create_task(
-            server.run(
-                server_streams[0],
-                server_streams[1],
-                server.create_initialization_options(),
-            )
-        )
-        try:
-            async with ClientSession(client_streams[0], client_streams[1]) as session:
-                await session.initialize()
-                yield session
-        finally:
-            task.cancel()
-
-
-async def _tool_schemas(session: ClientSession) -> tuple[Mapping[str, Any], ...]:
-    """The schemas the **server** declares for the tools Triage may call."""
-    listed = await session.list_tools()
-    return tuple(
-        {
-            "name": tool.name,
-            "description": tool.description or "",
-            "inputSchema": tool.input_schema,
-        }
-        for tool in listed.tools
-        if tool.name in TRIAGE_TOOL_NAMES
-    )
-
-
 class TestTheTriageAgent:
     def test_it_produces_a_typed_verdict_from_a_real_run(self, tmp_path: Path) -> None:
         async def scenario() -> tuple[Any, ScriptedModel, str]:
             store_root = tmp_path / "store"
-            run_id = _store_a_run(Path(TEST_DPI_PCAP), store_root)
-            async with _connected(store_root) as session:
-                schemas = await _tool_schemas(session)
+            run_id = store_a_run(Path(TEST_DPI_PCAP), store_root)
+            async with connected(store_root) as session:
+                schemas = await tool_schemas(session, TRIAGE_TOOL_NAMES)
                 model = ScriptedModel(
                     [
                         ModelReply(
@@ -165,9 +107,9 @@ class TestTheTriageAgent:
 
         async def scenario() -> ScriptedModel:
             store_root = tmp_path / "store"
-            run_id = _store_a_run(Path(TEST_DPI_PCAP), store_root)
-            async with _connected(store_root) as session:
-                schemas = await _tool_schemas(session)
+            run_id = store_a_run(Path(TEST_DPI_PCAP), store_root)
+            async with connected(store_root) as session:
+                schemas = await tool_schemas(session, TRIAGE_TOOL_NAMES)
                 model = ScriptedModel(
                     [
                         ModelReply(
@@ -200,9 +142,9 @@ class TestTheTriageAgent:
         async def scenario() -> tuple[ScriptedModel, list[dict[str, Any]]]:
             capture = write_case(tmp_path / "hostile.pcap", _case())
             store_root = tmp_path / "store"
-            run_id = _store_a_run(capture, store_root)
-            async with _connected(store_root) as session:
-                schemas = await _tool_schemas(session)
+            run_id = store_a_run(capture, store_root)
+            async with connected(store_root) as session:
+                schemas = await tool_schemas(session, TRIAGE_TOOL_NAMES)
                 model = ScriptedModel(
                     [
                         ModelReply(
@@ -249,9 +191,9 @@ class TestTheTriageAgent:
 
         async def scenario() -> tuple[Any, list[dict[str, Any]]]:
             store_root = tmp_path / "store"
-            _store_a_run(Path(TEST_DPI_PCAP), store_root)
-            async with _connected(store_root) as session:
-                schemas = await _tool_schemas(session)
+            store_a_run(Path(TEST_DPI_PCAP), store_root)
+            async with connected(store_root) as session:
+                schemas = await tool_schemas(session, TRIAGE_TOOL_NAMES)
                 model = ScriptedModel(
                     [
                         ModelReply(
@@ -280,9 +222,9 @@ class TestTheTriageAgent:
 
         async def scenario() -> Any:
             store_root = tmp_path / "store"
-            run_id = _store_a_run(Path(TEST_DPI_PCAP), store_root)
-            async with _connected(store_root) as session:
-                schemas = await _tool_schemas(session)
+            run_id = store_a_run(Path(TEST_DPI_PCAP), store_root)
+            async with connected(store_root) as session:
+                schemas = await tool_schemas(session, TRIAGE_TOOL_NAMES)
                 model = ScriptedModel(
                     [
                         ModelReply(

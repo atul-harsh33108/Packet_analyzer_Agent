@@ -25,7 +25,14 @@ from typing import Any
 
 from dpi_engine.types import FiveTuple
 
-__all__ = ["SEVERITIES", "TriageVerdict", "parse_triage_verdict"]
+__all__ = [
+    "SEVERITIES",
+    "IncidentNarrative",
+    "NarrativeClaim",
+    "TriageVerdict",
+    "parse_incident_narrative",
+    "parse_triage_verdict",
+]
 
 #: The severities a verdict may carry.
 #:
@@ -121,3 +128,90 @@ def parse_triage_verdict(text: str) -> TriageVerdict:
         flows=tuple(_parse_five_tuple(flow) for flow in flows),
         needs_deep=needs_deep,
     )
+
+
+# ---------------------------------------------------------------------------
+# The narrative (`T4-04`)
+# ---------------------------------------------------------------------------
+#
+# A narrative is prose, and prose is exactly where "every sentence carries its
+# evidence" stops being a property and becomes a hope. So a claim carries its
+# evidence **structurally**: the five-tuples and the apps it rests on. Both are
+# checkable against the run.
+#
+# What is *not* checkable here is whether the cited evidence **supports** the
+# claim in the prose -- that is a judgement, and it is `T4-06`'s job
+# (citation-enforced RAG). The boundary is stated rather than blurred: this
+# layer guarantees the citation is real; the next one guarantees it is apt.
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class NarrativeClaim:
+    """One claim, and what it rests on."""
+
+    text: str
+    flows: tuple[FiveTuple, ...] = ()
+    apps: tuple[str, ...] = ()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class IncidentNarrative:
+    """What the Explainer concluded, as a summary and the claims under it."""
+
+    summary: str
+    claims: tuple[NarrativeClaim, ...] = ()
+
+
+def _parse_apps(raw: Any) -> tuple[str, ...]:
+    """The apps a claim rests on, if it names any."""
+    if "apps" not in raw:
+        return ()
+    apps = raw["apps"]
+    if not isinstance(apps, list) or not all(isinstance(item, str) and item for item in apps):
+        raise ValueError(f"apps must be a list of non-empty strings, got {apps!r}")
+    return tuple(apps)
+
+
+def parse_incident_narrative(text: str) -> IncidentNarrative:
+    """Parse and validate an incident narrative.
+
+    A claim with no citation is **not** refused: "nothing notable" is a
+    legitimate narrative, and the summary says so. What is refused is a claim
+    that cites something malformed \u2014 a flow that is not five integers, an app
+    that is not a name \u2014 because a citation that cannot be checked is worse
+    than no citation, since it looks like evidence.
+    """
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"a narrative must be JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(f"a narrative must be an object, got {type(raw).__name__}")
+
+    summary = raw.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError(f"a narrative needs a non-empty summary, got {summary!r}")
+
+    claims = raw.get("claims", [])
+    if not isinstance(claims, list):
+        raise ValueError(f"claims must be a list, got {type(claims).__name__}")
+
+    parsed: list[NarrativeClaim] = []
+    for claim in claims:
+        if not isinstance(claim, dict):
+            raise ValueError(f"a claim must be an object, got {type(claim).__name__}")
+        claim_text = claim.get("text")
+        if not isinstance(claim_text, str) or not claim_text.strip():
+            raise ValueError(f"a claim needs non-empty text, got {claim_text!r}")
+        flows = claim.get("flows", [])
+        if not isinstance(flows, list):
+            raise ValueError(f"a claim's flows must be a list, got {type(flows).__name__}")
+        parsed.append(
+            NarrativeClaim(
+                text=claim_text,
+                flows=tuple(_parse_five_tuple(flow) for flow in flows),
+                apps=_parse_apps(claim),
+            )
+        )
+
+    return IncidentNarrative(summary=summary, claims=tuple(parsed))
