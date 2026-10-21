@@ -112,6 +112,16 @@ PACKAGE_ENVELOPES: dict[str, Envelope] = {
     # contained. An agent that cannot reach the network cannot be redirected by
     # a hostname in a DNS query.
     "dpi_agents": OFFLINE_CORE,
+    # The one package that may reach the network (`T4-07`, `DEC-11`).
+    # `NETWORKED_AGENT` permits network **and nothing else**: no raw sockets, no
+    # sniffing, no dynamic execution, no shelling out. It is in its own package
+    # so that the agent runtime in `dpi_agents/` stays `OFFLINE_CORE` -- the code
+    # that reads a capture is structurally unable to phone home, which is the
+    # mirror image of the rule this suite already enforces for the core ("a core
+    # that transitively loads an HTTP client is offline in name only"). Here the
+    # risk is the same failure with the arrows reversed: an agent that can reach
+    # the network can be *told* to by whatever it read in a capture.
+    "dpi_model_client": NETWORKED_AGENT,
 }
 
 #: Capability -> the dotted call prefixes that violate it.
