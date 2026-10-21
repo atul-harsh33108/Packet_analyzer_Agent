@@ -39,9 +39,16 @@ from mcp.types import TextContent
 
 from dpi_agents.framing import frame
 from dpi_agents.injection import classify
-from dpi_agents.runtime import ToolResult
+from dpi_agents.memory.knowledge import KnowledgeStore
+from dpi_agents.runtime import ToolPort, ToolResult
 
-__all__ = ["McpToolPort", "screen_value", "withheld_marker"]
+__all__ = [
+    "CompositeToolPort",
+    "KnowledgeToolPort",
+    "McpToolPort",
+    "screen_value",
+    "withheld_marker",
+]
 
 
 def withheld_marker(rule: str) -> str:
@@ -132,3 +139,59 @@ class McpToolPort:
             is_error=False,
             withheld=withheld,
         )
+
+
+class KnowledgeToolPort:
+    """The agent's own retrieval tool, over the knowledge store.
+
+    The agent's memory is **not** the MCP server's business, so this tool is
+    local to the agent and the two kinds of tool sit behind one port. What it
+    returns is **framed and screened** like any other model-bound text: the
+    documents are ours, but a document can quote a capture's hostname, and the
+    same rule applies.
+    """
+
+    def __init__(self, store: KnowledgeStore) -> None:
+        self._store = store
+
+    async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolResult:
+        if name != "search_knowledge":
+            return ToolResult(content=f"no tool named {name!r}", is_error=True)
+        query = str(arguments.get("query", ""))
+        raw_limit = arguments.get("limit", 3)
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            return ToolResult(
+                content=f"limit must be an integer, got {raw_limit!r}", is_error=True
+            )
+        try:
+            chunks = self._store.search(query, limit)
+        except ValueError as exc:
+            return ToolResult(content=str(exc), is_error=True)
+        screened, withheld = screen_value([chunk.to_json() for chunk in chunks])
+        return ToolResult(
+            content=frame(json.dumps(screened, indent=2, default=str)),
+            is_error=False,
+            withheld=withheld,
+        )
+
+
+class CompositeToolPort:
+    """Several tool ports behind one, with an explicit routing table.
+
+    The table is explicit rather than discovered, because a port that answers
+    "no such tool" is indistinguishable from a port that *ran* the tool and
+    failed \u2014 and an agent that cannot tell those apart will retry a call that
+    has already failed.
+    """
+
+    def __init__(self, routes: Mapping[str, ToolPort]) -> None:
+        self._routes = dict(routes)
+
+    async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolResult:
+        port = self._routes.get(name)
+        if port is None:
+            return ToolResult(content=f"no tool named {name!r}", is_error=True)
+        result = await port.call(name, arguments)
+        return result

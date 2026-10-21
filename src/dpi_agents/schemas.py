@@ -27,6 +27,7 @@ from dpi_engine.types import FiveTuple
 
 __all__ = [
     "SEVERITIES",
+    "DocumentCitation",
     "IncidentNarrative",
     "NarrativeClaim",
     "TriageVerdict",
@@ -146,12 +147,26 @@ def parse_triage_verdict(text: str) -> TriageVerdict:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class DocumentCitation:
+    """A citation of a document: the chunk, and the quote taken from it.
+
+    The **quote** is the point. A citation that names a chunk without saying
+    what was taken from it cannot be checked \u2014 and a citation that cannot be
+    checked is worse than none, because it looks like evidence.
+    """
+
+    chunk_id: str
+    quote: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class NarrativeClaim:
     """One claim, and what it rests on."""
 
     text: str
     flows: tuple[FiveTuple, ...] = ()
     apps: tuple[str, ...] = ()
+    citations: tuple[DocumentCitation, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -170,6 +185,32 @@ def _parse_apps(raw: Any) -> tuple[str, ...]:
     if not isinstance(apps, list) or not all(isinstance(item, str) and item for item in apps):
         raise ValueError(f"apps must be a list of non-empty strings, got {apps!r}")
     return tuple(apps)
+
+
+def _parse_citations(raw: Any) -> tuple[DocumentCitation, ...]:
+    """A claim's document citations, or a raise.
+
+    A citation must name a chunk **and** quote something: a citation that
+    names a chunk and says nothing is a reference, and a reference that cannot
+    be checked is not evidence.
+    """
+    if "citations" not in raw:
+        return ()
+    citations = raw["citations"]
+    if not isinstance(citations, list):
+        raise ValueError(f"citations must be a list, got {type(citations).__name__}")
+    parsed: list[DocumentCitation] = []
+    for citation in citations:
+        if not isinstance(citation, dict):
+            raise ValueError(f"a citation must be an object, got {type(citation).__name__}")
+        chunk_id = citation.get("chunk_id")
+        quote = citation.get("quote")
+        if not isinstance(chunk_id, str) or not chunk_id.strip():
+            raise ValueError(f"a citation needs a chunk id, got {chunk_id!r}")
+        if not isinstance(quote, str) or not quote.strip():
+            raise ValueError(f"a citation needs a quote, got {quote!r}")
+        parsed.append(DocumentCitation(chunk_id=chunk_id, quote=quote))
+    return tuple(parsed)
 
 
 def parse_incident_narrative(text: str) -> IncidentNarrative:
@@ -211,6 +252,7 @@ def parse_incident_narrative(text: str) -> IncidentNarrative:
                 text=claim_text,
                 flows=tuple(_parse_five_tuple(flow) for flow in flows),
                 apps=_parse_apps(claim),
+                citations=_parse_citations(claim),
             )
         )
 
