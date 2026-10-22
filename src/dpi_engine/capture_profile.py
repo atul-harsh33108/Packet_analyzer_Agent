@@ -21,7 +21,7 @@ named `total_bytes` would be authoritative-looking and wrong.
 
 Hashing lives here for the same reason. A capture's digest is a property of the
 capture, and the run store's content-addressed run ids depend on it being computed
-*one* way; `dpi_mcp.run_store.capture_digest` re-exports this function rather than
+*one* way; `dpi_engine.run_store.capture_digest` re-exports this function rather than
 keeping a second copy of the algorithm.
 
 **Cost, stated rather than hidden:** `profile_capture` reads the file twice -- once

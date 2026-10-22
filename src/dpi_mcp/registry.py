@@ -35,13 +35,13 @@ from typing import Any
 
 from dpi_engine.capture_profile import CaptureProfile
 from dpi_engine.pcap_io import DEFAULT_MAX_PACKET_SIZE, DEFAULT_MAX_TOTAL_PACKETS
+from dpi_engine.rule_manager import ruleset_fingerprint
 from dpi_engine.rules.simulator import SimulationReport
-from dpi_mcp.run_store import RunStore, record_from_result
+from dpi_engine.run_store import RunStore, record_from_result
 from dpi_mcp.tools.runs import (
     diff_runs,
     get_flow_detail,
     query_flows,
-    ruleset_fingerprint,
     run_outcome,
 )
 from dpi_mcp.tools.single_run import (

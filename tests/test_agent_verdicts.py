@@ -19,8 +19,8 @@ from dpi_agents.runtime import Agent
 from dpi_agents.schemas import TriageVerdict
 from dpi_agents.tools import McpToolPort
 from dpi_agents.trace import Trace
+from dpi_engine.run_store import RunStore
 from dpi_engine.types import FiveTuple
-from dpi_mcp.run_store import RunStore
 from eval.verdicts import (
     SEVERITY_BY_CLASS,
     expected_verdict,
@@ -58,7 +58,7 @@ def _rows(hostname: str) -> list[Any]:
     Built through the store's decoder, so the row is the store's row and not a
     copy of one.
     """
-    from dpi_mcp.run_store import flow_from_json
+    from dpi_engine.run_store import flow_from_json
 
     return [
         flow_from_json(

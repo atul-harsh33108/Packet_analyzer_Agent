@@ -11,10 +11,12 @@ the differential suite skips without Docker. A skip that reads as a pass is not 
 measurement, so the reason says so: the quality figure is **not measured** here,
 and nothing downstream may treat this file's green as evidence about a model.
 
-**There is no threshold, on purpose.** A number set before the first real
-measurement is a number with nothing behind it. The thresholds are a follow-up,
-to be set from the first run that has a model behind it \u2014 and the measurement
-below is what that decision will be made from.
+**The threshold, and what it is not** (`T4-08`). The bar a model must clear is a
+**table keyed by model name** (`dpi_model_client.quality`), and it is **empty until
+the first real measurement**. A number set before the first run with a model behind
+it is a number with nothing behind it. So this run has **three** outcomes, not two:
+a model **with** a bar is gated, and this run passes or fails; a model **without**
+one is a **measurement**, and the run says so rather than reporting a pass.
 """
 
 from __future__ import annotations
@@ -32,8 +34,9 @@ from dpi_agents.nodes.triage import TRIAGE_TOOL_NAMES, triage_node
 from dpi_agents.runtime import Agent
 from dpi_agents.tools import McpToolPort
 from dpi_agents.trace import Trace
-from dpi_mcp.run_store import RunStore
-from eval.verdicts import score_verdict, trace_covers_verdict
+from dpi_engine.run_store import RunStore
+from dpi_model_client.quality import judge_quality
+from eval.verdicts import report_from_scores, score_verdict, trace_covers_verdict
 from golden.corpus import iter_cases, materialise
 
 pytestmark = pytest.mark.skipif(
@@ -98,13 +101,21 @@ def test_a_real_model_is_measured_against_the_golden_corpus(tmp_path: Path) -> N
         "a verdict without a replayable trace is not a verdict we can check"
     )
 
-    correct = sum(1 for score in judged if score.correct)
-    false_positives = sum(1 for score in judged if score.false_positive)
-    report = {
-        "cases": len(scores),
-        "judged": len(judged),
-        "correct": correct,
-        "accuracy": round(correct / len(judged), 3),
-        "false_positives": false_positives,
-    }
-    print(json.dumps(report, indent=2, sort_keys=True))
+    report = report_from_scores(scores)
+    print(json.dumps(report.to_json(), indent=2, sort_keys=True))
+
+    # The judgement is three-valued: a model with a bar is gated, and a model
+    # without one is a measurement. The difference is the whole point, so the
+    # run says which of the two it is rather than printing a green tick.
+    judgement = judge_quality(
+        client.settings.model, report.accuracy, report.false_positives
+    )
+    print(judgement.describe())
+    if judgement.passed is None:
+        print(
+            "NO THRESHOLD IS SET FOR THIS MODEL: this run is a MEASUREMENT, not a pass.\n"
+            "To gate it, set the bar in dpi_model_client.quality:\n"
+            '    QUALITY_THRESHOLDS["<model>"] = <the accuracy above>'
+        )
+    else:
+        assert judgement.passed, judgement.describe()

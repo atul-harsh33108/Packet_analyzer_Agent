@@ -165,6 +165,20 @@ _CASES: list[tuple[str, str, str]] = [
     ("exec", "exec('x=1')", "dynamic_exec"),
     ("compile", "compile('x', '<s>', 'exec')", "dynamic_exec"),
     ("dynamic import", "__import__('os').system('id')", "dynamic_exec"),
+    # `D-29`: a call reached through a value rather than through a name.
+    ("getattr value", "import os\ngetattr(os, 'system')('id')", "subprocess"),
+    (
+        "getattr value bound to a name",
+        "import os\nf = getattr(os, 'system')\nf('id')",
+        "subprocess",
+    ),
+    ("star import", "from os import *\nsystem('id')", "subprocess"),
+    ("star import of subprocess", "from subprocess import *\nrun(['id'])", "subprocess"),
+    (
+        "getattr of a network call",
+        "import urllib.request\ngetattr(urllib.request, 'urlopen')('http://x')",
+        "network",
+    ),
 ]
 
 
@@ -241,6 +255,96 @@ def load(p: Path) -> dict:
             f"{label}: NETWORKED_AGENT should still refuse this; the agent envelope "
             "is meant to widen network access only"
         )
+
+
+# ---------------------------------------------------------------------------
+# `D-29` (`T3-11`): a call reached through a value
+# ---------------------------------------------------------------------------
+#
+# `D-28` fixed the *text* net. `D-29` is the other half: the AST pass resolves a
+# call through a **name** -- `import os` then `os.system(...)`, `from os import
+# system` then `system(...)` -- and a call reached through a **value** has no
+# name to resolve. `getattr(os, "system")(...)` is an outer call on an inner one,
+# and `from os import *` + `system(...)` has no dotted path at all. Neither was
+# caught by either pass, and both are ordinary ways to write the same call.
+#
+# The repair resolves the *spelling* as well as the name: a `getattr` call says
+# which attribute it reaches for, and a star import makes every member of the
+# imported module a candidate for a name the alias map could not place.
+
+
+class TestACallReachedThroughAValue:
+    @pytest.mark.parametrize(
+        ("label", "source", "expected"),
+        [
+            ("getattr called directly", "import os\ngetattr(os, 'system')('id')", "os.system"),
+            (
+                "getattr bound to a name",
+                "import os\nf = getattr(os, 'system')\nf('id')",
+                "os.system",
+            ),
+            (
+                "getattr of an aliased module",
+                "import os as o\ngetattr(o, 'system')('id')",
+                "os.system",
+            ),
+            ("star import", "from os import *\nsystem('id')", "os.system"),
+            ("star import of subprocess", "from subprocess import *\nrun(['id'])", "subprocess.run"),
+            (
+                "getattr of a network call",
+                "import urllib.request\ngetattr(urllib.request, 'urlopen')('http://x')",
+                "urllib.request.urlopen",
+            ),
+        ],
+    )
+    def test_the_resolved_name_is_the_canonical_one(
+        self, label: str, source: str, expected: str
+    ) -> None:
+        """Not merely "something was reported" -- the *name* is what a reader needs.
+
+        A violation reported as `getattr` tells a reader nothing; a violation
+        reported as `os.system` names the capability that was broken.
+        """
+        violations = scan_source(source, OFFLINE_CORE, path="<probe>")
+        assert violations, f"{label}: nothing was reported"
+        assert expected in {v.resolved for v in violations}, (
+            f"{label}: expected the call to resolve to {expected!r}, got "
+            f"{sorted(v.resolved for v in violations)}"
+        )
+
+    @pytest.mark.parametrize(
+        ("label", "source"),
+        [
+            ("a getattr for a harmless attribute", "import os\np = getattr(os, 'getcwd')\nprint(p())"),
+            ("a star import of a harmless module", "from pathlib import *\nPath('.').exists()"),
+            ("a star import of os, calling something else", "from os import *\nprint(getcwd())"),
+            (
+                "an explicit import wins over the star guess",
+                "from os import *\nfrom json import system\nsystem('id')",
+            ),
+        ],
+    )
+    def test_it_does_not_report_what_it_should_not(self, label: str, source: str) -> None:
+        """A scanner that reports everything is turned off within a week.
+
+        The star-import candidates are guesses, so they have to be *narrow*: a
+        name the alias map could place is never guessed at.
+        """
+        assert scan_source(source, OFFLINE_CORE, path="<probe>") == [], (
+            f"{label}: reported something it should not have"
+        )
+
+    def test_a_name_built_at_runtime_is_outside_what_the_scanner_claims(self) -> None:
+        """The honest limit, asserted rather than implied.
+
+        A module or attribute name assembled from variables at runtime cannot be
+        resolved statically, and this scanner does not pretend otherwise: it
+        catches the *inadvertent* violation, not the deliberate one. The
+        assertion is here so the limit is a stated fact rather than a comment
+        that drifts.
+        """
+        source = "import os\nname = 'sys' + 'tem'\ngetattr(os, name)('id')\n"
+        assert scan_source(source, OFFLINE_CORE, path="<probe>") == []
 
 
 # ---------------------------------------------------------------------------

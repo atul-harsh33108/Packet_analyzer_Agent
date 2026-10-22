@@ -86,7 +86,7 @@ def test_the_digest_is_the_run_stores_own_function(profile: CaptureProfile) -> N
     change removed: the run store's content-addressed ids and the profile an agent reads
     must come from the same function, or they can disagree about truncation.
     """
-    from dpi_mcp import run_store
+    from dpi_engine import run_store
 
     assert run_store.capture_digest is profile_capture.__globals__["capture_digest"]
     assert profile.sha256 == capture_digest(TEST_DPI_PCAP)[0]

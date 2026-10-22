@@ -38,8 +38,8 @@ import pytest
 from conftest import TEST_DPI_PCAP
 from dpi_engine.pipeline import PipelineResult, run_pipeline
 from dpi_engine.rule_manager import RuleManager
+from dpi_engine.run_store import RunRecord, RunStore, record_from_result
 from dpi_engine.types import AppType, FiveTuple
-from dpi_mcp.run_store import RunRecord, RunStore, record_from_result
 from dpi_mcp.tools import diff_runs, get_flow_detail, query_flows
 from dpi_mcp.tools.errors import ToolInputError
 

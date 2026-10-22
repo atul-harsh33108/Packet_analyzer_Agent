@@ -33,8 +33,8 @@ from dpi_agents.runtime import Agent
 from dpi_agents.schemas import TriageVerdict
 from dpi_agents.tools import McpToolPort
 from dpi_agents.trace import Trace
+from dpi_engine.run_store import RunStore
 from dpi_engine.types import AppType
-from dpi_mcp.run_store import RunStore
 from golden.corpus import ExpectedFlow, GoldenCase, write_case
 
 #: The design's own example of a hostname carrying an order.

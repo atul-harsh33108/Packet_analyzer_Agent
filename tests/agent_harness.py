@@ -19,7 +19,7 @@ from mcp.shared.memory import create_client_server_memory_streams
 
 from dpi_engine.pipeline import run_pipeline
 from dpi_engine.rule_manager import RuleManager
-from dpi_mcp.run_store import RunStore, record_from_result
+from dpi_engine.run_store import RunStore, record_from_result
 from dpi_mcp.server import build_server
 
 __all__ = ["connected", "store_a_run", "tool_schemas"]

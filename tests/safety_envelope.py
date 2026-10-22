@@ -21,11 +21,15 @@ stops being true... and nothing will report it."
 
 **The approach.** Resolve each module's imports into an alias map, then resolve every
 call through it, so `import subprocess as sp; sp.run()` and `from subprocess import
-run; run()` both resolve to `subprocess.run`. Static resolution cannot catch
-deliberate obfuscation (`getattr(os, "system")` built at runtime from variables) and
-this module does not pretend otherwise -- it catches *inadvertent* violations, which
-is the realistic failure mode for a codebase where nobody is trying to smuggle a
-socket past the test.
+run; run()` both resolve to `subprocess.run`. A call reached through a **value**
+rather than a name is resolved too (`D-29`, `T3-11`): `getattr(os, "system")(...)`
+and `from os import *` + `system(...)` name the same call as `os.system(...)` does,
+and a scanner that sees only the last spelling is a scanner with a hole in it.
+What static resolution still cannot catch is **deliberate** obfuscation -- a
+module name or attribute assembled at runtime from variables -- and this module does
+not pretend otherwise. It catches *inadvertent* violations, which is the realistic
+failure mode for a codebase where nobody is trying to smuggle a socket past the
+test.
 
 **Envelopes.** `A-03` requires the agent layer to be allowed network access as a
 deliberate, documented widening, while the deterministic core stays offline. That
@@ -241,6 +245,10 @@ class _AliasResolver(ast.NodeVisitor):
 
     def __init__(self) -> None:
         self.aliases: dict[str, str] = {}
+        #: The modules a star import pulled in. A name that resolves to
+        #: nothing may be any of their members, so they are the candidates
+        #: for a bare call that the alias map cannot place.
+        self.star_modules: list[str] = []
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -262,12 +270,12 @@ class _AliasResolver(ast.NodeVisitor):
         for alias in node.names:
             local = alias.asname or alias.name
             if alias.name == "*":
-                # A star import can shadow anything, and this records the module --
-                # but `resolve()` does not expand `"*"`, and the text net below needs
-                # a literal `os.system(`, so `from os import *` + `system("id")` is
-                # detected by **neither** pass. Recording it is not a defence; the gap
-                # is `T3-08`'s first follow-up.
-                self.aliases.setdefault("*", node.module)
+                # A star import can shadow anything, so the module it pulled in
+                # becomes a *candidate* for every bare name the alias map cannot
+                # place. `from os import *` + `system("id")` is the same call as
+                # `os.system("id")`, and the text net cannot see it because it
+                # looks for a literal `os.system(` (`D-29`).
+                self.star_modules.append(node.module)
                 continue
             self.aliases[local] = f"{node.module}.{alias.name}"
         self.generic_visit(node)
@@ -285,6 +293,47 @@ class _AliasResolver(ast.NodeVisitor):
         if head and tail:
             return f"{head}.{tail}"
         return resolved
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """Bind a name that holds a call, so calling the name is visible.
+
+        `f = getattr(os, "system")` and then `f("id")` is the same violation
+        as writing it out, and the second line is the one the scanner used to
+        miss. The binding is recorded under the name, so the ordinary
+        resolution picks it up.
+        """
+        target = self.getattr_target(node.value)
+        if target is not None:
+            for name in node.targets:
+                if isinstance(name, ast.Name):
+                    self.aliases[name.id] = target
+        self.generic_visit(node)
+
+    def getattr_target(self, node: ast.expr) -> str | None:
+        """The name `getattr(obj, "attr")` reaches for, or `None`.
+
+        `getattr` is the ordinary way to reach a call through a **value**
+        rather than a name, and it is the one the scanner could not see at
+        all: `getattr(os, "system")(...)` has no dotted callee for the AST to
+        read. The base is returned unresolved; the caller resolves it like
+        any other name.
+        """
+        if not isinstance(node, ast.Call):
+            return None
+        func = _dotted(node.func)
+        if func is None:
+            return None
+        if self.resolve(func) not in ("getattr", "builtins.getattr"):
+            return None
+        if len(node.args) < 2:
+            return None
+        attr = node.args[1]
+        if not isinstance(attr, ast.Constant) or not isinstance(attr.value, str):
+            return None
+        base = _dotted(node.args[0])
+        if base is None:
+            return None
+        return f"{base}.{attr.value}"
 
     def resolve(self, dotted: str) -> str:
         """Expands a dotted expression through the alias map where possible."""
@@ -312,6 +361,38 @@ def _dotted(node: ast.expr) -> str | None:
         return None
     parts.append(cur.id)
     return ".".join(reversed(parts))
+
+
+def _callee_candidates(node: ast.Call, resolver: _AliasResolver) -> list[str]:
+    """Every canonical name the callee of `node` could have.
+
+    A call has one name, but the *spelling* of that name is what the scanner
+    has to survive: `os.system(...)`, `getattr(os, "system")(...)` and
+    `system(...)` after `from os import *` are the same call, reached three
+    ways. Each way produces a candidate, and the rules are matched against
+    every one of them.
+
+    The star-import candidates are only tried for a name the alias map could
+    not place, so an explicit import always wins over a guess.
+    """
+    candidates: list[str] = []
+    dotted = _dotted(node.func)
+    if dotted is not None:
+        candidates.append(
+            _AliasResolver._collapse_star_re_exports(resolver.resolve(dotted))
+        )
+        if "." not in dotted and dotted not in resolver.aliases:
+            for module in resolver.star_modules:
+                candidates.append(f"{module}.{dotted}")
+        return candidates
+
+    # The callee is itself a call: `getattr(os, "system")(...)`.
+    target = resolver.getattr_target(node.func)
+    if target is not None:
+        candidates.append(
+            _AliasResolver._collapse_star_re_exports(resolver.resolve(target))
+        )
+    return candidates
 
 
 def scan_source(
@@ -347,23 +428,19 @@ def scan_source(
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        dotted = _dotted(node.func)
-        if dotted is None:
-            continue
-        resolved = _AliasResolver._collapse_star_re_exports(resolver.resolve(dotted))
-
-        for capability, prefixes in _CAPABILITY_RULES.items():
-            if not forbidden[capability]:
-                continue
-            if resolved in bare.get(capability, set()):
-                record(capability, resolved, node.lineno)
-                break
-            for prefix in prefixes:
-                # `subprocess.run` matches a call to it, and also `subprocess.run(...)`
-                # reached via an attribute of the result.
-                if resolved == prefix or resolved.startswith(prefix + "."):
+        for resolved in _callee_candidates(node, resolver):
+            for capability, prefixes in _CAPABILITY_RULES.items():
+                if not forbidden[capability]:
+                    continue
+                if resolved in bare.get(capability, set()):
                     record(capability, resolved, node.lineno)
                     break
+                for prefix in prefixes:
+                    # `subprocess.run` matches a call to it, and also
+                    # `subprocess.run(...)` reached via an attribute of the result.
+                    if resolved == prefix or resolved.startswith(prefix + "."):
+                        record(capability, resolved, node.lineno)
+                        break
 
     # Secondary net: regex over the raw text, so a call that is *written as text*
     # still trips -- the AST has no Call node for `COMMAND = "os.system('id')"`, and
@@ -375,10 +452,10 @@ def scan_source(
     # in the tree violated its envelope (`D-28`). "Not preceded by a word character or
     # a dot" keeps `"os.system(` and `[os.system(` and drops `x.compile(`.
     #
-    # Known gaps, in neither pass: a call reached through a value rather than a name.
-    # `getattr(os, "system")(...)` has no `(` after the name and the AST sees an outer
-    # Call on an inner one; `from os import *` + `system(...)` has no dotted path at
-    # all. Both are recorded as follow-ups rather than papered over here.
+    # What this net still cannot see: a call whose name is built at runtime from
+    # variables, because there is no literal to match. The AST pass covers the two
+    # shapes the net cannot (`D-29`): a call reached through a `getattr` value, and
+    # a bare name that a star import may have supplied.
     for capability, prefixes in _CAPABILITY_RULES.items():
         if not forbidden[capability]:
             continue

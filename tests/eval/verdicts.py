@@ -24,17 +24,20 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from dpi_agents.schemas import TriageVerdict
 from dpi_agents.trace import TraceStep
-from dpi_mcp.run_store import FlowRecord
+from dpi_engine.run_store import FlowRecord
 from golden.corpus import GoldenCase, GoldenClass
 
 __all__ = [
     "SEVERITY_BY_CLASS",
     "ExpectedVerdict",
+    "QualityReport",
     "VerdictScore",
     "expected_verdict",
+    "report_from_scores",
     "score_verdict",
     "trace_covers_verdict",
 ]
@@ -160,6 +163,64 @@ def score_verdict(
         category_ok=category_ok,
         flows_ok=flows_ok,
         false_positive=false_positive,
+    )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class QualityReport:
+    """The figure one quality run produced (`T4-08`).
+
+    The **cases** and the **judged** are counted separately: a case the model
+    refused, or that ran out of budget, produced no verdict, and counting it as
+    a miss would measure the model's refusals as its errors. The
+    **false positives** are counted separately again, because that is the side
+    of the criterion accuracy cannot express.
+    """
+
+    cases: int
+    judged: int
+    correct: int
+    false_positives: int
+
+    @property
+    def accuracy(self) -> float:
+        """The fraction of judged cases that were right.
+
+        Raises when nothing was judged: a figure of zero out of zero is not
+        100%, and reporting it as one would be the worst kind of wrong.
+        """
+        if self.judged == 0:
+            raise ValueError(
+                "no case produced a verdict, so there is no accuracy to report. "
+                "A run that judged nothing is not a run that was right about "
+                "everything."
+            )
+        return self.correct / self.judged
+
+    def to_json(self) -> dict[str, Any]:
+        """The report as it is printed."""
+        return {
+            "cases": self.cases,
+            "judged": self.judged,
+            "correct": self.correct,
+            "accuracy": round(self.accuracy, 3),
+            "false_positives": self.false_positives,
+        }
+
+
+def report_from_scores(scores: Sequence[VerdictScore | None]) -> QualityReport:
+    """The figure from a run's per-case scores.
+
+    `None` is a case that produced **no verdict** -- the model refused it, or
+    the agent ran out of budget. It is counted as a case and not as a judged
+    one.
+    """
+    judged = [score for score in scores if score is not None]
+    return QualityReport(
+        cases=len(scores),
+        judged=len(judged),
+        correct=sum(1 for score in judged if score.correct),
+        false_positives=sum(1 for score in judged if score.false_positive),
     )
 
 

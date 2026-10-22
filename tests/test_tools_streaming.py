@@ -22,7 +22,7 @@ from pathlib import Path
 from conftest import TEST_DPI_PCAP
 from dpi_engine.events import CaptureClosed, CaptureOpened, Event, PacketParsed
 from dpi_engine.pipeline import run_pipeline, run_pipeline_multiprocess, run_pipeline_staged
-from dpi_mcp.run_store import RunStore
+from dpi_engine.run_store import RunStore
 from dpi_mcp.tools.streaming import EventStream, stream_dpi_events
 
 #: How long a run may take before the test calls it a hang. Generous, because

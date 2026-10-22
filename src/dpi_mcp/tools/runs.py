@@ -35,14 +35,13 @@ projection cannot drift between the two tools because there is only one.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from dpi_engine.rule_manager import ruleset_fingerprint
+from dpi_engine.run_store import FlowFilter, RunRecord, RunStore, flow_to_json
 from dpi_engine.types import FiveTuple
-from dpi_mcp.run_store import FlowFilter, RunRecord, RunStore, flow_to_json
 from dpi_mcp.tools.errors import ToolInputError
 
 __all__ = [
@@ -56,25 +55,6 @@ __all__ = [
 #: The five fields of a five-tuple, in the order `flow_to_json` writes them. Named here
 #: because it is the one part of the wire format a tool has to *read* rather than emit.
 _FIVE_TUPLE_FIELDS = ("src_ip", "dst_ip", "src_port", "dst_port", "protocol")
-
-
-def ruleset_fingerprint(ruleset: object) -> str:
-    """A stable fingerprint of the rules document a run was produced with.
-
-    The store wants a caller-supplied fingerprint and will not invent one, because
-    a hash of "whatever was loaded" looks authoritative while being unable to see
-    a rule added to a live `RuleManager` mid-run. This hashes the *document the
-    agent sent*, which is exactly what was in force. No rules is the empty string,
-    not a hash of `null`.
-
-    One home for it, because two tools produce stored runs (`T3-05`'s `run_dpi`
-    and `T3-07`'s `stream_dpi_events`) and two hashes of the same document would
-    be two facts.
-    """
-    if ruleset is None:
-        return ""
-    canonical = json.dumps(ruleset, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def run_outcome(record: RunRecord, *, output: str | Path | None = None) -> dict[str, Any]:

@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 4
-current_task: T4-07
-next_action: **Phase 4 is complete (8/8).** Two of its three exit criteria are *measured by machinery that is built and green*, and the figures themselves need a provider key: `DPI_MODEL_API_KEY`, `DPI_MODEL_NAME` and optionally `DPI_MODEL_BASE_URL` — set them and run `tests/test_model_quality.py` to get them. The third criterion, *a full replayable trace for every verdict*, is met and tested. What the operator should decide next: whether to set the **thresholds** on the quality figure (they can only come from the first real measurement — a number set before it is a number with nothing behind it), and whether the three gaps the phase left behind are closed before Phase 5: **`src/dpi_mcp/`, `src/dpi_agents/` and now `src/dpi_model_client/` are all outside the 85% coverage floor**, the **CLI has no command that writes a run to the store**, and **`D-29`** is unowned.
-blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18, and D-29 (allocated 2026-10-20 by T3-08, unowned); D-28 closed by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 complete (8/8); Phase 4 at 0/7]
-last_updated: 2026-10-20
+current_task: Phase 5 decomposition
+next_action: **The four gaps Phase 3 and Phase 4 left behind are closed, and Phase 5 is next.** Decompose Phase 5 (Fingerprinting + ClassifierGap) into tasks in `IMPLEMENTATION_PLAN.md` section 6, add them to this tracker's board, and claim the first one. Two of Phase 4's three exit criteria are *measured by machinery that is built and green*, and the figures themselves need a provider key: `DPI_MODEL_API_KEY`, `DPI_MODEL_NAME` and optionally `DPI_MODEL_BASE_URL` — set them and run `tests/test_model_quality.py` to get them. The **threshold** on that figure is in place and its value is not: a bar is set from the first measurement, and a number set before it is a number with nothing behind it.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11 and Phase 4 at 8/8; the gaps both phases left are closed]
+last_updated: 2026-10-22
 last_updated_by: claude-opus-5[1m]
-session: ses_phase3
+session: ses_phase4gaps
 ---
 
 # Task Tracker — `dpi-engine`
@@ -39,16 +39,16 @@ session workflow — what to read, in what order, when to stop — read
 
 | Field | Value |
 |---|---|
-| **Phase** | 4 — Read-only agents (in progress) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 8/8 (complete) — **Phase 4: 8/8 (complete)** |
-| **Current task** | **Phase 4 is complete (8/8).** Two of its three exit criteria need a provider key to measure; the third is met and tested |
-| **Next action** | `T4-07`: the real model client, in **its own package** at `NETWORKED_AGENT`, so the agent runtime stays `OFFLINE_CORE` and remains provably unable to reach the network. The run is **opt-in** — no key, no run — exactly as the differential suite skips without Docker. And it is where the *quality* figure comes from: the deterministic fake measures the **plumbing**, so a real model's verdicts are measured against the same corpus and the same scorer `T4-05` built, and the two-sided rule applies to it as well — accuracy, and the false positives on the legitimate traffic. Three of Phase 3's gaps are still open behind it: **`src/dpi_mcp/` and `src/dpi_agents/` are both outside the 85% coverage floor**, the **CLI has no command that writes a run to the store**, and **`D-29`** is unowned |
+| **Phase** | 3 and 4 — the gaps both phases left, now closed |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — DOC: 8/9 |
+| **Current task** | **The four gaps are closed (3/3 in Phase 3, 1/1 in Phase 4).** The next task is Phase 5's first task, and its decomposition is not written yet |
+| **Next action** | Decompose **Phase 5 (Fingerprinting + ClassifierGap)** into tasks in `IMPLEMENTATION_PLAN.md` section 6 and add them to this tracker's board, then claim the first one. The phase's scope is fixed in the plan: JA3/JA4 and the TLS feature fingerprints, per-flow feature vectors, the `ClassifierGap` agent with cited evidence, and a signature-table maintenance loop in which every proposal carries citations |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
-| **Untracked findings** | none without an ID. **Three are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed) and **`D-29`** (found by `T3-08`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — is caught by **neither** scanner pass; measured, and the two comments that claimed otherwise were corrected). `D-28` is **closed** (`T3-08`). `D-29` is the one item here with no task, and it wants one |
+| **Untracked findings** | none without an ID. **Two are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed). `D-29` is **closed** (`T3-11`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — was caught by **neither** scanner pass; the scanner now resolves the spelling as well as the name). `D-28` is **closed** (`T3-08`) |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (8 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_phase4` — `T4-07` done, **Phase 4 complete (8/8)** |
+| **Session** | `ses_phase4gaps` — the four gaps are closed; **Phase 5 is next** |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -220,13 +220,13 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **0.5** | Real captures | 2 | **2** | 0 | 0 | 0 | 0 | not met |
 | **1** | Streaming core | 9 | **9** | 0 | 0 | 0 | 0 | **met** (all 5 criteria verified, incl. differential parity) |
 | **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
-| **3** | MCP server | 8 | **8** | 0 | 0 | 0 | 0 | **complete** |
-| **4** | Read-only agents | 7 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
+| **3** | MCP server | 11 | **11** | 0 | 0 | 0 | 0 | **complete** (the three gaps it left are closed) |
+| **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
 | 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
-| **DOC** | Documentation track | 8 | **7** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
+| **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 49 tasks - **48** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
+**Totals:** 54 tasks - **53** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -280,6 +280,7 @@ Status vocabulary is closed (7 values) — see
 | `DOC-06` | Fix `conftest.py` reference | `M-07` | done | `T0-02` | 10 min |
 | `DOC-07` | Documentation index (`docs/README.md`) | - | partial | - | 15 min |
 | `DOC-08` | Gitignore / delete session transcripts | `S-01` | done | - | 5 min |
+| `DOC-09` | The tracker's integrity test covers every phase (`M-09`) | `M-09` | done | Phase 4's counts are checked by the gate that checks the other phases, so they cannot drift again under a green run | 0.25 d |
 | `T2-01` | **Golden-capture corpus + scorer** | - | done | - | 3 d |
 | `T2-02` | Differential suite: 77 pkt → generated corpus | - | done | - | 1 d |
 | `T2-03` | Agent-tree safety suite + envelope statement | `A-03` | done | - | 1 d |
@@ -292,6 +293,9 @@ Status vocabulary is closed (7 values) — see
 | `T3-06` | Surface per-flow rows from a run (`with_flow_table`) | - | done | all three variants agree; the flag changes nothing else | 1 d |
 | `T3-07` | `stream_dpi_events` over a blocking pipeline | `DEC-10` | done | a consumer that stops consuming neither deadlocks the run nor buffers without bound; 8/8 mutants caught | 0.5 d |
 | `T3-08` | Fix the envelope scanner's regex net (`D-28`) | `D-28` `A-03` | done | `re.compile` passes its envelope and `builtins.compile` still fails it; 8/8 mutants caught, one proven equivalent | 0.25 d |
+| `T3-09` | The CLI writes a run to the store | - | done | the store moves down into the engine so the core does not import the layer above it, and `dpi-engine run --store-root` writes a run an agent can query | 1 d |
+| `T3-10` | The 85% coverage floor covers every shipped package | - | done | every package under `src/` is in `[tool.coverage.run] source`, and the floor is met | 0.25 d |
+| `T3-11` | The scanner resolves a call reached through a value (`D-29`) | `D-29` `A-03` | done | `getattr(os, "system")(...)` and `from os import *` + `system(...)` are both caught, and the passes that already work still do | 0.5 d |
 
 All findings now carry an ID. **One is without a task**: `D-29`, allocated on
 2026-10-20 by `T3-08` and left unowned. `D-24`, `D-25` and `D-26` were closed by
@@ -313,6 +317,7 @@ the rows below are the findings that outlived their first disposition.
 | `T4-05` | The verdict evaluation: verdict labels derived from the corpus, the scorer, the trace check | `DEC-12` | done | verdict accuracy is measured, the false-positive side is counted, and every verdict has a replayable trace; 7/7 mutants caught, one proven equivalent | 1 d |
 | `T4-06` | Memory and RAG: episodic (the trace store) and semantic (the knowledge store), citations enforced | - | done | every claim in a narrative cites a source, and a citation that does not hold is caught rather than trusted; 9/9 mutants caught | 1 d |
 | `T4-07` | The real model client, and the opt-in quality run | `DEC-11` | done | with a key present, a real model's verdicts are measured against the same corpus; 8/8 mutants caught | 0.5 d |
+| `T4-08` | The threshold on the quality figure | - | done | a model with a threshold is gated by it and a model without one is reported as a measurement, not as a pass | 0.5 d |
 
 ## 5. Task records
 
@@ -997,6 +1002,70 @@ or `dropped` and say why.
 - **Notes:** Its **own package**, at `NETWORKED_AGENT`, so the agent runtime stays `OFFLINE_CORE` and is **provably unable to reach the network** (`DEC-11`). That is the structural form of the rule the project already tests for the core — *a core that transitively loads an HTTP client is offline in name only* — applied to the agent layer, where the risk is the mirror image: an agent that can reach the network can be *told* to by whatever it read in a capture. The run is **opt-in** (no key, no run), exactly as the differential suite skips without Docker.
 - **Notes (claimed 2026-10-22):** three decisions the task carries. The **API shape** is the OpenAI-compatible chat API, because most providers speak it and so does a local server — and the base URL is configurable, so the choice is not baked in. **No new dependency**: the standard library's `urllib` in a thread, so "the runtime stays tiny" still holds and the client adds nothing to install. And the **configuration is the operator's** — key, base URL and model name from the environment — because the model choice is a *cost* decision and the cost is theirs. The **threshold** on the quality figure is deliberately **not** set here: it can only come from the first real measurement, and a number invented before the measurement is a number with nothing behind it.
 
+
+### `T3-09` - The CLI writes a run to the store
+
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_phase4gaps — **Blocked by:** —
+- **Files:** `src/dpi_engine/run_store.py` (the store, moved down from `src/dpi_mcp/run_store.py`), `src/dpi_engine/cli.py` (`--store-root` on `run`), `src/dpi_engine/rule_manager.py` (`ruleset_fingerprint`), `src/dpi_mcp/tools/runs.py`, `src/dpi_mcp/tools/streaming.py`, `src/dpi_mcp/registry.py`, and the twelve files that import the store.
+- **Test added:** **8** in `tests/test_cli_run.py` — the stored run, the agent's own tool reading it, the id staying off stdout, an unusable store root, no store without the flag, the help text, the recorded fingerprint, and idempotence.
+- **How it was tackled:** The store moves **down** into the engine, and the CLI grows one flag. The move is the part that carries a reason: the store persists the engine's own results, and the engine's CLI is where an operator creates a run — so the alternative was the deterministic core importing the protocol layer above it, which is the one direction the layers do not allow. Nothing is duplicated. The CLI calls the same `record_from_result` and the same `RunStore.save` that the MCP layer's `run_dpi` calls, and the ruleset fingerprint is the same function the MCP layer uses — it moved to `dpi_engine.rule_manager` for the same reason. The per-flow rows are only kept when `--store-root` is given: the rows are worth their memory to a caller that will ask questions about the run afterwards, and the store is exactly that caller. The run id goes to **stderr**, because `--json` promises stdout is machine-readable, and the report and the handle on it are two different things.
+- **Deviations:** two, recorded rather than absorbed.
+  1. **The store changed module** — `dpi_mcp.run_store` became `dpi_engine.run_store`. `T3-04` promoted the flow codec to public, and the module's public path changed with it. The old path is gone rather than kept as a shim: a shim would be a second name for one module, which is the `D-16` shape.
+  2. **`ruleset_fingerprint` changed module** — from `dpi_mcp/tools/runs.py` to `dpi_engine/rule_manager.py`, for the same reason: the CLI has to fingerprint the rules in force, and the core must not import the layer above it. One home for it is the point — two hashes of the same document would be two facts.
+- **Verification:** `uv run ruff check .` clean — `uv run mypy` clean on **48** source files — `uv run pytest -q` -> **1381 passed, 1 skipped** — mutation harness **6/6 caught, 0 survived**, sources restored byte-for-byte — the run is never stored, the id on stdout, the per-flow rows dropped, the fingerprint dropped, the record never saved, and an unwritable store not treated as an error.
+- **Closed findings:** —
+- **Follow-ups:** the Explainer's narrative is still not scored by `T4-05`'s scorer, and the thresholds on the quality figure still need a measurement (`T4-08`).
+- **Notes:** The gap was not "the store is missing" — it is 100% covered and tested — but "**nothing but the MCP server populates it**". A CI job that classifies a capture and an agent that asks about it later had no path between them, because the only way to make a stored run was to run the server. The CLI's flag is that path, and the test that matters is the one that asks the *agent's* tool (`query_flows`) to read what the CLI wrote — one store, one pipeline, not two stores and a manual copy between them.
+
+### `T3-10` - The 85% coverage floor covers every shipped package
+
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_phase4gaps — **Blocked by:** —
+- **Files:** `pyproject.toml` (`[tool.coverage.run] source`), `tests/test_project_packaging.py`.
+- **Test added:** **3** — every package under `src/` is in the coverage source, the floor is still 85, and the source is a list rather than a bare string.
+- **How it was tackled:** One line, and then the line is made permanent. The floor measured `dpi_engine` alone, so `dpi_mcp`, `dpi_agents` and `dpi_model_client` — three of the four packages, and the whole agent tree — were shipped outside it. Nothing announced this: the gate ran, it passed, and the packages it was not watching were not in the report. The floor is the gate that catches a change which quietly deletes tested code, so a gate over part of the tree is a gate over a third of the tree. The fix has the same shape as the two declarations already in `tests/test_project_packaging.py`: mypy is checked against every package under `src/`, the wheel is checked against the same list, and now the coverage floor is checked against it too — so a *new* package cannot join the tree unmeasured either.
+- **Deviations:** none. The scope was the gap, and the gap was a configuration line and the assertion that keeps it closed.
+- **Verification:** `uv run ruff check .` clean — `uv run mypy` clean — `uv run pytest --cov --cov-report=term-missing --cov-report=xml` -> **92.19%** over all four packages, and `uv run coverage report --fail-under=85` passes. The measurement was taken **before** the change, with the four packages named explicitly, so the floor is known to be met rather than hoped for. The new test was proven to bite: with `source = ["dpi_engine"]` restored, it fails and names exactly `['dpi_agents', 'dpi_mcp', 'dpi_model_client']`.
+- **Closed findings:** —
+- **Follow-ups:** the two packages that are now measured are measured at **41%** (`dpi_mcp/server.py`, the stdio server) and **85%** (`dpi_model_client/client.py`, the network client). Both are above the floor in aggregate and neither is a hole in it, but the server's own module is the least-covered file in the tree and is worth its own task if it is ever changed.
+- **Notes:** The numbers say where the tree is thin, and they now say it about *all* of the tree. `dpi_engine/worker.py` at 86% and `dpi_engine/cli.py` at 86% are the two the floor was already watching; `dpi_mcp/server.py` at 41% was invisible before, because a package that is not measured cannot be seen to be thin.
+
+### `T3-11` - The scanner resolves a call reached through a value (`D-29`)
+
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_phase4gaps — **Blocked by:** —
+- **Files:** `tests/safety_envelope.py` (the alias resolver and the candidate list), `tests/test_agent_safety_envelope.py`.
+- **Test added:** **16** — five new cases in the detection table (`getattr` called directly, `getattr` bound to a name, a star import of `os`, a star import of `subprocess`, `getattr` of a network call) and a new class of eleven: the resolved name is the canonical one in six cases, four cases that must **not** be reported, and the limit that is stated rather than implied.
+- **How it was tackled:** The scanner resolves a call through a **name** — `import os` then `os.system(...)`, `from os import system` then `system(...)` — and a call reached through a **value** has no name to resolve. `getattr(os, "system")(...)` is an outer call on an inner one, so the callee the AST reads is `getattr`; and `from os import *` + `system(...)` has no dotted path at all. The repair resolves the **spelling** as well as the name. A `getattr` call says which attribute it reaches for, so the scanner reads it and resolves the base through the alias map; a name bound to a `getattr` is recorded in the same alias map, so `f = getattr(os, "system")` then `f("id")` resolves too; and a star import makes every member of the imported module a **candidate** for a name the alias map could not place. The candidates are narrow on purpose: an explicit import always wins over a guess, so a name the map placed is never guessed at.
+- **Deviations:** none. The scope was the finding, and the finding was two shapes of call.
+- **Verification:** `uv run ruff check .` clean — `uv run mypy` clean — `uv run pytest -q` -> **1381 passed, 1 skipped** — mutation harness **6/6 caught, 0 survived**, sources restored byte-for-byte — the `getattr` branch dropped, the star candidates dropped, a star candidate guessed over a resolved name, the name-to-`getattr` binding not recorded, the base not resolved, and the attribute read from the wrong argument.
+- **Closed findings:** `D-29`
+- **Follow-ups:** none. The limit that remains is stated in the module's docstring and asserted by a test: a name assembled at runtime from variables cannot be resolved statically, and this scanner catches the *inadvertent* violation, not the deliberate one.
+- **Notes:** The finding was allocated by `T3-08` and left unowned for two sessions, and the reason it survived that long is the shape of the hole: the scanner's own docstring said it could not catch `getattr`, so the gap read as a *design limit* rather than a defect. It is a defect. The design limit is narrower and is now written down: a name that exists only at runtime is out of scope, and a name that exists in the source is not.
+
+### `T4-08` - The threshold on the quality figure
+
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_phase4gaps — **Blocked by:** —
+- **Files:** new `src/dpi_model_client/quality.py`, `src/dpi_model_client/__init__.py`, `tests/eval/verdicts.py` (`QualityReport`, `report_from_scores`), new `tests/test_quality_thresholds.py`, `tests/test_model_quality.py`.
+- **Test added:** **19** in `tests/test_quality_thresholds.py` — and they run **without a key and without a model**, because the mechanism is the part that can be wrong quietly.
+- **How it was tackled:** A threshold belongs to a **model**, not to the project: the same question asked of two models has two answers, so the bar is a table keyed by model name and a model that is not in the table has no bar. The table is **empty**, and that is the honest state of it — `T4-07` measured the plumbing with a scripted fake, and a fake that is scripted to the expected verdicts scores 100% by construction, so its figure says nothing about a real model. The first figure with a model behind it is the first number that can set a bar, and the opt-in run now prints the figure and the exact line to paste in. The **false-positive side has no free parameter**: a model that flags the legitimate-enterprise cases is wrong whatever its accuracy says, and the corpus carries that class precisely so this can be counted, so that bar is zero and it is not a number to be tuned. And the judgement is **three-valued** — a model with a bar is gated and passes or fails; a model without one is a **measurement**, and the run says so instead of reporting a pass.
+- **Deviations:** one, and it is the point of the task.
+  - **The threshold's value is not set.** There is no provider key on this host and no local model server, so there is no measurement to set it from. The mechanism is complete and the number is not, and a number invented before the measurement is a number with nothing behind it. The table says so in the place a reader will look.
+- **Verification:** `uv run ruff check .` clean — `uv run mypy` clean on **48** source files — `uv run pytest -q` -> **1381 passed, 1 skipped** (the skip is the opt-in quality run, which says in its reason that a green run there is not evidence about any model) — mutation harness **12/12 caught, 0 survived**, sources restored byte-for-byte.
+- **Closed findings:** —
+- **Follow-ups:** **the bar itself.** Set `DPI_MODEL_API_KEY` and `DPI_MODEL_NAME`, run `tests/test_model_quality.py`, and paste the figure it prints into `QUALITY_THRESHOLDS` with the measurement's date in the commit. The Explainer's narrative is still not scored by `T4-05`'s scorer.
+- **Notes:** The two sides of the criterion are not one number, and the mechanism says so in the type: `passed` is `True`, `False`, or `None`, and `None` means *no bar exists*. A two-valued judgement would have made an ungated measurement indistinguishable from a pass, which is the failure this whole task exists to prevent — and it is the same failure the quality run's own skip reason is written against.
+
+### `DOC-09` - The tracker's integrity test covers every phase (`M-09`)
+
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_phase4gaps — **Blocked by:** —
+- **Files:** `tests/test_tracker_integrity.py`, `docs/TASK_TRACKER.md`, `docs/AUDIT.md`.
+- **Test added:** — no new test; two existing checks were **extended**, which is the cheaper repair. The rollup check now covers Phase 4, and the section-1-versus-section-3 check now covers *every* phase either of them names instead of one.
+- **How it was tackled:** `M-08` gave the tracker a test, and the test checked the rollup of the phases that existed when it was written: `PHASE_PREFIX` stopped at `3`. Phase 4 was added afterwards, so its counts were never compared with its board — and they drifted, reading `8/8` for a phase with **seven** tasks, under a fully green gate. The check that compared section 1 with section 3 had the same shape: it named Phase 3, because Phase 3 was the newest phase when it was written. Both are now general. The numbers are also corrected: Phase 4 is 7/7, and the frontmatter's `Phase 4 at 0/7` — a phase that was finished — is gone.
+- **Deviations:** none. The finding was the gate's blind spot, and the repair is the gate.
+- **Verification:** `uv run ruff check .` clean — `uv run mypy` clean — `uv run pytest tests/test_tracker_integrity.py -q` -> **9 passed** — and the extension was proven to bite: with the tracker's Phase 4 row changed back to `8 done` of `8 tasks`, **two** of the checks fail — the rollup against the board, and section 1 against section 3.
+- **Closed findings:** `M-09`
+- **Follow-ups:** none. A new phase will now be covered by the rollup check the day it is added, because the check asks the board rather than a list of known phases.
+- **Notes:** The blind spot had a cause worth naming: the check enumerated the phases it knew about, so every phase added after the check was written was unchecked until someone compared two numbers by hand. The check now asks the board which phases exist — so the list of phases to check is derived rather than maintained.
+
 ## 6. Findings status
 
 Findings live in `AUDIT.md`. This table tracks **closure**, not description.
@@ -1004,10 +1073,10 @@ Findings live in `AUDIT.md`. This table tracks **closure**, not description.
 | Group | Total | Closed | Open | Unassigned |
 |---|---|---|---|---|
 | `P-##` port-vs-C++ | 19 | n/a — characterisation (but see `D-23`) | — | — |
-| `D-##` defects | 29 | **23** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`-`D-18`, `D-20`-`D-22`, `D-24`-`D-26`, `D-28`) | 6 (`D-11`, `D-15`, `D-19`, `D-23`, `D-27`, `D-29`) | 3 (`D-23`, `D-27`, `D-29`) |
+| `D-##` defects | 29 | **24** (`D-01`-`D-10`, `D-12`, `D-13`, `D-14`, `D-16`-`D-18`, `D-20`-`D-22`, `D-24`-`D-26`, `D-28`, `D-29`) | 5 (`D-11`, `D-15`, `D-19`, `D-23`, `D-27`) | 2 (`D-23`, `D-27`) |
 | `R-##` rails | 10 | **7** (`R-01`, `R-02`, `R-03`, `R-04`, `R-05`, `R-06`, `R-08`) | 3 | 0 |
 | `A-##` agentic | 6 | **2** (`A-05`, `A-03`) | 4 | 0 |
-| `M-##` documentation | 8 | **8** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`, `M-08`) | 0 | 0 |
+| `M-##` documentation | 9 | **9** (`M-01`, `M-02`, `M-03`, `M-04`, `M-05`, `M-06`, `M-07`, `M-08`, `M-09`) | 0 | 0 |
 | `S-##` session | 3 | 0 | 3 | 0 |
 
 **Register corrections (2026-10-13, `ses_t1_05`)** — this table was wrong in both
@@ -1110,6 +1179,7 @@ A deviation is not a failure — it is the plan being corrected by evidence.
 | 2026-10-22 | `T4-06` | a citation is checked by whether it **supports the claim** | a citation is checked by whether the **quote is in the chunk it cites** | "Supports the claim in the prose" is a judgement, and it belongs to a critic — the design's Critic agent — which is not in Phase 4's scope. The mechanical half is the one that catches the failure that matters: a model that cites a document it did not read, or quotes something that is not in it. So the rule is stated exactly — **the citation is real** — and the rest is named as a follow-up rather than quietly dropped. | no - the checkable half is enforced, and the judgement is named as somebody else's job |
 | 2026-10-22 | `T4-07` | a real model client for a named provider | an **OpenAI-compatible** client, with the base URL, the key and the model name from the environment | Most providers speak that API and so does a local server, and the base URL is configurable — so the choice is not baked in. The model is the operator's because it is a **cost** decision, and the cost is theirs. | no - a deferral with the choice left open, which is the point |
 | 2026-10-22 | `T4-07` | the quality run has a **threshold** | it measures and reports, and the threshold is a follow-up | A number set before the first real measurement is a number with nothing behind it. The measurement is the deliverable; the threshold is set from it, by whoever owns the decision. | no - a deferral with the measurement delivered first |
+| 2026-10-22 | `T3-09` | the store stays in `dpi_mcp`, and the CLI grows a `store` command | the store **moved down** into `dpi_engine`, and the CLI's `run` gained `--store-root` | The engine's CLI is where an operator creates a run, and the alternative was the deterministic core importing the protocol layer above it. `ruleset_fingerprint` moved with it, for the same reason. The public path `dpi_mcp.run_store` changed, which `T3-04` had promoted to public a session earlier, so it is recorded here rather than left to be found. | no - `IMPLEMENTATION_PLAN.md` section 6 describes Phase 3 as a tool list and does not say where the store lives |
 | - | - | - | - | - | - |
 
 **Rule:** if a deviation changes a task's scope, estimate, or gate, also update
@@ -1119,12 +1189,12 @@ two documents diverge silently.
 ---
 
 ## 8. Session log
-
 **Append-only.** One row per working session. This is how continuity works across
 sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-22 | `ses_phase4gaps` | claude-opus-5[1m] | `T3-09`, `T3-10`, `T3-11`, `T4-08`, `DOC-09` | **5 tasks completed** | Decompose Phase 5 and claim its first task. The quality threshold's **value** still needs a provider key: the mechanism is in place and the table is empty on purpose. |
 | 2026-10-22 | `ses_phase4` | claude-opus-5[1m] | `T4-07` | **`T4-07` done - **Phase 4 complete (8/8)** - the real model client, in **its own package** at `NETWORKED_AGENT`, so the agent runtime stays `OFFLINE_CORE` and remains structurally unable to phone home: the mirror image of the rule the safety suite already enforces for the core. The client speaks the **OpenAI-compatible** chat API with the base URL, the key and the model name from the environment (the model is the operator's because it is a *cost* decision), and **adds no dependency**: the standard library's `urllib` in a thread, because the call is blocking and the port is async. The request building and the response parsing are pure functions, so the shape of what goes to a provider is testable without one — and the client is exercised **end to end against a local server**, so the keyless path is genuinely verified rather than assumed. The quality run is **opt-in** and its skip reason says what it means: the quality figure is NOT measured, and a green run there is not evidence about any model. **There is no threshold**, on purpose: a number set before the first real measurement is a number with nothing behind it. 8/8 mutants caught. 1335 passed / 1 skipped — and the 24 differential skips are **gone**, because Docker is up: the parity suite ran and passed. | **Phase 4 is complete** — two of its three exit criteria need a provider key to measure, and the third (a replayable trace for every verdict) is met and tested |
 | 2026-10-22 | `ses_phase4` | claude-opus-5[1m] | `T4-06` | **`T4-06` done - Phase 4 at 6/7** - the memory and RAG layers, and the task that carries the **semantic** half of the citation rule. **Two kinds of memory, and they are not interchangeable:** the semantic store holds documents chunked by paragraph (a paragraph is a unit a human wrote, so a quote from it is a quote a human can find) and retrieved by keyword with the **ties broken by the chunk id**, because a retrieval that reorders itself between runs is a retrieval whose results cannot be compared between runs; the episodic memory holds the runs and what was concluded about them, and an episode carries an **outcome label**, because a memory of what was predicted with nothing recording how it turned out teaches the next agent the same prediction again. The file is append-only, so a label is a later line rather than a rewritten one: the history of what was believed is part of the history. The **citation rule** is the checkable half of "the evidence supports the claim": a citation is a **quote**, and the quote must appear in the chunk it cites, so a model that cites a document it did not read is caught. The node enforces it — the verdict's parser is a closure over the store, so a citation that does not hold makes the parse raise and the runtime records an **invalid verdict** rather than a fabricated one. The retrieval is keyword-only, not the design's "hybrid": hybrid needs embeddings, embeddings need a model, and that is `T4-07`'s — so the vector half is deferred rather than faked. 9/9 mutants caught. 1291 passed / 24 skipped (+25) | `T4-07`, the real model client — where a verdict's *quality* is finally measured |
 | 2026-10-21 | `ses_phase4` | claude-opus-5[1m] | `T4-05` | **`T4-05` done - Phase 4 at 5/7** - the verdict evaluation, the phase's **first exit criterion**. The expectation is **derived** (`DEC-12`): each case knows how it was built, so its expected verdict follows from its class — the categories and the hosts are the corpus's own, and the severity is a stated mapping over the five classes (the one place a human's judgement enters, named as such and pinned by a test, so the "derived, not asserted" claim is not made larger than it is). **The criterion has two sides, like `T4-02`'s did:** accuracy alone is won by an agent that never says "high", so the scorer also counts the **false positives**, and the corpus already carried the control — the legitimate-enterprise cases are traffic that must not be flagged. The citation is resolved *through* the run, so a claim about a flow that does not exist cites nothing and is caught. **What this cannot measure:** the deterministic fake is *scripted*, so a corpus-wide number measured against it measures the **plumbing** — the right run, the right citation — and the *quality* of a real model's verdicts is `T4-07`'s, against this same corpus and this same scorer. 7/7 mutants caught plus one proven equivalent. 1266 passed / 24 skipped (+14) | `T4-06`, the memory and RAG layers — where the *semantic* half of the citation rule lands |

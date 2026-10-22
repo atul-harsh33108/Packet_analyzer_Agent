@@ -41,7 +41,15 @@ FENCE = re.compile(r"^\s*```")
 STATUSES = {"done", "pending", "in_progress", "blocked", "partial", "deferred"}
 #: §3 names a phase "0.5"; the board names its tasks `T05-`. Nothing derives one from
 #: the other, so the mapping is written down and asserted against the board instead.
-PHASE_PREFIX = {"0": "T0", "0.5": "T05", "1": "T1", "2": "T2", "3": "T3", "DOC": "DOC"}
+PHASE_PREFIX = {
+    "0": "T0",
+    "0.5": "T05",
+    "1": "T1",
+    "2": "T2",
+    "3": "T3",
+    "4": "T4",
+    "DOC": "DOC",
+}
 
 
 @pytest.fixture(scope="module")
@@ -212,28 +220,49 @@ def test_section_one_states_the_same_phase_progress_as_the_rollup(tlines: list[s
     line was left at 5/8 while §3 moved, because the two are edited at different
     moments and nothing compared them. §3 is checked against the board; §1 was
     checked against nothing.
+
+    It now checks **every** phase rather than one. The check named Phase 3
+    because Phase 3 was the newest phase when it was written; Phase 4 was added
+    afterwards, its counts were never compared with anything, and they read
+    `8/8` for a phase with seven tasks (`M-09`).
     """
     progress = next(
         (ln for ln in tlines if ln.startswith("| **Phase progress** |")), None
     )
     assert progress is not None, "§1 has no Phase progress row"
     cells = [c.strip() for c in progress.strip().strip("|").split("|")]
-    stated = re.search(r"Phase 3:\s*(\d+)/(\d+)", cells[1])
-    assert stated is not None, f"§1 does not state Phase 3's progress: {progress!r}"
+    stated = {
+        phase: (int(done), int(total))
+        for phase, done, total in re.findall(
+            r"Phase ([\d.]+):\s*(\d+)/(\d+)", cells[1]
+        )
+    }
+    doc = re.search(r"DOC:\s*(\d+)/(\d+)", cells[1])
+    if doc is not None:
+        stated["DOC"] = (int(doc.group(1)), int(doc.group(2)))
+    assert stated, f"§1 states no phase progress at all: {progress!r}"
 
     start, stop = section_bounds(tlines, "## 3. ")
-    rollup = next(
-        (ln for ln in tlines[start:stop] if ROLLUP_ROW.match(ln) and "| **3** |" in ln),
-        None,
-    )
-    assert rollup is not None, "§3 has no Phase 3 row"
-    cells = [c.strip() for c in rollup.strip().strip("|").split("|")]
-    total = _first_int(cells[2])
-    done = _first_int(cells[3])
-    assert total is not None and done is not None, f"unparsable Phase 3 row: {rollup!r}"
-    assert (int(stated.group(2)), int(stated.group(1))) == (total, done), (
-        f"§1 says Phase 3 is {stated.group(1)}/{stated.group(2)}; §3 says {done}/{total}"
-    )
+    checked = 0
+    for ln in tlines[start:stop]:
+        m = ROLLUP_ROW.match(ln)
+        if not m:
+            continue
+        phase = m.group(1)
+        if phase not in PHASE_PREFIX:
+            continue
+        row = [c.strip() for c in ln.strip().strip("|").split("|")]
+        total = _first_int(row[2])
+        done = _first_int(row[3])
+        if total is None or done is None:
+            continue  # the bare `outline` rows have no counts
+        assert phase in stated, f"§3 has a row for phase {phase} and §1 does not name it"
+        assert stated[phase] == (done, total), (
+            f"§1 says phase {phase} is {stated[phase][0]}/{stated[phase][1]}; "
+            f"§3 says {done}/{total}"
+        )
+        checked += 1
+    assert checked >= 7, f"only {checked} phases compared; the parse has gone stale"
 
 
 def test_the_stated_totals_match_the_board(tlines: list[str]) -> None:

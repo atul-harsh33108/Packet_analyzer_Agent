@@ -6,7 +6,9 @@ Subcommands
 ``dump``     five-tuple / protocol / flags / payload size for every packet
 ``rules``    build and edit a blocking rule set (IP/app/domain/port), JSON I/O
 ``run``      the full pipeline: read, classify, apply rules, write filtered
-             output pcap, print the report
+             output pcap, print the report. With ``--store-root DIR`` it also
+             writes the run to the store, so an agent can query it later, and
+             prints the run id on stderr.
 
 Pipeline selection for ``run`` (``--workers`` / ``--load-balancers``)::
 
@@ -54,7 +56,9 @@ from dpi_engine.rule_manager import (
     RuleManager,
     RuleManagerError,
     resolve_app_name,
+    ruleset_fingerprint,
 )
+from dpi_engine.run_store import RunStore, record_from_result
 from dpi_engine.types import app_type_to_string
 
 # ---------------------------------------------------------------------------
@@ -381,11 +385,42 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    if args.store_root:
+        # The id goes to stderr, not stdout: stdout is the report, and
+        # `--json` promises stdout is machine-readable.
+        try:
+            run_id = _store_run(args, rules, result)
+        except (OSError, ValueError) as exc:
+            print(f"error: could not store the run: {exc}", file=sys.stderr)
+            return 1
+        print(f"Stored run: {run_id}", file=sys.stderr)
+
     if args.json:
         print(result_to_json(result, rules.get_stats()))
     else:
         print(render_full_report(result, rules.get_stats(), top_domains_limit=args.top_domains))
     return 0
+
+
+def _store_run(args: argparse.Namespace, rules: RuleManager, result: PipelineResult) -> str:
+    """Write the run to the store and return its id.
+
+    The stored run is what an agent asks questions about later: `query_flows`,
+    `get_flow_detail` and `diff_runs` read it, and they read nothing else.
+
+    The ruleset fingerprint is the hash of the rules *in force* -- the
+    effective rule set, not the file it was read from -- so two spellings of the
+    same rules are one observation. The MCP layer fingerprints the document it
+    was sent, which is the same fingerprint whenever that document is the
+    canonical one.
+    """
+    record = record_from_result(
+        result,
+        capture_path=args.input_pcap,
+        ruleset=ruleset_fingerprint(rules.to_dict()),
+    )
+    RunStore(args.store_root).save(record)
+    return record.run_id
 
 
 def _execute(args: argparse.Namespace, rules: RuleManager) -> PipelineResult:
@@ -402,6 +437,10 @@ def _execute(args: argparse.Namespace, rules: RuleManager) -> PipelineResult:
         # `common`. Getting this wrong would look like a working run with a
         # subtly different flow table, which is the failure mode D-03 taught.
         "fold_bidirectional": not args.exact_tuple_flows,
+        # The per-flow rows are only worth their memory to a caller that will
+        # ask questions about the run afterwards -- and the store is exactly
+        # that caller. Without `--store-root` nothing asks, so nothing is kept.
+        "with_flow_table": bool(args.store_root),
     }
 
     # `reorder_window` is deliberately NOT in `common`: `run_pipeline` writes
@@ -618,6 +657,17 @@ help="Open a per-worker control channel so a RuleManager mutated "
         "--json",
         action="store_true",
         help="Emit the report as JSON instead of text.",
+    )
+
+    store = run_parser.add_argument_group("store")
+    store.add_argument(
+        "--store-root",
+        metavar="DIR",
+        help="Also write the run to the run store under DIR, and print its run id "
+        "on stderr. The stored run is what an agent queries later (query_flows, "
+        "get_flow_detail, diff_runs); without this flag the store is populated "
+        "only by the MCP server. Costs the per-flow rows, which are otherwise "
+        "not kept.",
     )
 
     _add_pcap_bounds_args(run_parser)

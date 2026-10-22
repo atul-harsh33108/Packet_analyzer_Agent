@@ -18,10 +18,22 @@ from dpi_model_client.client import (
     OpenAiCompatibleModel,
     settings_from_environment,
 )
+from dpi_model_client.quality import (
+    MAX_FALSE_POSITIVES,
+    QUALITY_THRESHOLDS,
+    QualityJudgement,
+    judge_quality,
+    threshold_for,
+)
 
 __all__ = [
+    "MAX_FALSE_POSITIVES",
+    "QUALITY_THRESHOLDS",
     "ModelClientError",
     "ModelSettings",
     "OpenAiCompatibleModel",
+    "QualityJudgement",
+    "judge_quality",
     "settings_from_environment",
+    "threshold_for",
 ]

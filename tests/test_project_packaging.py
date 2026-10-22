@@ -121,6 +121,48 @@ class TestEveryPackageIsShipped:
         )
 
 
+class TestEveryPackageIsInsideTheCoverageFloor:
+    """The 85% floor must cover every shipped package (`T3-10`).
+
+    The floor is the gate that catches a change which quietly deletes tested
+    code. It measured `dpi_engine` alone, so `dpi_mcp`, `dpi_agents` and
+    `dpi_model_client` -- three of the four packages, and all of the agent
+    tree -- were shipped outside it. Nothing announced this: the gate ran, it
+    passed, and the packages it was not watching were not in the report.
+
+    This is the third declaration in the same shape: mypy is told every
+    package, the wheel is told every package, and now the coverage floor is.
+    A new package that is not in the list fails here rather than joining the
+    tree unmeasured.
+    """
+
+    def test_the_coverage_source_lists_every_package(self, pyproject: dict) -> None:
+        run = pyproject.get("tool", {}).get("coverage", {}).get("run", {})
+        declared = set(run.get("source", []))
+        missing = sorted(shipped_packages() - declared)
+        assert not missing, (
+            f"the coverage floor does not measure {missing}. "
+            "`[tool.coverage.run] source` must list every package under src/, or "
+            "the floor is a gate over part of the tree -- a green result that "
+            "means nothing for the code it is not watching."
+        )
+
+    def test_the_floor_is_still_declared(self, pyproject: dict) -> None:
+        report = pyproject.get("tool", {}).get("coverage", {}).get("report", {})
+        assert report.get("fail_under") == 85, (
+            f"the coverage floor is {report.get('fail_under')!r}; the gate exists "
+            "to hold 85% over the whole tree"
+        )
+
+    def test_the_source_is_a_list(self, pyproject: dict) -> None:
+        """A bare string would be iterated character by character."""
+        run = pyproject.get("tool", {}).get("coverage", {}).get("run", {})
+        assert isinstance(run.get("source"), list), (
+            f"[tool.coverage.run] source is {type(run.get('source')).__name__}; it "
+            "must be a list of package names"
+        )
+
+
 class TestEveryPackageDeclaresItIsTyped:
     def test_every_package_ships_a_py_typed_marker(self) -> None:
         """PEP 561: an annotated package without the marker is untyped to consumers.

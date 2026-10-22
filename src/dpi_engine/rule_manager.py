@@ -69,6 +69,7 @@ Fixes applied during the port
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import threading
@@ -1207,3 +1208,22 @@ class RuleManager:
 
     def get_stats(self) -> RuleStats:
         return self.snapshot().get_stats()
+
+
+def ruleset_fingerprint(ruleset: object) -> str:
+    """A stable fingerprint of the rules document a run was produced with.
+
+    The store wants a caller-supplied fingerprint and will not invent one, because
+    a hash of "whatever was loaded" looks authoritative while being unable to see
+    a rule added to a live `RuleManager` mid-run. This hashes the *document the
+    caller sent*, which is exactly what was in force. No rules is the empty
+    string, not a hash of `null`.
+
+    One home for it, because two callers produce stored runs -- the MCP layer's
+    `run_dpi` and the engine's own `dpi-engine run --store-root` -- and two
+    hashes of the same document would be two facts.
+    """
+    if ruleset is None:
+        return ""
+    canonical = json.dumps(ruleset, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

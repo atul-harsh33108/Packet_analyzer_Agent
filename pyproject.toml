@@ -127,7 +127,12 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["dpi_engine"]
+# Every shipped package, not just the engine (`T3-10`). The floor is the gate
+# that catches a change which quietly deletes tested code, and it measured one
+# package of four: `dpi_mcp`, `dpi_agents` and `dpi_model_client` were shipped
+# outside it. A list, for the same reason `[tool.mypy] packages` is a list --
+# a bare string would iterate character by character.
+source = ["dpi_engine", "dpi_mcp", "dpi_agents", "dpi_model_client"]
 branch = true
 # The differential suite shells out to Docker to build the C++ reference
 # binary; coverage of the containerised build is not meaningful and not ours.

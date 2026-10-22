@@ -44,8 +44,7 @@ from dpi_engine.events import (
 )
 from dpi_engine.pipeline import PipelineResult, run_pipeline
 from dpi_engine.rule_manager import RuleManager
-from dpi_engine.types import AppType, ConnectionState, FiveTuple, FlowRecord
-from dpi_mcp.run_store import (
+from dpi_engine.run_store import (
     SCHEMA,
     BlockedFlow,
     CounterDelta,
@@ -58,6 +57,7 @@ from dpi_mcp.run_store import (
     diff_records,
     record_from_result,
 )
+from dpi_engine.types import AppType, ConnectionState, FiveTuple, FlowRecord
 
 _COMMIT = "testcommit"
 

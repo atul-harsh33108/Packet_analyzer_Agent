@@ -50,7 +50,7 @@ from typing import Any
 from dpi_engine.events import Event, EventBus
 from dpi_engine.pcap_io import DEFAULT_MAX_PACKET_SIZE, DEFAULT_MAX_TOTAL_PACKETS
 from dpi_engine.pipeline import run_pipeline
-from dpi_mcp.run_store import RunRecord, RunStore, record_from_result
+from dpi_engine.run_store import RunRecord, RunStore, record_from_result
 from dpi_mcp.tools.ruleset import build_rule_manager
 from dpi_mcp.tools.runs import ruleset_fingerprint, run_outcome
 

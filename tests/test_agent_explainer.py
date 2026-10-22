@@ -28,7 +28,7 @@ from dpi_agents.runtime import Agent
 from dpi_agents.schemas import IncidentNarrative, NarrativeClaim
 from dpi_agents.tools import McpToolPort
 from dpi_agents.trace import Trace
-from dpi_mcp.run_store import RunStore
+from dpi_engine.run_store import RunStore
 
 
 def _narrative_json(flow: dict[str, int] | None = None) -> dict[str, Any]:

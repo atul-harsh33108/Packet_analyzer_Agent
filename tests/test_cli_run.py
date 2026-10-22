@@ -11,6 +11,8 @@ import pytest
 from conftest import TEST_DPI_PCAP
 from dpi_engine.cli import main
 from dpi_engine.pcap_io import PcapReader
+from dpi_engine.run_store import RunStore
+from dpi_mcp.tools.runs import query_flows
 
 
 def test_run_produces_filtered_output_and_report(tmp_path: Path, capsys) -> None:
@@ -311,3 +313,188 @@ def test_live_rules_help_states_that_single_process_ignores_it(
         "--live-rules does nothing in single-process mode, and the help text "
         "must say so rather than promising a control channel unconditionally (D-03)"
     )
+
+
+# ---------------------------------------------------------------------------
+# The store: `dpi-engine run --store-root` (`T3-09`)
+# ---------------------------------------------------------------------------
+#
+# Phase 3 left a gap: the store is the agent tree's data layer, and the only
+# thing that populated it was the MCP server -- so an operator with the CLI had
+# no way to create a stored run. These are the CLI's half of that loop.
+
+
+def _printed_run_id(err: str) -> str:
+    """The run id the CLI printed, or a failure that says what was missing."""
+    for line in err.splitlines():
+        if line.startswith("Stored run: "):
+            return line.removeprefix("Stored run: ").strip()
+    raise AssertionError(f"the CLI printed no run id; stderr was:\n{err}")
+
+
+def test_run_with_store_root_writes_a_stored_run(tmp_path: Path, capsys) -> None:
+    output = tmp_path / "output.pcap"
+    store_root = tmp_path / "store"
+
+    exit_code = main(
+        ["run", str(TEST_DPI_PCAP), str(output), "--store-root", str(store_root)]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    run_id = _printed_run_id(captured.err)
+    store = RunStore(store_root)
+    assert [summary.run_id for summary in store.list_runs()] == [run_id]
+    record = store.load(run_id)
+    assert record.run_id == run_id
+    assert record.flows, "a stored run with no flows cannot answer a question about them"
+
+
+def test_the_stored_run_is_queryable_by_the_agent_tool(tmp_path: Path, capsys) -> None:
+    """The point of storing a run: an agent asks questions about it afterwards.
+
+    The MCP layer's `query_flows` reads the store, so the CLI's run and the
+    agent's tool are one pipeline -- not two stores and a manual copy between
+    them.
+    """
+    output = tmp_path / "output.pcap"
+    store_root = tmp_path / "store"
+
+    assert (
+        main(["run", str(TEST_DPI_PCAP), str(output), "--store-root", str(store_root)])
+        == 0
+    )
+    run_id = _printed_run_id(capsys.readouterr().err)
+
+    answer = query_flows(run_id, store_root=store_root)
+    assert answer["flows"], "the agent's tool found no flows in the CLI's stored run"
+    assert answer["matched"] == answer["returned"]
+
+
+def test_the_run_id_does_not_pollute_machine_readable_output(
+    tmp_path: Path, capsys
+) -> None:
+    """`--json` promises stdout is machine-readable, so the id goes to stderr.
+
+    The report and the run id are two different things: one is the answer, the
+    other is a handle on it.
+    """
+    output = tmp_path / "output.pcap"
+    store_root = tmp_path / "store"
+
+    exit_code = main(
+        [
+            "run",
+            str(TEST_DPI_PCAP),
+            str(output),
+            "--store-root",
+            str(store_root),
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    json.loads(captured.out)  # pure JSON, or this raises
+    assert _printed_run_id(captured.err)
+
+
+def test_an_unusable_store_root_is_an_error_and_not_a_traceback(
+    tmp_path: Path, capsys
+) -> None:
+    """A store that cannot be written is a failure the operator can act on."""
+    output = tmp_path / "output.pcap"
+    not_a_directory = tmp_path / "a-file"
+    not_a_directory.write_text("not a directory", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "run",
+            str(TEST_DPI_PCAP),
+            str(output),
+            "--store-root",
+            str(not_a_directory),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "error:" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_without_the_flag_nothing_is_stored(tmp_path: Path, capsys) -> None:
+    """The flag is what stores a run, and the per-flow rows are only kept for it.
+
+    Without it nothing is written and nothing is asked, so the flow table is
+    not built -- the memory a run costs is the memory it needs.
+    """
+    output = tmp_path / "output.pcap"
+    store_root = tmp_path / "store"
+
+    assert main(["run", str(TEST_DPI_PCAP), str(output)]) == 0
+    captured = capsys.readouterr()
+
+    assert "Stored run:" not in captured.err
+    assert not store_root.exists()
+
+
+def test_cli_run_help_documents_the_store_flag(capsys) -> None:
+    """A flag nobody can find is a flag nobody uses."""
+    with pytest.raises(SystemExit):
+        main(["run", "--help"])
+
+    out = capsys.readouterr().out
+    assert "--store-root" in out
+    assert "run id" in out
+
+
+def test_the_stored_run_records_the_rules_in_force(tmp_path: Path, capsys) -> None:
+    """The ruleset fingerprint is part of the observation, so it is recorded.
+
+    An empty fingerprint would mean "no rules", and a run that blocked an app
+    would be stored as if it had blocked nothing.
+    """
+    output = tmp_path / "output.pcap"
+    store_root = tmp_path / "store"
+
+    assert (
+        main(
+            [
+                "run",
+                str(TEST_DPI_PCAP),
+                str(output),
+                "--store-root",
+                str(store_root),
+                "--block-app",
+                "YouTube",
+            ]
+        )
+        == 0
+    )
+    run_id = _printed_run_id(capsys.readouterr().err)
+
+    record = RunStore(store_root).load(run_id)
+    assert record.ruleset, "the stored run records no ruleset fingerprint"
+    assert len(record.ruleset) == 16, (
+        f"the ruleset fingerprint is {record.ruleset!r}; it is a 16-character hash"
+    )
+
+
+def test_storing_the_same_run_twice_is_idempotent(tmp_path: Path, capsys) -> None:
+    """The run id is content-addressed, so the same observation is one record.
+
+    Re-storing it is a no-op rather than a second file, and the second attempt
+    does not fail: a job that runs the same capture twice has not found two
+    different runs.
+    """
+    output = tmp_path / "output.pcap"
+    store_root = tmp_path / "store"
+
+    assert main(["run", str(TEST_DPI_PCAP), str(output), "--store-root", str(store_root)]) == 0
+    first = _printed_run_id(capsys.readouterr().err)
+    assert main(["run", str(TEST_DPI_PCAP), str(output), "--store-root", str(store_root)]) == 0
+    second = _printed_run_id(capsys.readouterr().err)
+
+    assert first == second
+    assert len(RunStore(store_root).list_runs()) == 1
