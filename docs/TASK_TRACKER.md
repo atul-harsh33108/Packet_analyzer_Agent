@@ -2,8 +2,8 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 4
-current_task: Phase 5 decomposition
-next_action: **The four gaps Phase 3 and Phase 4 left behind are closed, and Phase 5 is next.** Decompose Phase 5 (Fingerprinting + ClassifierGap) into tasks in `IMPLEMENTATION_PLAN.md` section 6, add them to this tracker's board, and claim the first one. Two of Phase 4's three exit criteria are *measured by machinery that is built and green*, and the figures themselves need a provider key: `DPI_MODEL_API_KEY`, `DPI_MODEL_NAME` and optionally `DPI_MODEL_BASE_URL` — set them and run `tests/test_model_quality.py` to get them. The **threshold** on that figure is in place and its value is not: a bar is set from the first measurement, and a number set before it is a number with nothing behind it.
+current_task: T5-01
+next_action: **Phase 5 is decomposed and ready, and the four gaps Phase 3 and Phase 4 left behind are closed.** `T5-01`: the TLS fingerprint. Compute JA3 and JA4 (S/M/I) and the plan's ClientHello features -- the version, the cipher-suite ordering and count, the extension ordering, ALPN and GREASE -- from the parsed ClientHello, in the engine, as pure functions over bytes the parser already reads. GREASE values are removed before the hash and counted separately, because a GREASE value is noise that changes on every connection by design. The two of Phase 4's exit criteria that need a provider key still need one: `DPI_MODEL_API_KEY` and `DPI_MODEL_NAME` -- set them and run `tests/test_model_quality.py` to get the figure the quality threshold is set from.
 blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11 and Phase 4 at 8/8; the gaps both phases left are closed]
 last_updated: 2026-10-22
 last_updated_by: claude-opus-5[1m]
@@ -40,9 +40,9 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | 3 and 4 — the gaps both phases left, now closed |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — DOC: 8/9 |
-| **Current task** | **The four gaps are closed (3/3 in Phase 3, 1/1 in Phase 4).** The next task is Phase 5's first task, and its decomposition is not written yet |
-| **Next action** | Decompose **Phase 5 (Fingerprinting + ClassifierGap)** into tasks in `IMPLEMENTATION_PLAN.md` section 6 and add them to this tracker's board, then claim the first one. The phase's scope is fixed in the plan: JA3/JA4 and the TLS feature fingerprints, per-flow feature vectors, the `ClassifierGap` agent with cited evidence, and a signature-table maintenance loop in which every proposal carries citations |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 0/7** — DOC: 8/9 |
+| **Current task** | **Phase 5 is decomposed and ready.** Seven tasks, none claimed; `T5-01` (the TLS fingerprint) is the first |
+| **Next action** | `T5-01`: the TLS fingerprint. Compute JA3 and JA4 (S/M/I) and the plan's ClientHello features -- the version, the cipher-suite ordering and count, the extension ordering, ALPN and GREASE -- from the parsed ClientHello, in the engine, as pure functions over bytes the parser already reads. GREASE values are removed before the hash and counted separately, because a GREASE value is noise that changes on every connection by design. |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
@@ -222,11 +222,11 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
 | **3** | MCP server | 11 | **11** | 0 | 0 | 0 | 0 | **complete** (the three gaps it left are closed) |
 | **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
-| 5 | Fingerprinting + ClassifierGap | outline | — | — | — | — | — | not started |
+| **5** | Fingerprinting + ClassifierGap | 7 | **0** | 0 | 0 | 7 | 0 | not started |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 54 tasks - **53** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
+**Totals:** 61 tasks - **53** done - 0 in progress - 0 blocked - 7 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -318,6 +318,13 @@ the rows below are the findings that outlived their first disposition.
 | `T4-06` | Memory and RAG: episodic (the trace store) and semantic (the knowledge store), citations enforced | - | done | every claim in a narrative cites a source, and a citation that does not hold is caught rather than trusted; 9/9 mutants caught | 1 d |
 | `T4-07` | The real model client, and the opt-in quality run | `DEC-11` | done | with a key present, a real model's verdicts are measured against the same corpus; 8/8 mutants caught | 0.5 d |
 | `T4-08` | The threshold on the quality figure | - | done | a model with a threshold is gated by it and a model without one is reported as a measurement, not as a pass | 0.5 d |
+| `T5-01` | The TLS fingerprint: JA3/JA4 and the ClientHello features | - | pending | JA3 (S/M/I) and JA4 (S/M/I) are computed from a real ClientHello and match the published definition; the version histogram, the cipher-suite ordering and count, the extension ordering, ALPN and GREASE are extracted from the same bytes | 1 d |
+| `T5-02` | The certificate, SNI-absence and HTTP/2 features | - | pending | The issuer, the subject and the validity of the server's certificate are extracted, the absence of an SNI is a fact rather than an empty string, and the HTTP/2 SETTINGS frame produces a fingerprint | 1 d |
+| `T5-03` | The per-flow feature vector | - | pending | A flow's features are attached to its row, the run store's schema says so, and an old record is refused rather than read through new field meanings | 1 d |
+| `T5-04` | The signature table: a format, a matcher, and the corpus's known apps | - | pending | A signature says which features make an app an app, the matcher answers with the app it identifies, and an unknown app is reported as unknown rather than as the nearest match | 1 d |
+| `T5-05` | The `ClassifierGap` agent: an unknown app, correlated and proposed | - | pending | An unknown app is turned into a proposed signature with cited evidence, and the proposal names the flows it came from | 1 d |
+| `T5-06` | The maintenance loop and the Critic | - | pending | Every proposal carries citations, a proposal that cannot be cited is refused, and the Critic can falsify a proposal that the corpus contradicts | 1 d |
+| `T5-07` | The evaluation and the phase's exit criteria | - | pending | The classifier's accuracy is measured against the corpus, every proposal is checkable, and the phase's exit criterion is asserted rather than described | 1 d |
 
 ## 5. Task records
 
@@ -1058,13 +1065,111 @@ or `dropped` and say why.
 
 - **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_phase4gaps — **Blocked by:** —
 - **Files:** `tests/test_tracker_integrity.py`, `docs/TASK_TRACKER.md`, `docs/AUDIT.md`.
-- **Test added:** — no new test; two existing checks were **extended**, which is the cheaper repair. The rollup check now covers Phase 4, and the section-1-versus-section-3 check now covers *every* phase either of them names instead of one.
+- **Test added:** — no new test; two existing checks were **extended**, which is the cheaper repair. The rollup check now covers every phase the board has, and the section-1-versus-section-3 check now covers *every* phase either of them names instead of one.
 - **How it was tackled:** `M-08` gave the tracker a test, and the test checked the rollup of the phases that existed when it was written: `PHASE_PREFIX` stopped at `3`. Phase 4 was added afterwards, so its counts were never compared with its board — and they drifted, reading `8/8` for a phase with **seven** tasks, under a fully green gate. The check that compared section 1 with section 3 had the same shape: it named Phase 3, because Phase 3 was the newest phase when it was written. Both are now general. The numbers are also corrected: Phase 4 is 7/7, and the frontmatter's `Phase 4 at 0/7` — a phase that was finished — is gone.
 - **Deviations:** none. The finding was the gate's blind spot, and the repair is the gate.
 - **Verification:** `uv run ruff check .` clean — `uv run mypy` clean — `uv run pytest tests/test_tracker_integrity.py -q` -> **9 passed** — and the extension was proven to bite: with the tracker's Phase 4 row changed back to `8 done` of `8 tasks`, **two** of the checks fail — the rollup against the board, and section 1 against section 3.
 - **Closed findings:** `M-09`
 - **Follow-ups:** none. A new phase will now be covered by the rollup check the day it is added, because the check asks the board rather than a list of known phases.
-- **Notes:** The blind spot had a cause worth naming: the check enumerated the phases it knew about, so every phase added after the check was written was unchecked until someone compared two numbers by hand. The check now asks the board which phases exist — so the list of phases to check is derived rather than maintained.
+- **Notes:** The blind spot had a cause worth naming: the check enumerated the phases it knew about, so every phase added after the check was written was unchecked until someone compared two numbers by hand. The mapping is now **derived** — the board names a task's phase by its prefix, so phase 0.5 is `T05` and phase 5 is `T5` — and a phase added tomorrow is checked the day it is added. Phase 5, decomposed after this record was written, is the first phase the derived mapping covers without anyone editing the test.
+
+### `T5-01` - The TLS fingerprint: JA3/JA4 and the ClientHello features
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** the engine's TLS and certificate parsing, the run store's flow
+  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
+  is in `IMPLEMENTATION_PLAN.md` section 6.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The engine computes the fingerprint. JA3 is a hash over the version, the ciphers, the extensions and the elliptic curves, and JA4 is a hash over the same four lists in the same order, truncated differently; the *features* are the lists themselves, because a signature needs the ordering and not only the hash. GREASE values are the ones RFC 8701 defines, and they are removed before the hash and counted separately.
+
+### `T5-02` - The certificate, SNI-absence and HTTP/2 features
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** the engine's TLS and certificate parsing, the run store's flow
+  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
+  is in `IMPLEMENTATION_PLAN.md` section 6.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The rest of the plan's feature list. SNI-absence is a feature and not a gap: a client that sends no SNI is telling you something, and a classifier that cannot see it will call every such flow unknown.
+
+### `T5-03` - The per-flow feature vector
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** the engine's TLS and certificate parsing, the run store's flow
+  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
+  is in `IMPLEMENTATION_PLAN.md` section 6.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The features become part of the flow row, which is what makes them queryable after the run. The store's schema is versioned (`SCHEMA`), and this changes the on-disk shape, so the version moves and an old record is refused rather than half-read.
+
+### `T5-04` - The signature table: a format, a matcher, and the corpus's known apps
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** the engine's TLS and certificate parsing, the run store's flow
+  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
+  is in `IMPLEMENTATION_PLAN.md` section 6.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** A signature is a *conjunction of features*, not a hash: a hash says "the same app" and cannot say "this is why". The table is the thing the maintenance loop proposes into, so its format is the contract the Critic will argue with.
+
+### `T5-05` - The `ClassifierGap` agent: an unknown app, correlated and proposed
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** the engine's TLS and certificate parsing, the run store's flow
+  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
+  is in `IMPLEMENTATION_PLAN.md` section 6.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The agent reads the flow features, correlates them with the ASN, the SNI and the certificate, and proposes a signature. The proposal carries citations, because a signature nobody can check is a rule nobody can audit.
+
+### `T5-06` - The maintenance loop and the Critic
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** the engine's TLS and certificate parsing, the run store's flow
+  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
+  is in `IMPLEMENTATION_PLAN.md` section 6.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The loop is where a proposal becomes a table entry, and the Critic is what stops that being a rubber stamp. The phase's exit criterion is *the Critic can falsify the proposal*, so falsification is a first-class outcome and not an error path.
+
+### `T5-07` - The evaluation and the phase's exit criteria
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** the engine's TLS and certificate parsing, the run store's flow
+  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
+  is in `IMPLEMENTATION_PLAN.md` section 6.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The same scorer `T4-05` built, against the same corpus. The corpus's apps are the ground truth for the known cases; the unknown case is the one the agent proposes a signature for, and the proposal is checked against the flows it cites.
 
 ## 6. Findings status
 
@@ -1194,6 +1299,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-22 | `ses_phase4gaps` | claude-opus-5[1m] | Phase 5's decomposition (`T5-01`..`T5-07`) | **Phase 5 is ready** | `T5-01`: the TLS fingerprint (JA3/JA4 and the ClientHello features), in the engine, as pure functions over the bytes the parser already reads. |
 | 2026-10-22 | `ses_phase4gaps` | claude-opus-5[1m] | `T3-09`, `T3-10`, `T3-11`, `T4-08`, `DOC-09` | **5 tasks completed** | Decompose Phase 5 and claim its first task. The quality threshold's **value** still needs a provider key: the mechanism is in place and the table is empty on purpose. |
 | 2026-10-22 | `ses_phase4` | claude-opus-5[1m] | `T4-07` | **`T4-07` done - **Phase 4 complete (8/8)** - the real model client, in **its own package** at `NETWORKED_AGENT`, so the agent runtime stays `OFFLINE_CORE` and remains structurally unable to phone home: the mirror image of the rule the safety suite already enforces for the core. The client speaks the **OpenAI-compatible** chat API with the base URL, the key and the model name from the environment (the model is the operator's because it is a *cost* decision), and **adds no dependency**: the standard library's `urllib` in a thread, because the call is blocking and the port is async. The request building and the response parsing are pure functions, so the shape of what goes to a provider is testable without one — and the client is exercised **end to end against a local server**, so the keyless path is genuinely verified rather than assumed. The quality run is **opt-in** and its skip reason says what it means: the quality figure is NOT measured, and a green run there is not evidence about any model. **There is no threshold**, on purpose: a number set before the first real measurement is a number with nothing behind it. 8/8 mutants caught. 1335 passed / 1 skipped — and the 24 differential skips are **gone**, because Docker is up: the parity suite ran and passed. | **Phase 4 is complete** — two of its three exit criteria need a provider key to measure, and the third (a replayable trace for every verdict) is met and tested |
 | 2026-10-22 | `ses_phase4` | claude-opus-5[1m] | `T4-06` | **`T4-06` done - Phase 4 at 6/7** - the memory and RAG layers, and the task that carries the **semantic** half of the citation rule. **Two kinds of memory, and they are not interchangeable:** the semantic store holds documents chunked by paragraph (a paragraph is a unit a human wrote, so a quote from it is a quote a human can find) and retrieved by keyword with the **ties broken by the chunk id**, because a retrieval that reorders itself between runs is a retrieval whose results cannot be compared between runs; the episodic memory holds the runs and what was concluded about them, and an episode carries an **outcome label**, because a memory of what was predicted with nothing recording how it turned out teaches the next agent the same prediction again. The file is append-only, so a label is a later line rather than a rewritten one: the history of what was believed is part of the history. The **citation rule** is the checkable half of "the evidence supports the claim": a citation is a **quote**, and the quote must appear in the chunk it cites, so a model that cites a document it did not read is caught. The node enforces it — the verdict's parser is a closure over the store, so a citation that does not hold makes the parse raise and the runtime records an **invalid verdict** rather than a fabricated one. The retrieval is keyword-only, not the design's "hybrid": hybrid needs embeddings, embeddings need a model, and that is `T4-07`'s — so the vector half is deferred rather than faked. 9/9 mutants caught. 1291 passed / 24 skipped (+25) | `T4-07`, the real model client — where a verdict's *quality* is finally measured |

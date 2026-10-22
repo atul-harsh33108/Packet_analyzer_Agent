@@ -39,17 +39,21 @@ RECORD_HEADING = re.compile(r"^### `([^`]+)`")
 ROLLUP_ROW = re.compile(r"^\|\s*\*?\*?([0-9.]+|DOC)\*?\*?\s*\|")
 FENCE = re.compile(r"^\s*```")
 STATUSES = {"done", "pending", "in_progress", "blocked", "partial", "deferred"}
-#: §3 names a phase "0.5"; the board names its tasks `T05-`. Nothing derives one from
-#: the other, so the mapping is written down and asserted against the board instead.
-PHASE_PREFIX = {
-    "0": "T0",
-    "0.5": "T05",
-    "1": "T1",
-    "2": "T2",
-    "3": "T3",
-    "4": "T4",
-    "DOC": "DOC",
-}
+#: §3 names a phase "0.5"; the board names its tasks `T05-`. Nothing derives one
+#: from the other, so the mapping is derived here rather than listed: a list of
+#: known phases is a list that stops being true when a phase is added, and the
+#: phase that stops being checked is the one nobody notices (`M-09`).
+def phase_prefix(phase: str) -> str | None:
+    """The board's task prefix for a phase, or `None` for a phase it cannot name.
+
+    Phase 0.5 is `T05` and phase 5 is `T5`; `DOC` is the one name that is not
+    arithmetic.
+    """
+    if phase == "DOC":
+        return "DOC"
+    if not phase or not phase.replace(".", "").isdigit():
+        return None
+    return "T" + phase.replace(".", "")
 
 
 @pytest.fixture(scope="module")
@@ -182,14 +186,14 @@ def test_the_phase_rollup_matches_the_board(tlines: list[str]) -> None:
         if not m:
             continue
         phase = m.group(1)
-        if phase not in PHASE_PREFIX:
+        prefix = phase_prefix(phase)
+        if prefix is None:
             continue
         cells = [c.strip() for c in ln.strip().strip("|").split("|")]
         if not cells[2].strip("* ").isdigit():
             continue  # the bare `outline` rows for phases 4-6 have no task count
         stated = [_first_int(c) for c in cells[2:8]]
         assert all(s is not None for s in stated), f"unparsable rollup row: {ln[:80]!r}"
-        prefix = PHASE_PREFIX[phase]
         mine = [st for t, ph, st in rows if ph == prefix]
         actual = {
             "tasks": len(mine),
@@ -249,7 +253,7 @@ def test_section_one_states_the_same_phase_progress_as_the_rollup(tlines: list[s
         if not m:
             continue
         phase = m.group(1)
-        if phase not in PHASE_PREFIX:
+        if phase_prefix(phase) is None:
             continue
         row = [c.strip() for c in ln.strip().strip("|").split("|")]
         total = _first_int(row[2])
@@ -262,7 +266,7 @@ def test_section_one_states_the_same_phase_progress_as_the_rollup(tlines: list[s
             f"§3 says {done}/{total}"
         )
         checked += 1
-    assert checked >= 7, f"only {checked} phases compared; the parse has gone stale"
+    assert checked >= 8, f"only {checked} phases compared; the parse has gone stale"
 
 
 def test_the_stated_totals_match_the_board(tlines: list[str]) -> None:

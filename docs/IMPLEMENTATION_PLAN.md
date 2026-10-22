@@ -407,6 +407,22 @@ Full task decomposition deferred until the prior phase exits, to avoid planning 
 **Content:** JA3/JA4 (S/M/I), TLS version histogram, cipher-suite ordering and count, extension ordering, ALPN, SNI-absence, cert issuer/subject/validity, GREASE detection, HTTP/2 SETTINGS fingerprint · per-flow feature vectors · `ClassifierGap` agent with ASN correlation and cited evidence · **signature-table maintenance loop**, with every proposal carrying citations.
 **Exit:** an unknown app is identified with cited evidence and a proposed signature; the Critic can falsify the proposal.
 
+
+**Tasks** (the scope of each is in the tracker's records; the gates are here):
+
+| ID | Task | Gate | Effort |
+|---|---|---|---|
+| `T5-01` | The TLS fingerprint: JA3/JA4 and the ClientHello features | JA3 (S/M/I) and JA4 (S/M/I) are computed from a real ClientHello and match the published definition; the version histogram, the cipher-suite ordering and count, the extension ordering, ALPN and GREASE are extracted from the same bytes | 1 d |
+| `T5-02` | The certificate, SNI-absence and HTTP/2 features | The issuer, the subject and the validity of the server's certificate are extracted, the absence of an SNI is a fact rather than an empty string, and the HTTP/2 SETTINGS frame produces a fingerprint | 1 d |
+| `T5-03` | The per-flow feature vector | A flow's features are attached to its row, the run store's schema says so, and an old record is refused rather than read through new field meanings | 1 d |
+| `T5-04` | The signature table: a format, a matcher, and the corpus's known apps | A signature says which features make an app an app, the matcher answers with the app it identifies, and an unknown app is reported as unknown rather than as the nearest match | 1 d |
+| `T5-05` | The `ClassifierGap` agent: an unknown app, correlated and proposed | An unknown app is turned into a proposed signature with cited evidence, and the proposal names the flows it came from | 1 d |
+| `T5-06` | The maintenance loop and the Critic | Every proposal carries citations, a proposal that cannot be cited is refused, and the Critic can falsify a proposal that the corpus contradicts | 1 d |
+| `T5-07` | The evaluation and the phase's exit criteria | The classifier's accuracy is measured against the corpus, every proposal is checkable, and the phase's exit criterion is asserted rather than described | 1 d |
+
+**Order:** `T5-01` and `T5-02` are independent and both feed `T5-03`; `T5-03` feeds
+`T5-04`, which feeds `T5-05`, which feeds `T5-06`; `T5-07` measures the result.
+
 ### Phase 6 — Write path
 
 **Entry:** Phase 5 exit.
