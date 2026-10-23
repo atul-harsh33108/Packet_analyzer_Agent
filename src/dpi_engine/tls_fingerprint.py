@@ -35,8 +35,9 @@ guessing is worse than abstaining.
 Scope
 -----
 TLS over TCP only (the ``t`` prefix). QUIC terminates TLS in CRYPTO frames and is
-handled by `dpi_engine.quic`; DTLS is not parsed. HTTP/2 and certificate
-fingerprints (JA4H/JA4X) belong to T5-02 and are absent here.
+handled by `dpi_engine.quic`; DTLS is not parsed. The certificate and the HTTP/2
+SETTINGS fingerprint are their own contracts (`dpi_engine.tls_certificate`,
+`dpi_engine.http2`); the JA4H and JA4X variants are not implemented.
 
 One source disagreement, resolved and recorded
 ----------------------------------------------
@@ -127,9 +128,16 @@ class ClientHelloFeatures:
     copies. `supported_versions` is empty when the client did not send the
     extension, while `version_histogram` always describes what was offered --
     falling back to the legacy version, which is the only offer in that case.
+
+    `sni_present` is the extension's presence, which is a different fact from a
+    readable hostname: a client that sends the extension with an empty or
+    unreadable name list offered SNI, and `extract_sni` answers `None` for it and
+    for a client that sent nothing at all. The empty string conflated those two;
+    this flag is how "sent no SNI" stays a fact.
     """
 
     client_version: int
+    sni_present: bool
     cipher_suites: tuple[int, ...]
     extensions: tuple[int, ...]
     elliptic_curves: tuple[int, ...]
@@ -467,6 +475,7 @@ def fingerprint_client_hello(payload: bytes, length: int | None = None) -> Clien
 
     return ClientHelloFeatures(
         client_version=client_version,
+        sni_present=scan.has_sni,
         cipher_suites=cipher_suites,
         extensions=extensions,
         elliptic_curves=elliptic_curves,

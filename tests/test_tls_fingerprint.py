@@ -39,6 +39,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from dpi_engine.sni_extractor import extract_sni
 from dpi_engine.tls_fingerprint import (
     ClientHelloFeatures,
     fingerprint_client_hello,
@@ -79,10 +80,12 @@ def _extension(extension_type: int, body: bytes = b"") -> bytes:
 
 
 def _sni_body(hostname: str = "example.com") -> bytes:
+    # RFC 6066: ServerNameList is a uint16 length followed by ServerName
+    # entries, each a one-byte name type and a uint16-length-prefixed name.
+    # There is no per-entry length field of its own.
     raw = hostname.encode("ascii")
     entry = b"\x00" + _u16(len(raw)) + raw
-    listing = _u16(len(entry)) + entry
-    return _u16(len(listing)) + listing
+    return _u16(len(entry)) + entry
 
 
 def _alpn_body(protocols: Sequence[bytes]) -> bytes:
@@ -729,6 +732,43 @@ def test_a_server_hello_without_extensions_is_not_an_error() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SNI presence: the extension, not the hostname (`T5-02`)
+# ---------------------------------------------------------------------------
+
+
+def test_the_sni_extension_is_a_feature_even_when_no_hostname_is_legible() -> None:
+    """`extract_sni` answers "which hostname"; this answers "did it offer one".
+
+    They are different questions and the empty string conflated them: a client
+    that sends no SNI extension, and a client that sends the extension with an
+    empty name list, both give `extract_sni` nothing -- but only the first told
+    the server it has no name to offer. `sni_present` is that fact.
+    """
+    with_hostname = build_client_hello(
+        extensions=((_SNI, _sni_body()), (_ALPN, _alpn_body([b"h2"])))
+    )
+    without = build_client_hello(extensions=((_ALPN, _alpn_body([b"h2"])),))
+    empty_list = build_client_hello(extensions=((_SNI, b"\x00\x00"),))
+
+    assert _features(with_hostname).sni_present is True
+    assert _features(without).sni_present is False
+    assert _features(empty_list).sni_present is True
+
+    assert extract_sni(with_hostname) == "example.com"
+    assert extract_sni(without) is None
+    assert extract_sni(empty_list) is None
+
+
+def test_the_ja4_dash_or_i_marker_is_the_same_fact_as_the_flag() -> None:
+    for payload in (
+        build_client_hello(extensions=((_SNI, _sni_body()),)),
+        build_client_hello(extensions=((_ALPN, _alpn_body([b"h2"])),)),
+    ):
+        features = _features(payload)
+        assert (features.ja4_a[3] == "d") is features.sni_present
+
+
+# ---------------------------------------------------------------------------
 # Property: arbitrary bytes never raise, and never produce a malformed claim
 # ---------------------------------------------------------------------------
 
@@ -759,6 +799,7 @@ def test_arbitrary_and_near_valid_bytes_never_raise_and_stay_well_formed(
             assert _CLIENT_SHAPE.match(client.ja4_a), client.ja4_a
             assert len(client.ja4_b) == 12 and len(client.ja4_c) == 12
             assert client.ja4 == f"{client.ja4_a}_{client.ja4_b}_{client.ja4_c}"
+            assert client.sni_present == (0 in client.extensions)
             assert not any(c in (0x0A0A, 0x1A1A, 0x2A2A, 0x3A3A, 0x4A4A,
                                  0x5A5A, 0x6A6A, 0x7A7A, 0x8A8A, 0x9A9A,
                                  0xAAAA, 0xBABA, 0xCACA, 0xDADA, 0xEAEA,
