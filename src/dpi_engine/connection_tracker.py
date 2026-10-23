@@ -633,6 +633,8 @@ def to_flow_records(connections: list[Connection]) -> list[FlowRecord]:
 
     Enum fields become `.name` (`DEC-04`'s persistence rule), so a stored row is plain
     JSON with no codec. See `FlowRecord` for why volume is outbound-only.
+    `features` is the live vector as-is: it is frozen (`T5-03`), so the row and the
+    connection can share one instance safely.
     """
     return sorted(
         (
@@ -648,6 +650,7 @@ def to_flow_records(connections: list[Connection]) -> list[FlowRecord]:
                 packets=c.packets_out,
                 bytes=c.bytes_out,
                 action=c.action.name,
+                features=c.features,
             )
             for c in connections
         ),

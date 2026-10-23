@@ -658,6 +658,71 @@ class TestLoadGuards:
 
 
 # ---------------------------------------------------------------------------
+# The feature vector is part of the stored shape (`T5-03`)
+# ---------------------------------------------------------------------------
+
+
+class TestTheFeatureVectorInTheSchema:
+    """A new field on every row is a shape change, and the store says so.
+
+    The gate is not "the field exists" but "an old record is refused rather than
+    read through new field meanings": a v1 file has no `features` key, and
+    defaulting it would report every flow of every earlier run as having had no
+    fingerprint -- a claim about those captures that the store never observed.
+    """
+
+    def test_the_schema_version_moved(self) -> None:
+        assert SCHEMA == "dpi-run/v2"
+
+    def test_the_vector_survives_a_save_and_a_load(self, store: RunStore, rec_a: RunRecord) -> None:
+        from dpi_engine.flow_features import FlowFeatures
+        from dpi_engine.run_store import _with_computed_id
+
+        vector = FlowFeatures(
+            ja3="a" * 32,
+            sni_present=False,
+            alpn=("h2",),
+            http2_settings="1:65536",
+        )
+        flows = (replace(rec_a.flows[0], features=vector), *rec_a.flows[1:])
+        record = _with_computed_id(replace(rec_a, flows=flows))
+
+        store.save(record)
+
+        assert store.load(record.run_id).flows[0].features == vector
+
+    def test_a_v1_record_is_refused_and_names_both_versions(
+        self, populated: RunStore, rec_a: RunRecord
+    ) -> None:
+        path = populated.root / f"{rec_a.run_id}.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["schema"] = "dpi-run/v1"
+        for flow in raw["flows"]:
+            flow.pop("features", None)
+        path.write_text(json.dumps(raw), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"dpi-run/v1.*dpi-run/v2"):
+            populated.load(rec_a.run_id)
+
+    def test_a_v2_record_missing_a_row_vector_is_refused(
+        self, populated: RunStore, rec_a: RunRecord
+    ) -> None:
+        """The version gate is not the only guard: the row decoder is strict too.
+
+        A file that claims v2 but carries a v1-shaped row must not be completed
+        from defaults -- the version says the rows have vectors, so a row without
+        one is damaged data, not old data.
+        """
+        path = populated.root / f"{rec_a.run_id}.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        del raw["flows"][0]["features"]
+        path.write_text(json.dumps(raw), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="features"):
+            populated.load(rec_a.run_id)
+
+
+# ---------------------------------------------------------------------------
 # query() and filters
 # ---------------------------------------------------------------------------
 

@@ -58,6 +58,7 @@ def _rows(hostname: str) -> list[Any]:
     Built through the store's decoder, so the row is the store's row and not a
     copy of one.
     """
+    from dpi_engine.flow_features import FlowFeatures
     from dpi_engine.run_store import flow_from_json
 
     return [
@@ -74,6 +75,7 @@ def _rows(hostname: str) -> list[Any]:
                 "packets": 4,
                 "bytes": 400,
                 "action": "FORWARD",
+                "features": FlowFeatures().to_json(),
             }
         )
     ]

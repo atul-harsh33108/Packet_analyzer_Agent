@@ -97,6 +97,17 @@ def _supported_versions_body(versions: Sequence[int]) -> bytes:
     return _byte_vector(b"".join(_u16(v) for v in versions))
 
 
+def _server_version(version: int) -> bytes:
+    """The ServerHello form of supported_versions: the selected version, bare.
+
+    RFC 8446 section 4.2.1: the extension_data is ``ProtocolVersion
+    selected_version``, two bytes -- not the client's 1-byte-length-prefixed
+    vector. `T5-03` found `T5-01` reading both with the client's form, which
+    refused every conformant TLS 1.3 ServerHello.
+    """
+    return _u16(version)
+
+
 Extension = tuple[int, bytes]
 
 
@@ -246,11 +257,13 @@ def test_ja4s_matches_the_published_foxio_server_fingerprint() -> None:
     The ``a`` part is TLS, version 13 (from supported_versions), 2 extensions, no
     ALPN; the ``b`` part is the server's chosen cipher; the ``c`` part is the
     hash of ``002b,0033`` in arrival order -- the pair this hello carries.
+    ``supported_versions`` is built in the ServerHello form, which is the form a
+    real TLS 1.3 server sends.
     """
     hello = build_server_hello(
         cipher=0x1301,
         extensions=(
-            (_SUPPORTED_VERSIONS, _supported_versions_body([0x0304])),
+            (_SUPPORTED_VERSIONS, _server_version(0x0304)),
             (0x0033, b""),
         ),
     )
@@ -258,6 +271,30 @@ def test_ja4s_matches_the_published_foxio_server_fingerprint() -> None:
     found = fingerprint_server_hello(hello)
     assert found is not None
     assert found.ja4s == "t130200_1301_a56c5b993250"
+
+
+def test_a_server_hello_version_extension_is_a_bare_uint16() -> None:
+    """RFC 8446 section 4.2.1, and a bug `T5-03` found by wiring the server half.
+
+    The ClientHello sends a 1-byte-length-prefixed list of versions; the
+    ServerHello sends the one selected version, two bytes and no length. Reading
+    both with the ClientHello's form refused every conformant TLS 1.3
+    ServerHello -- which is most traffic -- while a TLS 1.2 ServerHello, which
+    has no such extension, parsed fine. The knob that decides JA4S's version
+    field made it look right whenever it was tested by hand.
+    """
+    rfc_form = build_server_hello(
+        extensions=((_SUPPORTED_VERSIONS, _server_version(0x0304)), (0x0033, b""))
+    )
+    client_form = build_server_hello(
+        extensions=((_SUPPORTED_VERSIONS, _supported_versions_body([0x0304])), (0x0033, b""))
+    )
+
+    found = fingerprint_server_hello(rfc_form)
+    assert found is not None
+    assert found.supported_versions == (0x0304,)
+    assert found.ja4s_a == "t130200"
+    assert fingerprint_server_hello(client_form) is None
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +702,7 @@ def test_ja3s_is_the_md5_of_the_decimal_triple() -> None:
     hello = build_server_hello(
         cipher=0x1301,
         extensions=(
-            (_SUPPORTED_VERSIONS, _supported_versions_body([0x0304])),
+            (_SUPPORTED_VERSIONS, _server_version(0x0304)),
             (0x0033, b""),
         ),
     )
@@ -683,14 +720,14 @@ def test_ja4s_hashes_the_extension_arrival_order() -> None:
     """Unlike JA4, JA4S does not sort: the server's ordering is the signal."""
     forward = build_server_hello(
         extensions=(
-            (_SUPPORTED_VERSIONS, _supported_versions_body([0x0304])),
+            (_SUPPORTED_VERSIONS, _server_version(0x0304)),
             (0x0033, b""),
         ),
     )
     reverse = build_server_hello(
         extensions=(
             (0x0033, b""),
-            (_SUPPORTED_VERSIONS, _supported_versions_body([0x0304])),
+            (_SUPPORTED_VERSIONS, _server_version(0x0304)),
         ),
     )
 

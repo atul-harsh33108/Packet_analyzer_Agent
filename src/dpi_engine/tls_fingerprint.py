@@ -296,13 +296,21 @@ def _parse_alpn(data: bytes, offset: int, length: int) -> tuple[bytes, ...] | No
     return tuple(protocols)
 
 
-def _scan_extensions(data: bytes, offset: int, end: int) -> _ExtensionScan | None:
+def _scan_extensions(
+    data: bytes, offset: int, end: int, *, server: bool = False
+) -> _ExtensionScan | None:
     """Read an extension block, or `None` if it is not exactly `end - offset` long.
 
     Unknown extensions are recorded by type and their bodies skipped: a
     fingerprint is built from what the client sent, not from what it meant.
     A known extension with a malformed body is fatal, because its values would
     otherwise be silently reported as absent.
+
+    `server` selects the ServerHello reading of the one extension whose body has
+    two forms: RFC 8446 section 4.2.1 gives the client a 1-byte-length-prefixed
+    list of versions and the server the single selected version as a bare
+    uint16. Reading the server's with the client's form refuses every conformant
+    TLS 1.3 ServerHello, which is most of them (`T5-03`).
     """
     scan = _ExtensionScan()
     while offset < end:
@@ -338,10 +346,18 @@ def _scan_extensions(data: bytes, offset: int, end: int) -> _ExtensionScan | Non
             scan.groups = groups
             scan.grease.extend(g for g in groups if g in _GREASE_VALUES)
         elif extension_type == _EXTENSION_SUPPORTED_VERSIONS:
-            raw = _parse_byte_vector(data, offset, extension_length)
-            if raw is None or len(raw) % 2:
-                return None
-            scan.supported_versions = tuple(_read_u16be(raw, at) for at in range(0, len(raw), 2))
+            if server:
+                # The selected version, and nothing else.
+                if extension_length != 2:
+                    return None
+                scan.supported_versions = (_read_u16be(data, offset),)
+            else:
+                raw = _parse_byte_vector(data, offset, extension_length)
+                if raw is None or len(raw) % 2:
+                    return None
+                scan.supported_versions = tuple(
+                    _read_u16be(raw, at) for at in range(0, len(raw), 2)
+                )
             scan.grease.extend(
                 v for v in scan.supported_versions if v in _GREASE_VALUES
             )
@@ -532,7 +548,7 @@ def fingerprint_server_hello(payload: bytes, length: int | None = None) -> Serve
         offset += 2
         if offset + extension_bytes != end:
             return None
-        scanned = _scan_extensions(payload, offset, end)
+        scanned = _scan_extensions(payload, offset, end, server=True)
         if scanned is None:
             return None
         scan = scanned

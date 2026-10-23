@@ -71,6 +71,7 @@ from dpi_engine.events import (
     FlowEvicted,
     LimitExceeded,
 )
+from dpi_engine.flow_features import FlowFeatures
 from dpi_engine.pipeline import PipelineResult
 from dpi_engine.types import AppType, ConnectionState, FiveTuple, FlowRecord
 
@@ -95,7 +96,11 @@ __all__ = [
 
 #: Bumped when the on-disk shape changes incompatibly. `load` refuses a mismatch
 #: rather than interpreting old data through new field meanings.
-SCHEMA = "dpi-run/v1"
+#:
+#: v2 (`T5-03`) added `features` to every flow row. A v1 record has no such key,
+#: and defaulting it would report every earlier run as having observed no
+#: fingerprint -- a claim about those captures, not a fact from them.
+SCHEMA = "dpi-run/v2"
 
 #: Run ids address a file, so they are validated before use. An agent supplies the id
 #: in a later tool call; without this, `load("../../etc/passwd")` would be a path
@@ -537,6 +542,12 @@ def flow_to_json(flow: FlowRecord) -> dict[str, Any]:
         "packets": flow.packets,
         "bytes": flow.bytes,
         "action": flow.action,
+        # `T5-03`. The vector's own codec owns its shape; this is only where it
+        # sits in a row. Since v2 every row has one, so the key is written even
+        # when the vector is empty -- the key's presence is what says "observed,
+        # and nothing was there", which is the distinction the version gate keeps
+        # for older runs.
+        "features": flow.features.to_json(),
     }
 
 
@@ -553,6 +564,9 @@ def flow_from_json(raw: Mapping[str, Any]) -> FlowRecord:
         packets=_int(raw, "packets"),
         bytes=_int(raw, "bytes"),
         action=_str(raw, "action"),
+        # Strict on purpose: defaulting a missing key would read a v1 row as a
+        # vector that observed nothing.
+        features=FlowFeatures.from_json(_mapping(raw, "features")),
     )
 
 

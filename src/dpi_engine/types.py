@@ -53,6 +53,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import NamedTuple
 
+from dpi_engine.flow_features import FlowFeatures
+
 
 class FiveTuple(NamedTuple):
     """Uniquely identifies a connection/flow. Plain, hashable, comparable.
@@ -371,6 +373,12 @@ class Connection:
     fin_seen: bool = False
     rst_seen: bool = False
 
+    #: The fingerprint vector this flow has shown so far (`T5-03`). Accumulated
+    #: by `FlowProcessor.process` from both directions, merged first-observation
+    #: wins per half (see `dpi_engine.flow_features`). Carried to the row so a
+    #: signature can match it after the run; empty means nothing was observed.
+    features: FlowFeatures = field(default_factory=FlowFeatures)
+
     @property
     def packets(self) -> int:
         """Total packets seen in both directions of this flow."""
@@ -403,6 +411,13 @@ class FlowRecord:
     and `D-25`). Folding flows to derive a real inbound/outbound split would break
     parity with the C++ original, so the totals here are the ones that are real
     rather than two columns of zeros that look authoritative.
+
+    **`features` is `FlowFeatures`, not a flattened set of columns** (`T5-03`). The
+    vector's own module owns the shape and its codec, so a signature matcher, a
+    stored row and a decoder cannot drift into three opinions about what a field
+    means. A row always has one; an empty vector means the flow showed nothing
+    fingerprintable, and the run store's v2 schema is what keeps that distinct
+    from "this field did not exist yet".
     """
 
     src_ip: int
@@ -416,6 +431,7 @@ class FlowRecord:
     packets: int = 0
     bytes: int = 0
     action: str = "FORWARD"
+    features: FlowFeatures = field(default_factory=FlowFeatures)
 
     @property
     def five_tuple(self) -> FiveTuple:

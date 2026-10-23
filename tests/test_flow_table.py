@@ -197,12 +197,15 @@ class TestRecordShape:
     def test_rows_are_json_serialisable(self, with_table: object) -> None:
         """The whole point: an MCP tool returns JSON, so the row must already be one.
 
-        Serialised through `dataclasses.asdict` because `FlowRecord.five_tuple` is a
-        property, not a field, and would otherwise drag a `FiveTuple` into the payload.
+        Projected through the store's own `flow_to_json`, which is what the MCP
+        tools answer with. `dataclasses.asdict` stopped being the right projection
+        in `T5-03`: it recurses into `features`, whose lists are tuples in Python,
+        so `json.dumps` would turn them into lists and the round trip would compare
+        a shape nothing ever writes.
         """
-        from dataclasses import asdict
+        from dpi_engine.run_store import flow_to_json
 
-        payload = [asdict(r) for r in with_table.flow_table]
+        payload = [flow_to_json(row) for row in with_table.flow_table]
         text = json.dumps(payload)
         assert json.loads(text) == payload
 

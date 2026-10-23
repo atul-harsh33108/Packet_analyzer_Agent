@@ -28,7 +28,6 @@ question it broke.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -38,7 +37,7 @@ import pytest
 from conftest import TEST_DPI_PCAP
 from dpi_engine.pipeline import PipelineResult, run_pipeline
 from dpi_engine.rule_manager import RuleManager
-from dpi_engine.run_store import RunRecord, RunStore, record_from_result
+from dpi_engine.run_store import RunRecord, RunStore, flow_to_json, record_from_result
 from dpi_engine.types import AppType, FiveTuple
 from dpi_mcp.tools import diff_runs, get_flow_detail, query_flows
 from dpi_mcp.tools.errors import ToolInputError
@@ -67,6 +66,7 @@ FLOW_KEYS = {
     "packets",
     "bytes",
     "action",
+    "features",
 }
 
 
@@ -232,7 +232,7 @@ class TestQueryFlowsSelects:
         dst = ".".join(str((flow.dst_ip >> shift) & 0xFF) for shift in (24, 16, 8, 0))
         assert src != dst
 
-        first_row = dataclasses.asdict(flow)
+        first_row = flow_to_json(flow)
 
         by_src = query_flows(rec_a.run_id, store_root=root, ip=src)
         by_dst = query_flows(rec_a.run_id, store_root=root, ip=dst)
@@ -376,7 +376,7 @@ class TestGetFlowDetail:
         bare = get_flow_detail(rec_a.run_id, row, store_root=root)
         noisy = get_flow_detail(
             rec_a.run_id,
-            {**dataclasses.asdict(rec_a.flows[0]), "unexpected": "ignored"},
+            {**flow_to_json(rec_a.flows[0]), "unexpected": "ignored"},
             store_root=root,
         )
         assert noisy["found"] is True

@@ -51,6 +51,7 @@ from dpi_engine.connection_tracker import (
     ConnectionTracker,
     TrackerStats,
 )
+from dpi_engine.flow_features import observe_flow_features
 from dpi_engine.load_balancer import SHUTDOWN_SENTINEL, FastPathStats
 from dpi_engine.packet_parser import ParsedPacket
 from dpi_engine.pcap_io import RawPacket
@@ -448,6 +449,17 @@ class FlowProcessor:
 
         if parsed.has_tcp:
             tracker.update_tcp_state(conn, parsed.tcp_flags)
+
+            # `T5-03`. The fingerprint is observed before the policy branches,
+            # so a blocked flow's row still records what its traffic showed:
+            # the evidence is about the packets, not about the verdict. Only a
+            # TCP payload can carry a hello, a certificate or the HTTP/2
+            # preface (all three transports are TCP), and the observer rejects
+            # application data on its first byte, which is what keeps this
+            # affordable per packet -- see `dpi_engine.flow_features`.
+            observed = observe_flow_features(parsed.payload)
+            if not observed.is_empty:
+                conn.features = conn.features.merged(observed)
 
         # The tracker's Connection is the authority on whether a flow is
         # blocked; `blocked_tuples` is only a fast-path cache of that fact.
