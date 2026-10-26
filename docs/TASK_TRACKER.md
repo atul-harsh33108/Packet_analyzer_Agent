@@ -2,9 +2,9 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 6
-current_task: Phase 6 decomposition
-next_action: **Phase 5 is complete (7/7).** Its exit criterion is measured, not described: the classifier scores **53/59 = 0.8983** precision at **1.0** recall over all 33 captures and **59** labels, with **29/33** perfect cases and the six misses exactly the six `KNOWN_DIVERGENCES`; the fingerprint table is checked as a second classifier and abstains on every flow; and the gap → proposal → Critic → install → identify path runs end to end. **Phase 6 — the write path — is next and has no task IDs yet**, so the first action is its decomposition against `IMPLEMENTATION_PLAN.md`: `RuleStore` with provenance and versioning, the Policy agent, the blast-radius circuit breaker, the durable approval queue, tiered auto-apply and the immutable audit log. Two measurements still need a provider key: `DPI_MODEL_API_KEY` and `DPI_MODEL_NAME` give `T4-07`'s quality figure and `T4-08`'s threshold.
-blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is not decomposed]
+current_task: T6-01
+next_action: **Phase 6 is decomposed (7 tasks, 0 done) and `T6-01` is first.** Build the `RuleStore`: an append-only, content-addressed history of policy documents — the blocking ruleset and the signature table — each version carrying its provenance, published atomically and loaded with a digest check, with `restore` creating a new version whose parent is the one restored rather than rewriting history. Nothing in Phase 6 writes to a live process: an applied version is the store's active one, and the exit test proves a run that loads it is affected. The reason the store is first is that every later task either writes through it or checks what it holds.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is decomposed at 0/7, with T6-01 next]
 last_updated: 2026-10-26
 last_updated_by: big-pickle
 session: ses_t5_07
@@ -39,16 +39,16 @@ session workflow — what to read, in what order, when to stop — read
 
 | Field | Value |
 |---|---|
-| **Phase** | **6** — Write path (not started; awaiting decomposition) |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — DOC: 8/9 |
-| **Current task** | **`T5-07` is done and Phase 5 is complete (7/7).** Nothing is claimed; the next task is Phase 6's decomposition, because Phase 6 has no task IDs yet |
-| **Next action** | **Phase 5 is complete (7/7).** Its exit criterion is measured, not described: the classifier scores **53/59 = 0.8983** precision at **1.0** recall over all 33 captures and **59** labels, with **29/33** perfect cases and the six misses exactly the six `KNOWN_DIVERGENCES`; the fingerprint table is checked as a second classifier and abstains on every flow; and the gap → proposal → Critic → install → identify path runs end to end. **Phase 6 — the write path — is next and has no task IDs yet**, so the first action is its decomposition against `IMPLEMENTATION_PLAN.md`: `RuleStore` with provenance and versioning, the Policy agent, the blast-radius circuit breaker, the durable approval queue, tiered auto-apply and the immutable audit log. Two measurements still need a provider key: `DPI_MODEL_API_KEY` and `DPI_MODEL_NAME` give `T4-07`'s quality figure and `T4-08`'s threshold. |
+| **Phase** | **6** — Write path |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 0/7** — DOC: 8/9 |
+| **Current task** | **Phase 6 is decomposed and ready.** Seven tasks, none claimed; `T6-01` (the `RuleStore`) is the first |
+| **Next action** | **Phase 6 is decomposed (7 tasks, 0 done) and `T6-01` is first.** Build the `RuleStore`: an append-only, content-addressed history of policy documents — the blocking ruleset and the signature table — each version carrying its provenance, published atomically and loaded with a digest check, with `restore` creating a new version whose parent is the one restored rather than rewriting history. Nothing in Phase 6 writes to a live process: an applied version is the store's active one, and the exit test proves a run that loads it is affected. The reason the store is first is that every later task either writes through it or checks what it holds. |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without an ID. **Two are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed). `D-29` is **closed** (`T3-11`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — was caught by **neither** scanner pass; the scanner now resolves the spelling as well as the name). `D-28` is **closed** (`T3-08`) |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (9 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_t5_07` — `T5-07` done, **Phase 5 complete (7/7)** |
+| **Session** | `ses_t5_07` — Phase 6 decomposed (`T6-01`..`T6-07`) and ready |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -223,10 +223,10 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **3** | MCP server | 11 | **11** | 0 | 0 | 0 | 0 | **complete** (the three gaps it left are closed) |
 | **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
 | **5** | Fingerprinting + ClassifierGap | 7 | **7** | 0 | 0 | 0 | 0 | **complete** (the exit criterion is measured against the corpus) |
-| 6 | Write path | outline | — | — | — | — | — | not started |
+| **6** | Write path | 7 | **0** | 0 | 0 | 7 | 0 | not started |
 | **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 61 tasks - **60** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
+**Totals:** 68 tasks - **60** done - 0 in progress - 0 blocked - 7 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -325,6 +325,13 @@ the rows below are the findings that outlived their first disposition.
 | `T5-05` | The `ClassifierGap` agent: an unknown app, correlated and proposed | - | done | An unknown app is turned into a proposed signature with cited evidence, and the proposal names the flows it came from | 1 d |
 | `T5-06` | The maintenance loop and the Critic | - | done | Every proposal carries citations, a proposal that cannot be cited is refused, and the Critic can falsify a proposal that the corpus contradicts | 1 d |
 | `T5-07` | The evaluation and the phase's exit criteria | - | done | The classifier's accuracy is measured against the corpus, every proposal is checkable, and the phase's exit criterion is asserted rather than described | 1 d |
+| `T6-01` | The `RuleStore`: versioned rulesets, atomic publish, history and restore | - | pending | a version is immutable and content-addressed, reloading it is byte-identical, editing it is refused, and restore creates a new version with a parent rather than rewriting history | 2 d |
+| `T6-02` | The signed proposal: validation, provenance and the digest that binds review to apply | - | pending | a proposal is a validated policy document plus provenance and citations under a digest that covers the bytes to be applied; a malformed rule, missing provenance or an unresolvable citation is refused before review | 1 d |
+| `T6-03` | The Policy agent: read-only, simulation-only, and no write tool at all | - | pending | the agent proposes from a real capture, cites the flows it used, and its tool surface has `query_flows` and `simulate_ruleset` and nothing that writes; a proposal is a value, not an installed rule | 2 d |
+| `T6-04` | The blast-radius circuit breaker: a deterministic tier from a real counterfactual | - | pending | a real counterfactual classifies a candidate into auto-apply, one-click, explicit-confirm or refused; thresholds are configuration, the boundary is exact, and a total-loss candidate is refused rather than made approvable | 1 d |
+| `T6-05` | The durable approval queue: pause, persist, approve or reject | - | pending | an approval request survives process death, applies exactly the digest that was reviewed, refuses a substituted proposal, and a rejection is terminal | 2 d |
+| `T6-06` | Tiered auto-apply and the immutable audit log | - | pending | one door verifies the digest and tier, writes one new version and one append-only audit entry (who, when, agent, run, evidence, prompt version, model version), refuses a replay and detects an edited or deleted entry | 2 d |
+| `T6-07` | The write path end to end: propose, approve, apply, revert — and the refusals | - | pending | end to end on a real capture: propose → classify → approve → apply → the run changes → audit verifies → revert restores the prior version as a new one; every refusal path is asserted | 2 d |
 
 ## 5. Task records
 
@@ -1303,6 +1310,147 @@ or `dropped` and say why.
   real signature. The exit criterion is not a description: the same run that proposes the signature
   installs it and then identifies the flow with it.
 
+### `T6-01` - The `RuleStore`: versioned rulesets, atomic publish, history and restore
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** `src/dpi_engine/rule_store.py` (new), `tests/test_rule_store.py` (new); it reuses
+  `rule_manager.py`'s loader and `signatures.py`'s table rather than adding a second validator.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The store is the phase's foundation, so its invariants come first. A version is a
+  **policy document** — the blocking ruleset (`RuleManager.to_dict`) or the signature table
+  (`SignatureTable.to_json`) — canonicalised and addressed by its own digest, written once under
+  `os.replace`, and never overwritten. `restore` is not a rollback of the directory: it commits the
+  old content as a *new* version whose parent is the version restored, so a revert is as audible as
+  the change it undoes. Validation is delegated to the loader each document already owns; a second
+  validator would drift from the first. The active version is a pointer, and only `apply` moves it.
+
+### `T6-02` - The signed proposal: validation, provenance and the digest that binds review to apply
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** `src/dpi_engine/proposal.py` (new), `tests/test_proposal.py` (new); it reuses
+  `Provenance`, `RuleManager.from_dict`, `SignatureTable.from_json` and `ruleset_fingerprint`.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** `signed` here means **content-bound**, not cryptographically keyed: the proposal
+  carries a digest over the canonical document plus its provenance, citations and the
+  agent/model/prompt versions, and `apply` recomputes it. That is the property the human gate
+  needs — the bytes approved are the bytes applied — and it is testable without key
+  management. A keyed signature would add forgery resistance against someone who can already write
+  the store, which is a different threat; do not claim it. Validation runs the document's own
+  loader **before** the queue, so a malformed proposal is a refused proposal and never a human's
+  problem.
+
+### `T6-03` - The Policy agent: read-only, simulation-only, and no write tool at all
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** `src/dpi_agents/nodes/policy.py` (new), `src/dpi_agents/schemas.py`,
+  `tests/test_policy_agent.py` (new).
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The Policy agent is the first agent in this build with a rule-shaped output, and it
+  still has no write tool. Its tools are `query_flows` (the features are on the row) and
+  `simulate_ruleset` (a dry run); the dry run is a **tool**, not an action, and the proposal it
+  returns is data. The model chooses what to propose and why; the engine's validator and the
+  breaker decide whether it is admissible. The prompt says the simulation is a counterfactual and
+  not an apply, and that a proposal is reviewed by a human. `simulate_ruleset` is read-only by
+  construction (`T1-06`), so granting it does not grant a way to change live rules.
+
+### `T6-04` - The blast-radius circuit breaker: a deterministic tier from a real counterfactual
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** `src/dpi_engine/blast_radius.py` (new), `tests/test_blast_radius.py` (new); it reads
+  `SimulationReport` from `rules/simulator.py` and does not re-derive any decision.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** A number on a diff is not a decision. The breaker turns `SimulationReport` into a
+  tier: **auto-apply** only for signature-table entries, which do not drop traffic and are
+  reversible; **one-click** for blocking rules at or below both the flow cap and the percentage
+  cap; **explicit confirm** above either, when a configured protected app is touched, or when the
+  Critic objected; **refused** when the candidate would forward nothing at all. The defaults come
+  from Layer 8's table (0.1% for one-click, 5% as the critical line) and are configuration, not
+  constants: a threshold is a policy, and a policy belongs in data. A `total_loss` candidate is
+  refused rather than queued with a warning, because there is no blast radius at which "block
+  everything" becomes a good idea.
+
+### `T6-05` - The durable approval queue: pause, persist, approve or reject
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** `src/dpi_engine/approval_queue.py` (new), `tests/test_approval_queue.py` (new).
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The design's durable checkpointer becomes a **durable request**. The agent run is not
+  suspended in memory across a human's lunch break: the proposal is written to the queue and the
+  process ends; a later `approve` loads it and the apply path runs. That is the property the
+  design wants — Monday's decision does not need Monday's process — obtained without a live
+  scheduler. A decision is a state transition on a file (`pending` to `approved` or `rejected`),
+  written atomically, idempotent by request id, and carrying the reviewer and the timestamp.
+  Approval names the digest it reviewed; the apply path re-derives it, so approving one proposal
+  cannot apply another. A rejected request is terminal and cannot be revived by a later approve.
+
+### `T6-06` - Tiered auto-apply and the immutable audit log
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** `src/dpi_engine/write_path.py` and `src/dpi_engine/audit_log.py` (new),
+  `tests/test_write_path.py` and `tests/test_audit_log.py` (new).
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** Two things become one door because they must not be able to disagree. `apply` is the
+  only function that commits and the only function that writes an audit entry; a caller cannot
+  commit through the store and skip the log. The log is **append-only with a hash chain**: each
+  entry names the previous entry's hash, so deleting or editing one breaks `verify_chain`, which
+  is the honest meaning of immutable for a file. The auto-apply tier is the one path that does not
+  wait for a human, so it is the one that needs the strictest eligibility check: signature-table
+  entries only, cited evidence, and a logged entry. Alerting is a reader of this log and belongs
+  to the product surface; this task makes the log complete, not the alert. Applying changes the
+  store's active version, not a running process; hot-swapping live workers is out of scope.
+
+### `T6-07` - The write path end to end: propose, approve, apply, revert — and the refusals
+
+- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Files:** `tests/test_write_path.py` (new); no production code expected, and any it needs is a
+  hole this task found rather than a feature it planned.
+- **Test added:** —
+- **How it was tackled:** —
+- **Deviations:** —
+- **Verification:** —
+- **Closed findings:** —
+- **Follow-ups:** —
+- **Notes:** The phase's exit criterion, executed. A real capture goes through the agent (a
+  scripted model, as `T5-07` did), the breaker classifies the proposal from a real counterfactual,
+  a scripted reviewer approves it, `apply` commits it, and a run that loads the active version
+  blocks what the proposal said it would — the change is visible in the pipeline's own
+  decisions, not in a field the test wrote. Then revert: the prior version becomes active *as a
+  new version*, the capture is unchanged again, and the audit chain still verifies. The negative
+  half is the point of a safety feature: the agent has no write tool, an unapproved apply is
+  refused, a substituted digest is refused, a total-loss candidate is refused, and an edited audit
+  entry is detected. Nothing here hot-swaps a live process; the phase's apply is to the store's
+  active version, and the run that reads it is the proof.
+
 ## 6. Findings status
 
 Findings live in `AUDIT.md`. This table tracks **closure**, not description.
@@ -1448,6 +1596,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-26 | `ses_t5_07` | big-pickle | Phase 6's decomposition (`T6-01`..`T6-07`) | **Phase 6 is decomposed and ready (0/7)** — seven tasks, in the plan and on the board. The creative decision is the store's shape: a version is a canonical policy document addressed by its own digest, a revert commits the old content as a *new* version, and `apply` is the only door that moves the active pointer and writes the audit entry. The agent gets `query_flows` and `simulate_ruleset` and nothing that writes; the breaker classifies a real counterfactual, and a total-loss candidate is refused rather than made approvable. | `T6-01`: the `RuleStore` — versioned policy documents with provenance, atomic publish, history and restore, and the active version as the only thing `apply` moves. |
 | 2026-10-26 | `ses_t5_07` | big-pickle | `T5-07` | **`T5-07` done — Phase 5 complete (7/7)** — the evaluation, and the phase's exit criterion executed rather than described. **The classifier's accuracy is measured, and it is not 100%:** `score_corpus` runs the real pipeline over all 33 captures and all 59 labels at **1.0 recall**, **53/59 = 0.8983 precision**, **29/33 perfect cases** and **zero unaccepted mismatches** — the six false positives are exactly the six `KNOWN_DIVERGENCES`, counted against the app they actually classified as rather than excused by the allowlist, so the figure cannot be improved by accepting a bug. **The fingerprint table is measured as a second classifier:** over the same 59 labelled flows it must abstain or agree, never contradict; it abstains on all 59 because its two published positives (Chrome's JA4, Sliver's JA4S) are not corpus traffic. **Every accepted proposal is checkable:** citations are resolved through the run store, the shared facts are recomputed, an unobserved value and a wrong signature id or conjunction are refused, a fabricated five-tuple is refused by `review` outright, and a corpus-wide sweep asserts at least one acceptance and at least one contradiction. **The exit criterion runs end to end:** gap -> proposal -> review -> Critic approves -> `install` -> `identify` answers `GAP-CLIENT` while `DEFAULT_TABLE` still abstains; the JA4-only proposal on the mixed capture is contradicted by the `netflix.com` flow, the Critic falsifies it with that counterexample, and `install` refuses it **even with an approving verdict**. Test-first (`ERROR: file or directory not found`) -> 11 tests -> mutation killed 21/25 and exposed two tests that could not fail, so `TestTheMeasurementCanFail` now forces an unlisted mismatch, an invented detection, an allowlisted divergence's false positive and a case-name-only allowlist match; **25/25 killed, 0 survivors, 0 stale**, four equivalences documented. 15 new tests, no source lines added (5929/1806 unchanged), 1841 passed / 25 skipped, coverage **93.78%-93.83%** on two runs of the same tree. Also corrected §1's stale tracker-integrity count (8 -> 9) and two pre-existing literal `{EM}` template markers that had survived in older records. | Phase 6 — the write path — is next; it has no task IDs yet, so decompose it before claiming. The design's content is `RuleStore` with provenance and versioning, the Policy agent, the blast-radius circuit breaker, the durable approval queue, tiered auto-apply and the immutable audit log. |
 | 2026-10-26 | `ses_t5_06` | claude-opus-5[1m] | `T5-06` | **`T5-06` done — Phase 5 at 6/7** — the maintenance loop and the Critic, and the first time a model is asked to argue against a deterministic check rather than replace it. **Falsification is a value, not an error path:** `critique` computes the flows a proposed conjunction matches whose label is a **different known** app (`UNKNOWN` never contradicts, same-app is support), sorted by five-tuple so two runs agree; `install` is the only door and refuses a contradicted proposal **even with an approving verdict**, and a clean one the Critic vetoed. **Uncheckable evidence is refused, not scored:** no citation, a duplicate citation, the same flow twice, a citation outside the review, or a cited flow that does not match. **The Critic has no tools** -- its evidence is `Critique.to_json()` in the review state -- and the parser pins its answer to the computed contradictions: an approval of a contradicted proposal is a **rubber stamp**, a counterexample must be **one of the contradictions**, a falsification must say what is wrong, while the model may still **veto** a clean proposal because the deterministic check only knows what the engine has labelled. **The corpus falsification is real:** the gap client and the `netflix.com` flow share the generator's single JA4, so a JA4-only proposal is genuinely contradicted, and the test drives review -> Critic -> install and asserts the install is refused rather than pretending the fixture is clean. Mutation testing found two parser shape checks that duplicated `Verdict`'s invariants with identical observable behaviour; they were **removed**, not listed as equivalences. 72 new tests, 100% statement/branch coverage of the new paths, 63/63 mutants killed with two equivalences documented. 1826 passed / 25 skipped; total coverage **93.77%-93.86%** across five runs of the same tree (the spread is pre-existing `pipeline.py`/`quic.py` lines that move between runs; the new paths were 100% every run). | `T5-07`, the evaluation and the phase's exit criteria |
 | 2026-10-26 | `ses_t5_05` | claude-opus-5[1m] | `T5-05` | **`T5-05` done — Phase 5 at 5/7** — the `ClassifierGap` agent, and the first task where a model's judgement and a deterministic check have to disagree safely. **The split is the design:** the engine computes what a set of unknown flows genuinely shares (`common_predicates`: scalars only when every flow agrees on an observed value, list facts only as an intersection, both in a canonical order), and the model chooses a name and a subset of those facts. `parse_new_app_candidate` then **recomputes** the conjunction over the *cited* flows and refuses a pattern that is not in it, so a fingerprint the bytes do not show cannot be proposed no matter how confident the sentence around it. **Absence is not evidence**: `None` and `""` propose nothing, while `sni_present: false` does, because sending no SNI is something the client did — and an empty flow set is refused, since the empty conjunction matches everything. **The invariants live in the candidate itself**, not only in the parser, because `T5-06` builds candidates in memory: `T5-04`'s lesson, applied before the next task could depend on it. The node is read-only and its prompt names the tools it does **not** have, so their silence cannot read as a clean result. **Writing the integration test found a wrong assumption:** an unrecognised *hostname* is `HTTPS`, not `UNKNOWN`, so a real gap is a client whose SNI name is empty on a port nothing guesses (`8443`) — recorded in §7 rather than papered over by a fixture that would have measured the fallback. 66 new tests, 100% statement and branch coverage of the new paths, 42/42 mutants killed with four equivalences documented and two survivors turned into stronger assertions. 1754 passed / 25 skipped; total coverage 93.63%. | `T5-06`, the maintenance loop and the Critic — the falsification half of the loop |

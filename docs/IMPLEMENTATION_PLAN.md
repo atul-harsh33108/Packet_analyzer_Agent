@@ -429,6 +429,22 @@ Full task decomposition deferred until the prior phase exits, to avoid planning 
 **Content:** Policy agent · `RuleStore` with provenance and versioning · blast-radius circuit breaker · durable human-approval queue · tiered auto-apply · immutable audit log (who, when, which agent, which run, which evidence, which prompt version, which model version).
 **Exit:** end-to-end *capture → agent proposes a signed ruleset → human approves → applied → revertible*, with a complete audit trail.
 
+**Tasks** (the scope of each is in the tracker's records; the gates are here):
+
+| ID | Task | Gate | Effort |
+|---|---|---|---|
+| `T6-01` | The `RuleStore`: versioned rulesets, atomic publish, history and restore | A version is immutable and content-addressed, reloading it is byte-identical, editing it is refused, and restore creates a new version with a parent rather than rewriting history | 2 d |
+| `T6-02` | The signed proposal: validation, provenance and the digest that binds review to apply | A proposal is a validated policy document plus provenance and citations under a digest that covers the bytes to be applied; a malformed rule, missing provenance or an unresolvable citation is refused before review | 1 d |
+| `T6-03` | The Policy agent: read-only, simulation-only, and no write tool at all | The agent proposes from a real capture, cites the flows it used, and its tool surface has `query_flows` and `simulate_ruleset` and nothing that writes; a proposal is a value, not an installed rule | 2 d |
+| `T6-04` | The blast-radius circuit breaker: a deterministic tier from a real counterfactual | A real counterfactual classifies a candidate into auto-apply, one-click, explicit-confirm or refused; thresholds are configuration, the boundary is exact, and a total-loss candidate is refused rather than made approvable | 1 d |
+| `T6-05` | The durable approval queue: pause, persist, approve or reject | An approval request survives process death, applies exactly the digest that was reviewed, refuses a substituted proposal, and a rejection is terminal | 2 d |
+| `T6-06` | Tiered auto-apply and the immutable audit log | One door verifies the digest and tier, writes one new version and one append-only audit entry (who, when, agent, run, evidence, prompt version, model version), refuses a replay and detects an edited or deleted entry | 2 d |
+| `T6-07` | The write path end to end: propose, approve, apply, revert — and the refusals | End to end on a real capture: propose → classify → approve → apply → the run changes → audit verifies → revert restores the prior version as a new one; every refusal path is asserted | 2 d |
+
+**Order:** `T6-01` feeds `T6-02`, which feeds both the Policy agent (`T6-03`) and the
+breaker (`T6-04`); the breaker gates the queue (`T6-05`), the queue feeds the single
+apply door (`T6-06`), and `T6-07` proves the whole path.
+
 ---
 
 ## §7 — Documentation track (parallel)
