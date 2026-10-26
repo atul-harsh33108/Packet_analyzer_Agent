@@ -24,6 +24,7 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
+from dpi_engine.maintenance import Critique, Verdict
 from dpi_engine.proposals import common_predicates
 from dpi_engine.signatures import (
     Predicate,
@@ -40,6 +41,7 @@ __all__ = [
     "NarrativeClaim",
     "NewAppCandidate",
     "TriageVerdict",
+    "parse_critic_verdict",
     "parse_incident_narrative",
     "parse_new_app_candidate",
     "parse_triage_verdict",
@@ -487,3 +489,127 @@ def parse_new_app_candidate(
             )
 
     return candidate
+
+
+# ---------------------------------------------------------------------------
+# The Critic's verdict: shaped by code, argued by the model (`T5-06`)
+# ---------------------------------------------------------------------------
+#
+# The engine has already computed what is wrong (`Critique`). The model's job is
+# to argue about it, not to redo it, so the parser pins the answer to that
+# critique: an approval of a contradicted proposal is refused as a rubber stamp,
+# and a named counterexample has to be one of the contradictions. A clean
+# proposal may still be vetoed -- the deterministic check only knows what the
+# engine has labelled -- but a veto must say what is wrong.
+
+#: Every key a Critic verdict must carry. Missing one is refused, never defaulted.
+_CRITIC_VERDICT_KEYS = frozenset(
+    {"outcome", "reason", "objections", "counterexamples"}
+)
+
+
+def _critic_required(raw: dict[str, Any], key: str) -> Any:
+    if key not in raw:
+        raise ValueError(f"a critic verdict is missing the {key} field")
+    return raw[key]
+
+
+def _critic_objections(raw: dict[str, Any]) -> tuple[str, ...]:
+    value = _critic_required(raw, "objections")
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise ValueError(
+            "a critic verdict's objections must be a list of non-empty strings, "
+            f"got {value!r}"
+        )
+    return tuple(value)
+
+
+def _parse_counterexample(raw: Any) -> FiveTuple:
+    """One counterexample, with the integer check ahead of the missing-key one.
+
+    A malformed value is the more useful error than a missing sibling: when the
+    model supplied `src_ip` as a string, saying "src_ip must be an integer" is
+    what a reader can act on. `_parse_five_tuple` then enforces the rest.
+    """
+    if isinstance(raw, dict):
+        for name in ("src_ip", "dst_ip", "src_port", "dst_port", "protocol"):
+            if name in raw:
+                value = raw[name]
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError(
+                        f"a counterexample's {name} must be an integer, got {value!r}"
+                    )
+    return _parse_five_tuple(raw)
+
+
+def _critic_counterexamples(raw: dict[str, Any]) -> tuple[FiveTuple, ...]:
+    value = _critic_required(raw, "counterexamples")
+    if not isinstance(value, list):
+        raise ValueError(
+            "a critic verdict's counterexamples must be a list, "
+            f"got {type(value).__name__}"
+        )
+    return tuple(_parse_counterexample(entry) for entry in value)
+
+
+def parse_critic_verdict(text: str, *, critique: Critique) -> Verdict:
+    """Parse the Critic's answer and pin it to the computed critique.
+
+    The shape is checked first, then the two coherence rules: an approval of a
+    contradicted proposal is a rubber stamp, and every named counterexample must
+    be a flow the critique actually found. An uncited veto is allowed, because
+    the deterministic check cannot see everything a reviewer can.
+    """
+    if not isinstance(critique, Critique):
+        raise ValueError(
+            "a critic verdict must be checked against a Critique, "
+            f"got {type(critique).__name__}"
+        )
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"a critic verdict must be JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"a critic verdict must be an object, got {type(raw).__name__}"
+        )
+    unknown = sorted(set(raw) - _CRITIC_VERDICT_KEYS)
+    if unknown:
+        raise ValueError(f"a critic verdict has an unknown key {unknown[0]!r}")
+
+    outcome = _critic_required(raw, "outcome")
+    reason = _critic_required(raw, "reason")
+    objections = _critic_objections(raw)
+    counterexamples = _critic_counterexamples(raw)
+
+    if outcome == "approved" and critique.contradictions:
+        raise ValueError(
+            "the Critic approved a proposal the corpus contradicts: that is a "
+            "rubber stamp, not a review"
+        )
+
+    verdict = Verdict(
+        outcome=outcome,
+        reason=reason,
+        objections=objections,
+        counterexamples=counterexamples,
+    )
+
+    if verdict.outcome == "falsified":
+        contradictions = {entry.five_tuple for entry in critique.contradictions}
+        for counterexample in verdict.counterexamples:
+            if counterexample not in contradictions:
+                raise ValueError(
+                    f"counterexample {counterexample} is not one of the "
+                    "contradictions this critique found"
+                )
+        if critique.contradictions and not verdict.counterexamples:
+            raise ValueError(
+                "the Critic falsified a contradicted proposal but did not name "
+                "at least one of the contradictions"
+            )
+
+    return verdict
