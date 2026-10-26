@@ -21,17 +21,27 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from collections.abc import Sequence
 from typing import Any
 
-from dpi_engine.types import FiveTuple
+from dpi_engine.proposals import common_predicates
+from dpi_engine.signatures import (
+    Predicate,
+    Signature,
+    predicate_from_json,
+    predicate_to_json,
+)
+from dpi_engine.types import AppType, FiveTuple, FlowRecord
 
 __all__ = [
     "SEVERITIES",
     "DocumentCitation",
     "IncidentNarrative",
     "NarrativeClaim",
+    "NewAppCandidate",
     "TriageVerdict",
     "parse_incident_narrative",
+    "parse_new_app_candidate",
     "parse_triage_verdict",
 ]
 
@@ -257,3 +267,223 @@ def parse_incident_narrative(text: str) -> IncidentNarrative:
         )
 
     return IncidentNarrative(summary=summary, claims=tuple(parsed))
+
+
+# ---------------------------------------------------------------------------
+# The classifier gap: a proposed app, and the evidence it has to earn (`T5-05`)
+# ---------------------------------------------------------------------------
+#
+# The engine computes what the unknown flows share (`common_predicates`); the
+# model names the app and selects the patterns, and this parser checks the
+# selection against the computation. That split is the point: a model cannot
+# invent a fingerprint, because a pattern it did not see in the cited flows is
+# refused here. `to_signature` then makes "proposed signature" literal -- the
+# candidate becomes an entry `T5-04`'s table can identify flows with.
+
+#: Every key a candidate must carry. Missing one is refused, never defaulted:
+#: a defaulted citation list would be a proposal with no evidence.
+_CANDIDATE_KEYS = frozenset(
+    {"name", "evidence", "confidence", "proposed_patterns", "citations"}
+)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class NewAppCandidate:
+    """A proposed app, the facts it rests on, and the flows those facts came from.
+
+    The invariants live here rather than only in the parser, for the reason
+    `T5-04` learned: `T5-06`'s maintenance loop builds candidates in memory, and
+    an invariant that holds only when a value arrives through one door does not
+    hold. A candidate with no citation, no pattern or a pattern-less
+    ``proposed_patterns`` is refused at construction.
+    """
+
+    name: str
+    evidence: tuple[str, ...]
+    confidence: float
+    proposed_patterns: tuple[Predicate, ...]
+    citations: tuple[FiveTuple, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError(f"a candidate needs a non-empty name, got {self.name!r}")
+        if not isinstance(self.evidence, tuple) or not self.evidence:
+            raise ValueError("a candidate needs evidence: a claim with no reason cannot be checked")
+        if not all(isinstance(item, str) and item.strip() for item in self.evidence):
+            raise ValueError(f"a candidate's evidence must be non-empty text, got {self.evidence!r}")
+        if not _valid_confidence(self.confidence):
+            raise ValueError(
+                "a candidate's confidence must be a number in [0, 1], "
+                f"got {self.confidence!r}"
+            )
+        if not isinstance(self.proposed_patterns, tuple) or not self.proposed_patterns:
+            raise ValueError(
+                "a candidate's proposed_patterns must be a non-empty conjunction: "
+                "an empty one matches every flow"
+            )
+        if len(set(self.proposed_patterns)) != len(self.proposed_patterns):
+            raise ValueError("a candidate lists the same pattern twice")
+        if not isinstance(self.citations, tuple) or not self.citations:
+            raise ValueError("a candidate cites no flow: a proposal that names no flow is uncheckable")
+        if len(set(self.citations)) != len(self.citations):
+            raise ValueError("a candidate cites the same flow twice")
+
+    def to_json(self) -> dict[str, Any]:
+        """The wire shape. Citations flatten like a `query_flows` row."""
+        return {
+            "name": self.name,
+            "evidence": list(self.evidence),
+            "confidence": self.confidence,
+            "proposed_patterns": [
+                predicate_to_json(predicate) for predicate in self.proposed_patterns
+            ],
+            "citations": [
+                {
+                    "src_ip": citation.src_ip,
+                    "dst_ip": citation.dst_ip,
+                    "src_port": citation.src_port,
+                    "dst_port": citation.dst_port,
+                    "protocol": citation.protocol,
+                }
+                for citation in self.citations
+            ],
+        }
+
+    def to_signature(self, signature_id: str) -> Signature:
+        """Compose the candidate into a table entry, under `signature_id`."""
+        return Signature(id=signature_id, app=self.name, all_of=self.proposed_patterns)
+
+
+def _valid_confidence(value: Any) -> bool:
+    """A probability: a real number in [0, 1], and not a bool dressed as one."""
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == value  # NaN compares unequal to itself
+        and 0.0 <= value <= 1.0
+    )
+
+
+def _candidate_required(raw: dict[str, Any], key: str) -> Any:
+    if key not in raw:
+        raise ValueError(f"a candidate is missing the {key} field")
+    return raw[key]
+
+
+def _candidate_text(raw: dict[str, Any], key: str) -> str:
+    value = _candidate_required(raw, key)
+    if not isinstance(value, str):
+        raise ValueError(f"a candidate's {key} must be a string, got {type(value).__name__}")
+    return value
+
+
+def _candidate_evidence(raw: dict[str, Any]) -> tuple[str, ...]:
+    value = _candidate_required(raw, "evidence")
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(item, str) and item.strip() for item in value)
+    ):
+        raise ValueError(
+            f"a candidate's evidence must be a list of non-empty strings, got {value!r}"
+        )
+    return tuple(value)
+
+
+def _candidate_confidence(raw: dict[str, Any]) -> float:
+    value = _candidate_required(raw, "confidence")
+    if not _valid_confidence(value):
+        raise ValueError(
+            f"a candidate's confidence must be a number in [0, 1], got {value!r}"
+        )
+    return float(value)
+
+
+def _candidate_patterns(raw: dict[str, Any]) -> tuple[Predicate, ...]:
+    value = _candidate_required(raw, "proposed_patterns")
+    if not isinstance(value, list):
+        raise ValueError(
+            "a candidate's proposed_patterns must be a list, "
+            f"got {type(value).__name__}"
+        )
+    return tuple(
+        predicate_from_json(entry, f"proposed_patterns[{index}]")
+        for index, entry in enumerate(value)
+    )
+
+
+def _candidate_citations(
+    raw: dict[str, Any], flows: Sequence[FlowRecord]
+) -> tuple[FiveTuple, ...]:
+    value = _candidate_required(raw, "citations")
+    if not isinstance(value, list):
+        raise ValueError(f"a candidate's citations must be a list, got {type(value).__name__}")
+    supplied = {flow.five_tuple for flow in flows}
+    citations: list[FiveTuple] = []
+    for citation in value:
+        parsed = _parse_five_tuple(citation)
+        if parsed not in supplied:
+            raise ValueError(
+                f"citation {parsed} is not one of the flows this proposal was given"
+            )
+        citations.append(parsed)
+    return tuple(citations)
+
+
+def parse_new_app_candidate(
+    text: str, *, flows: Sequence[FlowRecord]
+) -> NewAppCandidate:
+    """Parse a proposal and check every pattern against the flows it cites.
+
+    `flows` are the unknown flows the agent was given. A citation must name one
+    of them, and every proposed pattern must be a fact those cited flows share
+    -- recomputed here with `common_predicates`, so the check cannot be talked
+    around by a confident sentence.
+    """
+    if not flows:
+        raise ValueError(
+            "a proposal cannot be checked against no flows: none were supplied"
+        )
+    for flow in flows:
+        if flow.app != AppType.UNKNOWN.name:
+            raise ValueError(
+                f"flow {flow.five_tuple} is classified {flow.app!r}, not UNKNOWN: "
+                "only unclassified flows are part of the classifier gap"
+            )
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"a candidate must be JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(f"a candidate must be an object, got {type(raw).__name__}")
+    unknown = sorted(set(raw) - _CANDIDATE_KEYS)
+    if unknown:
+        raise ValueError(f"a candidate has an unknown key {unknown[0]!r}")
+
+    name = _candidate_text(raw, "name")
+    evidence = _candidate_evidence(raw)
+    confidence = _candidate_confidence(raw)
+    patterns = _candidate_patterns(raw)
+    citations = _candidate_citations(raw, flows)
+
+    # Shape first: a candidate with no citation or no pattern is malformed
+    # regardless of what the flows show, so it must be refused as such.
+    candidate = NewAppCandidate(
+        name=name,
+        evidence=evidence,
+        confidence=confidence,
+        proposed_patterns=patterns,
+        citations=citations,
+    )
+
+    cited = tuple(flow for flow in flows if flow.five_tuple in set(citations))
+    supported = common_predicates(cited)
+    for pattern in candidate.proposed_patterns:
+        if pattern not in supported:
+            raise ValueError(
+                f"pattern {pattern.field}={pattern.value!r} is not supported by "
+                "the flows it cites"
+            )
+
+    return candidate

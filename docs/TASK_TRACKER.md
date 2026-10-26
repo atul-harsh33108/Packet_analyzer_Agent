@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 5
-current_task: T5-05
-next_action: Create `tests/test_classifier_gap.py` with the failing tests first: an unknown flow's features are correlated into a proposed signature with cited evidence, and the proposal names the flows it came from.
-blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 at 4/7; the gaps both phases left are closed]
+current_task: T5-06
+next_action: Create `tests/test_maintenance.py` with the failing tests first: a proposal is stored with its citations, a proposal that cannot be cited is refused, and the Critic falsifies a proposal the corpus contradicts.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 at 5/7; the gaps both phases left are closed]
 last_updated: 2026-10-26
 last_updated_by: claude-opus-5[1m]
-session: ses_t5_04
+session: ses_t5_05
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,15 +40,15 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | **5** — Fingerprinting + ClassifierGap |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 4/7** — DOC: 8/9 |
-| **Current task** | **`T5-05`** — the `ClassifierGap` agent: an unknown app, correlated and proposed |
-| **Next action** | Create `tests/test_classifier_gap.py` with the failing tests first: an unknown flow's features are correlated into a proposed signature with cited evidence, and the proposal names the flows it came from. |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 5/7** — DOC: 8/9 |
+| **Current task** | **`T5-06`** — the maintenance loop and the Critic |
+| **Next action** | Create `tests/test_maintenance.py` with the failing tests first: a proposal is stored with its citations, a proposal that cannot be cited is refused, and the Critic falsifies a proposal the corpus contradicts. |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without an ID. **Two are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed). `D-29` is **closed** (`T3-11`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — was caught by **neither** scanner pass; the scanner now resolves the spelling as well as the name). `D-28` is **closed** (`T3-08`) |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (8 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_t5_04` — `T5-04` done |
+| **Session** | `ses_t5_05` — `T5-05` done |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -222,11 +222,11 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **2** | Eval harness | 4 | **4** | 0 | 0 | 0 | 0 | **complete** |
 | **3** | MCP server | 11 | **11** | 0 | 0 | 0 | 0 | **complete** (the three gaps it left are closed) |
 | **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
-| **5** | Fingerprinting + ClassifierGap | 7 | **4** | 0 | 0 | 3 | 0 | in progress |
+| **5** | Fingerprinting + ClassifierGap | 7 | **5** | 0 | 0 | 2 | 0 | in progress |
 | 6 | Write path | outline | — | — | — | — | — | not started |
 | **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 61 tasks - **57** done - 0 in progress - 0 blocked - 3 pending - 1 partial.
+**Totals:** 61 tasks - **58** done - 0 in progress - 0 blocked - 2 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -322,7 +322,7 @@ the rows below are the findings that outlived their first disposition.
 | `T5-02` | The certificate, SNI-absence and HTTP/2 features | - | done | The issuer, the subject and the validity of the server's certificate are extracted, the absence of an SNI is a fact rather than an empty string, and the HTTP/2 SETTINGS frame produces a fingerprint | 1 d |
 | `T5-03` | The per-flow feature vector | - | done | A flow's features are attached to its row, the run store's schema says so, and an old record is refused rather than read through new field meanings | 1 d |
 | `T5-04` | The signature table: a format, a matcher, and the corpus's known apps | - | done | A signature says which features make an app an app, the matcher answers with the app it identifies, and an unknown app is reported as unknown rather than as the nearest match | 1 d |
-| `T5-05` | The `ClassifierGap` agent: an unknown app, correlated and proposed | - | pending | An unknown app is turned into a proposed signature with cited evidence, and the proposal names the flows it came from | 1 d |
+| `T5-05` | The `ClassifierGap` agent: an unknown app, correlated and proposed | - | done | An unknown app is turned into a proposed signature with cited evidence, and the proposal names the flows it came from | 1 d |
 | `T5-06` | The maintenance loop and the Critic | - | pending | Every proposal carries citations, a proposal that cannot be cited is refused, and the Critic can falsify a proposal that the corpus contradicts | 1 d |
 | `T5-07` | The evaluation and the phase's exit criteria | - | pending | The classifier's accuracy is measured against the corpus, every proposal is checkable, and the phase's exit criterion is asserted rather than described | 1 d |
 
@@ -1123,17 +1123,59 @@ or `dropped` and say why.
 
 ### `T5-05` - The `ClassifierGap` agent: an unknown app, correlated and proposed
 
-- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
-- **Files:** the engine's TLS and certificate parsing, the run store's flow
-  rows, and the agent layer's nodes. The scope is in **Notes** and the gate
-  is in `IMPLEMENTATION_PLAN.md` section 6.
-- **Test added:** —
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** —
-- **Closed findings:** —
-- **Follow-ups:** —
-- **Notes:** The agent reads the flow features, correlates them with the ASN, the SNI and the certificate, and proposes a signature. The proposal carries citations, because a signature nobody can check is a rule nobody can audit.
+- **Status:** done — **Claimed by:** claude-opus-5[1m] — **Session:** ses_t5_05 — **Blocked by:** —
+- **Files:** `src/dpi_engine/proposals.py` (new: `common_predicates`); `src/dpi_engine/signatures.py`
+  (the vocabulary and the predicate codec become public: `SCALAR_FIELDS`, `LIST_FIELDS`,
+  `observed_fields`, `predicate_from_json`, `predicate_to_json`); `src/dpi_agents/schemas.py`
+  (`NewAppCandidate`, `parse_new_app_candidate`); `src/dpi_agents/nodes/classifier_gap.py` (new);
+  `tests/test_classifier_gap.py` (new); `tests/test_signatures.py` (follows the rename).
+- **Test added:** **66** tests in `tests/test_classifier_gap.py`, across the task's three layers:
+  the engine's conjunction (agreement, list intersection, canonical order, absence, the two
+  refusals), the claim (`NewAppCandidate`'s own invariants and the parser's evidence check), and
+  the node against a **real MCP server** (tool list, prompt vocabulary, and the integration loop
+  over a corpus-built capture). Every new path is at 100% statement and branch coverage.
+- **How it was tackled:** **The gap has a deterministic half and a judgement half, and they are
+  kept apart.** `common_predicates` computes what a set of unknown flows actually shares: a scalar
+  only when **every** flow agrees on an **observed** value, a list element only when every flow
+  lists it, with scalars in vocabulary order and list values sorted so two runs over the same flows
+  produce the same tuple. `None` and `""` are absences and propose nothing; `sni_present: false` is
+  observed, because sending no SNI is something the client did. An empty set and any already-classified
+  flow are **refused**, not filtered: the empty conjunction matches every flow, and a known flow is
+  not part of the gap. The model's half is the name and the selection, and `parse_new_app_candidate`
+  recomputes `common_predicates` over the **cited** flows and refuses any pattern not in it — so a
+  plausible fingerprint the bytes do not show cannot be proposed, however confidently it is phrased.
+  The invariants live in `NewAppCandidate.__post_init__` as well as in the parser, for `T5-04`'s
+  reason: `T5-06` builds candidates in memory, and an invariant that holds through only one door is
+  not an invariant. The node is read-only (`query_flows` only), and its prompt states the tools it
+  does **not** have rather than leaving their silence to read as a clean result; `PREDICATE_HELP` is
+  asserted at import time to explain exactly the matchable fields.
+- **Deviations:** two, both recorded in §7: the design's web-search, ASN and `get_fingerprints` tools
+  do not exist in this build, so the node reads the features off the row and says so; and the "any
+  unknown app" input is narrower than the plan implies, because a non-empty unrecognised SNI is
+  classified `HTTPS` by design — a genuine gap is a no-SNI client on a port nothing guesses.
+- **Verification:** `ruff check .` clean · `mypy --strict` clean on **55** source files ·
+  `pytest -q` **1754 passed, 25 skipped** · total coverage **93.63%** · `proposals.py`,
+  `classifier_gap.py` and the new schema paths at **100%** statement and branch coverage ·
+  mutation harness `C:\Users\atuls\AppData\Local\Temp\opencode\mutate_t505.py`:
+  **42/42 killed, 0 survivors, 0 stale**, all three targets restored byte-for-byte, with four
+  equivalences documented (the NaN guard is redundant with the range check; the parser's name-type
+  and evidence-emptiness checks duplicate `__post_init__`; the import-time vocabulary assert
+  duplicates the test). Two survivors forced real test strengthenings: `to_signature`'s pattern
+  list was only matched for prefix behaviour, and `proposed_patterns: {}` was accepted as "not a
+  list" for the wrong reason.
+- **Closed findings:** none.
+- **Follow-ups:** `T5-06` consumes these candidates — nothing yet **persists** a proposal, writes a
+  table entry, or maps a proposed label onto `FlowRecord.app`. The Critic, and therefore the
+  falsification half of the loop, is `T5-06`'s. JA4H/JA4X remain out of scope.
+- **Notes:** The plan's design says the agent correlates the features with the ASN, the SNI and the
+  certificate. This build correlates the features **on the row** and refuses everything else: there
+  is no ASN source and no fingerprint tool, so the honest version of that sentence is the prompt's
+  "say what the bytes show". The proposal carries citations because a signature nobody can check is
+  a rule nobody can audit — and the citation is checked against the flows the node was *given*, not
+  against the run, so a five-tuple from somewhere else is refused. The corpus's own rule is why the
+  integration fixture is a client whose SNI name is empty on `8443`: `sni_to_app_type` maps a
+  non-empty unknown name to `HTTPS`, so an unknown *name* is not `UNKNOWN`, and only a flow that
+  offers a fingerprint and no hostname is genuinely unclassified.
 
 ### `T5-06` - The maintenance loop and the Critic
 
@@ -1289,6 +1331,8 @@ A deviation is not a failure — it is the plan being corrected by evidence.
 | 2026-10-23 | `T5-03` | "the HTTP/2 SETTINGS fingerprint" reaches the flow row | it is populated for cleartext h2c (or a decrypted stream) only; `http2_settings` is `null` when no frame was observed and `""` for a frame with no entries | Over TLS the preface and the SETTINGS frame are inside the encrypted stream, so the same reachability limit `T5-02` recorded now has a row-level consequence: a `null` is about visibility, not about the client. Keeping the two empty values distinct is what stops a flow reading as fingerprinted when it was not. | no - the field is present for the captures that can show it |
 | 2026-10-26 | `T5-04` | "the signature table ... and the corpus's known apps": signatures for the apps the corpus labels | the shipped table derives **nothing** from the corpus; it ships two signatures with published evidence, and a corpus-wide test asserts it abstains on **all 59** corpus flows | Every TLS flow in the corpus is built by one `build_client_hello(hostname)`, so they share one JA3/JA4; a signature derived from them would identify the generator, not the app, and `T5-05` would then propose a signature for a client that does not exist. The corpus's value here is the **negative** measurement the gate names: unknown is reported as unknown, on real flows, rather than asserted in prose. | no - the plan asks for the capability, not for corpus-derived signatures |
 | 2026-10-26 | `T5-04` | a signature's `app` is one of the engine's `AppType` labels | `app` is an **open string**; a test pins that every `AppType` name is legal, but `CHROME` and `SLIVER` are not `AppType`s | The apps this table exists to name are the ones the engine does **not** know — that is `T5-05`'s whole job — so a closed enum would make the very proposal it produces unrepresentable. The engine's namespace stays the reference for labels that already exist, and nothing yet maps a proposed label onto `FlowRecord.app`. | no - the plan does not specify the label type |
+| 2026-10-26 | `T5-05` | the `ClassifierGap` uses `get_fingerprints`, web search and an ASN lookup | none of those tools exist: the node has `query_flows` only, the features are already on the row, and the prompt states the absence explicitly | `OFFLINE_CORE`/`DEC-11`: this build has no such MCP tool and no networked tool at all. A model told to look for a signal that is not there will find one, so leaving the silence unstated would turn an absent tool into a clean result. | no - the capability the plan describes is not in this build's tool surface |
+| 2026-10-26 | `T5-05` | "an unknown app" is the input, as the design implies | a genuinely `UNKNOWN` TLS flow is a client whose **SNI carries no name**, on a port nothing guesses; a flow with an unrecognised but non-empty SNI is `HTTPS` | `sni_to_app_type` maps a non-empty unknown name to `HTTPS` by design, and `worker._classify` guesses `HTTPS`/`HTTP` from ports 443/80. The gap the node sees is therefore narrower than "any flow we cannot name"; the integration fixture is a client with an empty SNI name on port **8443** so the test measures the real gap rather than a fallback. | no - a property of the existing classifier, recorded so the next reader does not assume the gap is wider |
 | - | - | - | - | - | - |
 
 **Rule:** if a deviation changes a task's scope, estimate, or gate, also update
@@ -1303,6 +1347,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-26 | `ses_t5_05` | claude-opus-5[1m] | `T5-05` | **`T5-05` done — Phase 5 at 5/7** — the `ClassifierGap` agent, and the first task where a model's judgement and a deterministic check have to disagree safely. **The split is the design:** the engine computes what a set of unknown flows genuinely shares (`common_predicates`: scalars only when every flow agrees on an observed value, list facts only as an intersection, both in a canonical order), and the model chooses a name and a subset of those facts. `parse_new_app_candidate` then **recomputes** the conjunction over the *cited* flows and refuses a pattern that is not in it, so a fingerprint the bytes do not show cannot be proposed no matter how confident the sentence around it. **Absence is not evidence**: `None` and `""` propose nothing, while `sni_present: false` does, because sending no SNI is something the client did — and an empty flow set is refused, since the empty conjunction matches everything. **The invariants live in the candidate itself**, not only in the parser, because `T5-06` builds candidates in memory: `T5-04`'s lesson, applied before the next task could depend on it. The node is read-only and its prompt names the tools it does **not** have, so their silence cannot read as a clean result. **Writing the integration test found a wrong assumption:** an unrecognised *hostname* is `HTTPS`, not `UNKNOWN`, so a real gap is a client whose SNI name is empty on a port nothing guesses (`8443`) — recorded in §7 rather than papered over by a fixture that would have measured the fallback. 66 new tests, 100% statement and branch coverage of the new paths, 42/42 mutants killed with four equivalences documented and two survivors turned into stronger assertions. 1754 passed / 25 skipped; total coverage 93.63%. | `T5-06`, the maintenance loop and the Critic — the falsification half of the loop |
 | 2026-10-26 | `ses_t5_04` | claude-opus-5[1m] | `T5-04` | **`T5-04` done — Phase 5 at 4/7** — the signature table, and the task that turns two phases of parsed features into an answer. **A conjunction, not a hash**, because a hash says "the same client as that other flow" while a signature has to say *why* — `T5-05` proposes one and `T5-06` falsifies it, and neither can argue with `8daaf6152771`. Every matchable field is one field of `T5-03`'s vector (plus the two certificate names), list fields match by **membership**, and `tls_versions` is projected to the versions offered because the counts are a tally JA3/JA4 already encode. **No negation, no empty value, no unobserved match**: `sni_present: false` is a fact, `None` (no ClientHello) equals neither boolean, and `certificate.issuer` cannot match a TLS 1.3 flow whose certificate is ciphertext — each is a way a fingerprint table usually goes wrong. **No score, no ranking, no fallback:** matching signatures that disagree produce `app=None` with the ids in `matched`, which is the gate's second half, and the corpus test measures it on **all 59 flows across 33 cases** rather than asserting it. The JSON loader refuses every unknown key, duplicate predicate, duplicate id and identical predicate set under any app; **the invariants moved into the dataclasses themselves**, because `T5-05` builds signatures in memory and a table honest only through the loader's door is not honest. The mutation harness is what forced that, and it also found the one survivor: an `all_of` **dict** was refused only because its keys were not objects, so the test now pins the list requirement. `DEFAULT_TABLE` ships only the two signatures this repository has published evidence for — JA4.md's Chrome example and FoxIO's Sliver JA4S — and deliberately no SETTINGS-only entry, because Chrome's SETTINGS string is shared and therefore supporting evidence, not an identification. 96 new tests, 100% statement and branch coverage of the new module, 52/52 mutants caught, 0 survived. 1688 passed / 25 skipped; total coverage 93.43%. | `T5-05`, the `ClassifierGap` agent — the first consumer, and the first proposer |
 | 2026-10-23 | `ses_t5_03` | claude-opus-5[1m] | `T5-03` | **`T5-03` done — Phase 5 at 3/7** — the per-flow feature vector, and the task the two before it were waiting for: `T5-01` and `T5-02` were contracts with no consumer. A flow now carries a frozen `FlowFeatures` — the ten ClientHello facts, the five ServerHello facts, the certificate and the HTTP/2 SETTINGS string — into its row and through the store's v2 schema. **Direction is the part a payload cannot answer**, so a certificate is attributed only when the ServerHello and the Certificate arrive in the **same buffer**; a client's `Certificate` in mutual TLS is then never read as the server's, at the cost of a split first flight (recorded in §7). **Merging is first-observation-wins per half**, not per field: a retransmission is identical, a renegotiation must not rewrite how the connection opened, and mixing halves would describe a client that never existed. **Wiring the server half found a real `T5-01` bug:** the ServerHello's `supported_versions` was read with the ClientHello's vector form, so **every conformant TLS 1.3 ServerHello returned `None`** — most traffic — while TLS 1.2 parsed fine. Fixed, and the published Sliver JA4S now matches on RFC-correct bytes. The store refuses a `dpi-run/v1` record by version **and** refuses a v2 row with no `features` key, so nothing reads as "observed nothing" by default. 70 new tests across three layers (observation, row, real pipelines), 100% statement and branch coverage of the new module, 34/34 mutants caught. 1592 passed / 25 skipped; total coverage 93.21%. | `T5-04`, the signature table — the first matcher over this vector |
 | 2026-10-23 | `ses_t5_02` | claude-opus-5[1m] | `T5-02` | **`T5-02` done — Phase 5 at 2/7** — the certificate, the SNI-absence fact and the HTTP/2 SETTINGS fingerprint, the rest of the phase's feature list. **Three contracts, one discipline: abstain rather than guess.** The certificate is read from the plaintext handshake, with messages accumulated across record boundaries, and the scan stops at the first non-handshake record — a Certificate-shaped payload inside an *encrypted* record is refused by content type rather than believed because it parses. The DER reader is **hand-rolled** (no new runtime dependency) and bounded against the **enclosing** length rather than the buffer's; a test builds a certificate where the two differ. **The expected values are OpenSSL's, not this parser's**: three real certificates — a self-signed RSA CA, an RSA leaf, and an ECDSA leaf whose UTF-8 name carries a comma, a semicolon and a multi-byte `emailAddress` OID, with a UTCTime `notBefore` and a GeneralizedTime `notAfter` — were generated once and embedded as base64, then 30 hand-built DER refusals cover the shapes no CA will issue. **The RFC 5280 window test found a real bug**: `1950 + yy` dated 1950 as 2000, and only a UTCTime at the `50` boundary could see it. Writing the SNI test also exposed a defect in `T5-01`'s fixture — its `_sni_body` carried a per-entry length RFC 6066 does not define — which is now corrected, with no published vector moved. HTTP/2 is the preface plus the first SETTINGS frame, rendered in **arrival order** (two clients with the same settings in a different order are different clients), and it says it is only the settings half of the Akamai string. `sni_present` makes "sent the extension" a fact separate from "a hostname was readable". 100 new tests, 100% statement and branch coverage of both new modules, 40/40 mutants caught. 1522 passed / 25 skipped (the 24 C++ differential skips are back: no C++ toolchain this session); total coverage 93.07%. | `T5-03`, the per-flow feature vector — the first consumer of all of it |

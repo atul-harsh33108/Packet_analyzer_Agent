@@ -660,7 +660,7 @@ def test_a_table_built_in_memory_is_validated_like_one_that_was_parsed() -> None
 
 
 def test_every_matchable_field_is_a_field_of_the_projection() -> None:
-    """A field the vocabulary names but `_observed` forgets would raise `KeyError`."""
-    known = set(signature_module._SCALAR_FIELDS) | set(signature_module._LIST_FIELDS)
+    """A field the vocabulary names but `observed_fields` forgets would raise `KeyError`."""
+    known = set(signature_module.SCALAR_FIELDS) | set(signature_module.LIST_FIELDS)
 
-    assert known == set(signature_module._observed(FlowFeatures()))
+    assert known == set(signature_module.observed_fields(FlowFeatures()))

@@ -79,11 +79,16 @@ from dpi_engine.flow_features import FlowFeatures
 
 __all__ = [
     "DEFAULT_TABLE",
+    "LIST_FIELDS",
+    "SCALAR_FIELDS",
     "SIGNATURE_TABLE_VERSION",
     "Identification",
     "Predicate",
     "Signature",
     "SignatureTable",
+    "observed_fields",
+    "predicate_from_json",
+    "predicate_to_json",
 ]
 
 #: Bumped when the on-disk shape changes. A table written for another version is
@@ -92,7 +97,7 @@ __all__ = [
 SIGNATURE_TABLE_VERSION = 1
 
 #: Scalar features, compared for equality, with the type their value must have.
-_SCALAR_FIELDS: dict[str, type] = {
+SCALAR_FIELDS: dict[str, type] = {
     "ja3": str,
     "ja4": str,
     "ja3s": str,
@@ -107,7 +112,7 @@ _SCALAR_FIELDS: dict[str, type] = {
 }
 
 #: List features, matched by membership, with the type of one element.
-_LIST_FIELDS: dict[str, type] = {
+LIST_FIELDS: dict[str, type] = {
     "cipher_suites": int,
     "extensions": int,
     "alpn": str,
@@ -134,7 +139,7 @@ class Predicate:
 
     def _holds_in(self, observed: Mapping[str, Any]) -> bool:
         value = observed[self.field]
-        if self.field in _LIST_FIELDS:
+        if self.field in LIST_FIELDS:
             return self.value in value
         # `sni_present is None` (no ClientHello) equals neither `True` nor `False`,
         # which is what keeps an unobserved flow from matching an absence.
@@ -173,16 +178,13 @@ class Signature:
         This is the half `T5-06`'s Critic needs: a proposal can be tested against a
         single flow without a table around it, which is how a signature is falsified.
         """
-        return _all_hold(self.all_of, _observed(features))
+        return _all_hold(self.all_of, observed_fields(features))
 
     def to_json(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "app": self.app,
-            "all_of": [
-                {"field": predicate.field, "value": predicate.value}
-                for predicate in self.all_of
-            ],
+            "all_of": [predicate_to_json(predicate) for predicate in self.all_of],
         }
 
 
@@ -232,7 +234,7 @@ class SignatureTable:
         """Which app this flow's features identify, or `None` for unknown."""
         # One projection for the whole table: `Signature.matches` would rebuild it
         # per signature, which is the same answer for more work.
-        observed = _observed(features)
+        observed = observed_fields(features)
         matched = tuple(
             signature
             for signature in self.signatures
@@ -281,7 +283,7 @@ class SignatureTable:
 # ---------------------------------------------------------------------------
 
 
-def _observed(features: FlowFeatures) -> dict[str, Any]:
+def observed_fields(features: FlowFeatures) -> dict[str, Any]:
     """The vector as the matcher sees it, keyed by the field vocabulary.
 
     `tls_versions` is projected to the versions offered. The counts stay on the
@@ -328,31 +330,36 @@ def _signature_from_json(raw: Any, index: int) -> Signature:
     if not isinstance(entries, list):
         raise ValueError(f"{where}.all_of must be a list, got {type(entries).__name__}")
     predicates = tuple(
-        _predicate_from_json(entry, f"{where}.all_of", position)
+        predicate_from_json(entry, f"{where}.all_of[{position}]")
         for position, entry in enumerate(entries)
     )
     return Signature(id=signature_id, app=app, all_of=predicates)
 
 
-def _predicate_from_json(raw: Any, where: str, index: int) -> Predicate:
-    place = f"{where}[{index}]"
-    if not isinstance(raw, Mapping):
-        raise ValueError(f"{place} must be an object, got {type(raw).__name__}")
-    _only_keys(raw, _PREDICATE_KEYS, place)
+def predicate_to_json(predicate: Predicate) -> dict[str, Any]:
+    """One predicate's wire shape, so a signature and a proposal agree."""
+    return {"field": predicate.field, "value": predicate.value}
 
-    field = _text(raw, "field", place)
-    if field in _SCALAR_FIELDS:
-        expected = _SCALAR_FIELDS[field]
+
+def predicate_from_json(raw: Any, where: str = "predicate") -> Predicate:
+    """Decode one predicate object. `where` names its place in the document."""
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{where} must be an object, got {type(raw).__name__}")
+    _only_keys(raw, _PREDICATE_KEYS, where)
+
+    field = _text(raw, "field", where)
+    if field in SCALAR_FIELDS:
+        expected = SCALAR_FIELDS[field]
         kind = "scalar"
-    elif field in _LIST_FIELDS:
-        expected = _LIST_FIELDS[field]
+    elif field in LIST_FIELDS:
+        expected = LIST_FIELDS[field]
         kind = "list element"
     else:
-        known = ", ".join(sorted([*_SCALAR_FIELDS, *_LIST_FIELDS]))
-        raise ValueError(f"{place}.field is not a feature: {field!r}. Known features: {known}")
+        known = ", ".join(sorted([*SCALAR_FIELDS, *LIST_FIELDS]))
+        raise ValueError(f"{where}.field is not a feature: {field!r}. Known features: {known}")
 
-    value = _required(raw, "value", place)
-    _check_value(value, expected, field, kind, place)
+    value = _required(raw, "value", where)
+    _check_value(value, expected, field, kind, where)
     return Predicate(field=field, value=value)
 
 
