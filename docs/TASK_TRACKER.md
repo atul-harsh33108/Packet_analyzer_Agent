@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 6
-current_task: T6-01
-next_action: **Phase 6 is decomposed (7 tasks, 0 done) and `T6-01` is first.** Build the `RuleStore`: an append-only, content-addressed history of policy documents — the blocking ruleset and the signature table — each version carrying its provenance, published atomically and loaded with a digest check, with `restore` creating a new version whose parent is the one restored rather than rewriting history. Nothing in Phase 6 writes to a live process: an applied version is the store's active one, and the exit test proves a run that loads it is affected. The reason the store is first is that every later task either writes through it or checks what it holds.
-blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is decomposed at 0/7, with T6-01 next]
+current_task: T6-02
+next_action: Create `tests/test_proposal.py` first, then `src/dpi_engine/proposal.py`: a proposal carries the store commit it authorises — kind, canonical document, provenance, note, parent — under a digest that also binds its citations and the agent, prompt and model versions. Validation runs the document's own loader and resolves every citation **before** the human gate, so a malformed or uncited proposal is refused rather than queued. `apply` will recompute the proposal digest **and** the store's version id, which is what makes the bytes approved the bytes applied.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is at 1/7 with T6-01 done and T6-02 next]
 last_updated: 2026-10-26
 last_updated_by: big-pickle
-session: ses_t5_07
+session: ses_t6_01
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,15 +40,15 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | **6** — Write path |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 0/7** — DOC: 8/9 |
-| **Current task** | **Phase 6 is decomposed and ready.** Seven tasks, none claimed; `T6-01` (the `RuleStore`) is the first |
-| **Next action** | **Phase 6 is decomposed (7 tasks, 0 done) and `T6-01` is first.** Build the `RuleStore`: an append-only, content-addressed history of policy documents — the blocking ruleset and the signature table — each version carrying its provenance, published atomically and loaded with a digest check, with `restore` creating a new version whose parent is the one restored rather than rewriting history. Nothing in Phase 6 writes to a live process: an applied version is the store's active one, and the exit test proves a run that loads it is affected. The reason the store is first is that every later task either writes through it or checks what it holds. |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 1/7** — DOC: 8/9 |
+| **Current task** | **`T6-02`** — the signed proposal |
+| **Next action** | Create `tests/test_proposal.py` first, then `src/dpi_engine/proposal.py`: a proposal carries the store commit it authorises — kind, canonical document, provenance, note, parent — under a digest that also binds its citations and the agent, prompt and model versions. Validation runs the document's own loader and resolves every citation **before** the human gate, so a malformed or uncited proposal is refused rather than queued. `apply` will recompute the proposal digest **and** the store's version id, which is what makes the bytes approved the bytes applied. |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without an ID. **Two are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed). `D-29` is **closed** (`T3-11`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — was caught by **neither** scanner pass; the scanner now resolves the spelling as well as the name). `D-28` is **closed** (`T3-08`) |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (9 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_t5_07` — Phase 6 decomposed (`T6-01`..`T6-07`) and ready |
+| **Session** | `ses_t6_01` — `T6-01` done; Phase 6 at 1/7 |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -223,10 +223,10 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **3** | MCP server | 11 | **11** | 0 | 0 | 0 | 0 | **complete** (the three gaps it left are closed) |
 | **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
 | **5** | Fingerprinting + ClassifierGap | 7 | **7** | 0 | 0 | 0 | 0 | **complete** (the exit criterion is measured against the corpus) |
-| **6** | Write path | 7 | **0** | 0 | 0 | 7 | 0 | not started |
+| **6** | Write path | 7 | **1** | 0 | 0 | 6 | 0 | in progress |
 | **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 68 tasks - **60** done - 0 in progress - 0 blocked - 7 pending - 1 partial.
+**Totals:** 68 tasks - **61** done - 0 in progress - 0 blocked - 6 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -325,7 +325,7 @@ the rows below are the findings that outlived their first disposition.
 | `T5-05` | The `ClassifierGap` agent: an unknown app, correlated and proposed | - | done | An unknown app is turned into a proposed signature with cited evidence, and the proposal names the flows it came from | 1 d |
 | `T5-06` | The maintenance loop and the Critic | - | done | Every proposal carries citations, a proposal that cannot be cited is refused, and the Critic can falsify a proposal that the corpus contradicts | 1 d |
 | `T5-07` | The evaluation and the phase's exit criteria | - | done | The classifier's accuracy is measured against the corpus, every proposal is checkable, and the phase's exit criterion is asserted rather than described | 1 d |
-| `T6-01` | The `RuleStore`: versioned rulesets, atomic publish, history and restore | - | pending | a version is immutable and content-addressed, reloading it is byte-identical, editing it is refused, and restore creates a new version with a parent rather than rewriting history | 2 d |
+| `T6-01` | The `RuleStore`: versioned rulesets, atomic publish, history and restore | - | done | a version is immutable and content-addressed, reloading it is byte-identical, editing it is refused, and restore creates a new version with a parent rather than rewriting history | 2 d |
 | `T6-02` | The signed proposal: validation, provenance and the digest that binds review to apply | - | pending | a proposal is a validated policy document plus provenance and citations under a digest that covers the bytes to be applied; a malformed rule, missing provenance or an unresolvable citation is refused before review | 1 d |
 | `T6-03` | The Policy agent: read-only, simulation-only, and no write tool at all | - | pending | the agent proposes from a real capture, cites the flows it used, and its tool surface has `query_flows` and `simulate_ruleset` and nothing that writes; a proposal is a value, not an installed rule | 2 d |
 | `T6-04` | The blast-radius circuit breaker: a deterministic tier from a real counterfactual | - | pending | a real counterfactual classifies a candidate into auto-apply, one-click, explicit-confirm or refused; thresholds are configuration, the boundary is exact, and a total-loss candidate is refused rather than made approvable | 1 d |
@@ -1312,22 +1312,53 @@ or `dropped` and say why.
 
 ### `T6-01` - The `RuleStore`: versioned rulesets, atomic publish, history and restore
 
-- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Status:** done — **Claimed by:** big-pickle — **Session:** ses_t6_01 — **Blocked by:** —
 - **Files:** `src/dpi_engine/rule_store.py` (new), `tests/test_rule_store.py` (new); it reuses
   `rule_manager.py`'s loader and `signatures.py`'s table rather than adding a second validator.
-- **Test added:** —
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** —
-- **Closed findings:** —
-- **Follow-ups:** —
-- **Notes:** The store is the phase's foundation, so its invariants come first. A version is a
+- **Test added:** `tests/test_rule_store.py` — 74 tests. A version round-trips as its canonical
+  document, an identical re-commit is idempotent, each of document / provenance / note / parent
+  changes the id, an edited document or metadata is refused on load, a file under another id is
+  refused, a self-consistent but non-canonical record is refused, `restore` creates a new version
+  with the restored parent, and the active pointer is per-kind and survives a new process.
+  `--cov=dpi_engine.rule_store` reports **100%** statements and branches. The mutation harness
+  makes 12 targeted edits (each digest field, both id checks, canonicalisation, first-write-wins,
+  restore, activate, corrupt-pointer handling, history skipping) and **kills 12/12**.
+- **How it was tackled:** The store reuses the two loaders instead of validating again, then
+  canonicalises their output, strips the ruleset's live `version` counter, and addresses the
+  record by a SHA-256 digest (16 hex, `ensure_ascii=False` canonical JSON) over schema, kind,
+  parent, document, provenance and note. `created_at` is deliberately outside the digest: it is
+  publication time, not content, so re-committing identical content returns the stored version
+  and its original timestamp rather than minting a duplicate. `load` checks the claimed id against
+  both the file name and a fresh hash, then re-normalises the document; `restore` commits the old
+  document as a new version with `parent`; `activate` writes one kind's pointer atomically after
+  loading the target, so a pointer to an unreadable version is never published. Files are written
+  under `os.replace` with `fsync`, and every refusal is a `RuleStoreError`.
+- **Deviations:** none. The plan's gate is met as written; keeping `created_at` outside the digest
+  is recorded in the module and above, and is not a change of scope.
+- **Verification:** `uv run pytest tests/test_rule_store.py -q` — 74 passed;
+  `uv run pytest -q --cov` — **1915 passed, 25 skipped**, total coverage **94.08%**, module
+  coverage **100%**; mutation harness **12/12 killed, 0 survivors, 0 stale**;
+  `uv run ruff check .` clean; `uv run mypy` clean on **59** source files; tracker integrity
+  **9 passed**. The unwritable-root test found one hole while it was being written:
+  `_write_atomic` created the directory outside its own `OSError` handling and leaked a bare
+  `FileExistsError`; the fix is in this change.
+- **Closed findings:** none in the register. The only defect found was in this change's own
+  `_write_atomic`, fixed before the gate run.
+- **Follow-ups:** `T6-02` must make the proposal's digest bind the *store commit* it authorises
+  (kind, canonical document, provenance, note, parent) as well as its citations and the agent,
+  prompt and model versions, so `apply` can recompute both and refuse a substituted proposal.
+  `T6-06` owns cross-process serialisation and the audit chain; this store's lock is
+  per-instance. Applying moves the active pointer only — hot-swapping a live worker remains out
+  of scope.
+- **Notes:** The store is the phase's foundation, so its invariants came first. A version is a
   **policy document** — the blocking ruleset (`RuleManager.to_dict`) or the signature table
   (`SignatureTable.to_json`) — canonicalised and addressed by its own digest, written once under
   `os.replace`, and never overwritten. `restore` is not a rollback of the directory: it commits the
   old content as a *new* version whose parent is the version restored, so a revert is as audible as
   the change it undoes. Validation is delegated to the loader each document already owns; a second
-  validator would drift from the first. The active version is a pointer, and only `apply` moves it.
+  validator would drift from the first. Content addressing is **not** a keyed signature: someone
+  who can rewrite the directory can recompute a digest, and `T6-06`'s append-only audit chain is
+  the answer to that threat. The active version is a pointer, and only `apply` moves it.
 
 ### `T6-02` - The signed proposal: validation, provenance and the digest that binds review to apply
 
@@ -1596,6 +1627,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-26 | `ses_t6_01` | big-pickle | `T6-01` | **`T6-01` done — Phase 6 at 1/7** — the `RuleStore`, and its two invariants proved. A version is the canonical policy document plus its provenance, addressed by a digest over schema, kind, parent, document, provenance and note; `created_at` is outside it because publication time is not content, so an identical re-commit is idempotent and returns the stored version rather than minting a duplicate. **Editing is refused on load** (document, provenance, note or parent), a file under another id is refused, and a self-consistent but non-canonical record is refused even after its digest is recomputed. **`restore` commits old content as a new version with a parent**, so a revert is as audible as the change it undoes; `activate` moves one kind's pointer, atomically, and only after the target loads. 74 tests, module coverage **100%** statements and branches, mutation harness **12/12 killed**, full gate **1915 passed / 25 skipped / 94.08%**, ruff and mypy clean on 59 files. The unwritable-root test caught `_write_atomic` leaking a bare `FileExistsError`; fixed before commit. | `T6-02`: the signed proposal — validation and citations before the gate, and a digest that binds the bytes reviewed to the bytes applied. |
 | 2026-10-26 | `ses_t5_07` | big-pickle | Phase 6's decomposition (`T6-01`..`T6-07`) | **Phase 6 is decomposed and ready (0/7)** — seven tasks, in the plan and on the board. The creative decision is the store's shape: a version is a canonical policy document addressed by its own digest, a revert commits the old content as a *new* version, and `apply` is the only door that moves the active pointer and writes the audit entry. The agent gets `query_flows` and `simulate_ruleset` and nothing that writes; the breaker classifies a real counterfactual, and a total-loss candidate is refused rather than made approvable. | `T6-01`: the `RuleStore` — versioned policy documents with provenance, atomic publish, history and restore, and the active version as the only thing `apply` moves. |
 | 2026-10-26 | `ses_t5_07` | big-pickle | `T5-07` | **`T5-07` done — Phase 5 complete (7/7)** — the evaluation, and the phase's exit criterion executed rather than described. **The classifier's accuracy is measured, and it is not 100%:** `score_corpus` runs the real pipeline over all 33 captures and all 59 labels at **1.0 recall**, **53/59 = 0.8983 precision**, **29/33 perfect cases** and **zero unaccepted mismatches** — the six false positives are exactly the six `KNOWN_DIVERGENCES`, counted against the app they actually classified as rather than excused by the allowlist, so the figure cannot be improved by accepting a bug. **The fingerprint table is measured as a second classifier:** over the same 59 labelled flows it must abstain or agree, never contradict; it abstains on all 59 because its two published positives (Chrome's JA4, Sliver's JA4S) are not corpus traffic. **Every accepted proposal is checkable:** citations are resolved through the run store, the shared facts are recomputed, an unobserved value and a wrong signature id or conjunction are refused, a fabricated five-tuple is refused by `review` outright, and a corpus-wide sweep asserts at least one acceptance and at least one contradiction. **The exit criterion runs end to end:** gap -> proposal -> review -> Critic approves -> `install` -> `identify` answers `GAP-CLIENT` while `DEFAULT_TABLE` still abstains; the JA4-only proposal on the mixed capture is contradicted by the `netflix.com` flow, the Critic falsifies it with that counterexample, and `install` refuses it **even with an approving verdict**. Test-first (`ERROR: file or directory not found`) -> 11 tests -> mutation killed 21/25 and exposed two tests that could not fail, so `TestTheMeasurementCanFail` now forces an unlisted mismatch, an invented detection, an allowlisted divergence's false positive and a case-name-only allowlist match; **25/25 killed, 0 survivors, 0 stale**, four equivalences documented. 15 new tests, no source lines added (5929/1806 unchanged), 1841 passed / 25 skipped, coverage **93.78%-93.83%** on two runs of the same tree. Also corrected §1's stale tracker-integrity count (8 -> 9) and two pre-existing literal `{EM}` template markers that had survived in older records. | Phase 6 — the write path — is next; it has no task IDs yet, so decompose it before claiming. The design's content is `RuleStore` with provenance and versioning, the Policy agent, the blast-radius circuit breaker, the durable approval queue, tiered auto-apply and the immutable audit log. |
 | 2026-10-26 | `ses_t5_06` | claude-opus-5[1m] | `T5-06` | **`T5-06` done — Phase 5 at 6/7** — the maintenance loop and the Critic, and the first time a model is asked to argue against a deterministic check rather than replace it. **Falsification is a value, not an error path:** `critique` computes the flows a proposed conjunction matches whose label is a **different known** app (`UNKNOWN` never contradicts, same-app is support), sorted by five-tuple so two runs agree; `install` is the only door and refuses a contradicted proposal **even with an approving verdict**, and a clean one the Critic vetoed. **Uncheckable evidence is refused, not scored:** no citation, a duplicate citation, the same flow twice, a citation outside the review, or a cited flow that does not match. **The Critic has no tools** -- its evidence is `Critique.to_json()` in the review state -- and the parser pins its answer to the computed contradictions: an approval of a contradicted proposal is a **rubber stamp**, a counterexample must be **one of the contradictions**, a falsification must say what is wrong, while the model may still **veto** a clean proposal because the deterministic check only knows what the engine has labelled. **The corpus falsification is real:** the gap client and the `netflix.com` flow share the generator's single JA4, so a JA4-only proposal is genuinely contradicted, and the test drives review -> Critic -> install and asserts the install is refused rather than pretending the fixture is clean. Mutation testing found two parser shape checks that duplicated `Verdict`'s invariants with identical observable behaviour; they were **removed**, not listed as equivalences. 72 new tests, 100% statement/branch coverage of the new paths, 63/63 mutants killed with two equivalences documented. 1826 passed / 25 skipped; total coverage **93.77%-93.86%** across five runs of the same tree (the spread is pre-existing `pipeline.py`/`quic.py` lines that move between runs; the new paths were 100% every run). | `T5-07`, the evaluation and the phase's exit criteria |
