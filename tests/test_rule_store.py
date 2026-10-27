@@ -44,8 +44,9 @@ from dpi_engine.rule_store import (
     PolicyVersion,
     RuleStore,
     RuleStoreError,
-    _content_payload,
-    _digest,
+    content_payload,
+    digest_of,
+    version_id_for,
 )
 
 T1 = "2026-10-26T09:00:00+00:00"
@@ -336,7 +337,7 @@ def test_a_digest_collision_refuses_the_second_document(
     """Content addressing assumes no collisions; the store must not hide one."""
     from dpi_engine import rule_store as module
 
-    monkeypatch.setattr(module, "_digest", lambda payload: "0" * 16)
+    monkeypatch.setattr(module, "digest_of", lambda payload: "0" * 16)
     first = store.commit(PolicyKind.RULESET, empty_ruleset(blocked_ips=["203.0.113.1"]))
 
     with pytest.raises(RuleStoreError, match="different content"):
@@ -431,8 +432,8 @@ def test_a_self_consistent_but_non_canonical_record_is_refused(
     """
     version = store.commit(PolicyKind.RULESET, empty_ruleset())
     forged_document = version.document | {"version": 5}
-    forged_id = _digest(
-        _content_payload(
+    forged_id = digest_of(
+        content_payload(
             version.kind,
             version.parent,
             forged_document,
@@ -769,3 +770,75 @@ def test_a_document_that_cannot_be_json_is_refused() -> None:
 
     with pytest.raises(RuleStoreError, match="JSON data"):
         PolicyVersion(**fields)
+
+
+# ---------------------------------------------------------------------------
+# `version_id_for`: the id a commit would mint, without committing
+# ---------------------------------------------------------------------------
+
+
+def test_version_id_for_is_the_id_commit_mints(store: RuleStore) -> None:
+    """`T6-02`'s proposal stores this id, so the two paths must be one formula."""
+    document = empty_ruleset(blocked_ips=["203.0.113.9"])
+    record = Provenance(source="agent:policy", author="policy", created_at=T1)
+
+    predicted = version_id_for(
+        PolicyKind.RULESET,
+        document=document,
+        provenance=record,
+        note="blocked after review",
+        parent=None,
+    )
+    committed = store.commit(
+        PolicyKind.RULESET,
+        document,
+        provenance=record,
+        note="blocked after review",
+    )
+
+    assert predicted == committed.version_id
+    assert store.history() == (committed,)
+
+
+def test_version_id_for_writes_nothing(store: RuleStore) -> None:
+    version_id_for(PolicyKind.RULESET, document=empty_ruleset())
+
+    assert store.history() == ()
+    assert not store.path_for("0" * 16).exists()
+
+
+def test_version_id_for_canonicalises_a_partial_document(store: RuleStore) -> None:
+    partial = {"blocked_ips": ["203.0.113.9"]}
+    full = empty_ruleset(blocked_ips=["203.0.113.9"])
+
+    assert version_id_for(PolicyKind.RULESET, document=partial) == version_id_for(
+        PolicyKind.RULESET, document=full
+    )
+
+
+def test_version_id_for_accepts_a_kind_string() -> None:
+    assert version_id_for("ruleset", document=empty_ruleset()) == version_id_for(
+        PolicyKind.RULESET, document=empty_ruleset()
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        ({"provenance": "agent:policy"}, "provenance"),
+        ({"note": 7}, "note"),
+        ({"parent": "not-an-id"}, "not a version id"),
+        ({"kind": "rules"}, "unknown policy kind"),
+        ({"document": []}, "document"),
+    ],
+)
+def test_version_id_for_refuses_what_commit_would_refuse(
+    overrides: dict[str, Any], fragment: str
+) -> None:
+    arguments: dict[str, Any] = {
+        "kind": PolicyKind.RULESET,
+        "document": empty_ruleset(),
+    } | overrides
+
+    with pytest.raises(RuleStoreError, match=fragment):
+        version_id_for(**arguments)

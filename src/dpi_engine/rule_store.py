@@ -60,6 +60,14 @@ __all__ = [
     "PolicyVersion",
     "RuleStore",
     "RuleStoreError",
+    "canonical_document",
+    "canonical_json",
+    "content_payload",
+    "copy_document",
+    "digest_of",
+    "is_version_id",
+    "policy_kind_of",
+    "version_id_for",
 ]
 
 #: The on-disk schema of a version record and of the active pointer. Both move
@@ -108,7 +116,7 @@ class PolicyKind(StrEnum):
     SIGNATURES = "signatures"
 
 
-def _kind(value: PolicyKind | str) -> PolicyKind:
+def policy_kind_of(value: PolicyKind | str) -> PolicyKind:
     try:
         return PolicyKind(value)
     except ValueError as exc:
@@ -118,26 +126,26 @@ def _kind(value: PolicyKind | str) -> PolicyKind:
         ) from exc
 
 
-def _is_version_id(value: str) -> bool:
+def is_version_id(value: str) -> bool:
     """True when `value` is exactly 16 lowercase hex characters."""
     return len(value) == _VERSION_ID_LENGTH and all(
         char in _VERSION_ID_ALPHABET for char in value
     )
 
 
-def _canonical(payload: Mapping[str, Any]) -> str:
+def canonical_json(payload: Mapping[str, Any]) -> str:
     """One spelling of a payload, so a digest does not depend on key order."""
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _digest(payload: Mapping[str, Any]) -> str:
+def digest_of(payload: Mapping[str, Any]) -> str:
     """The content address of a version: a digest, shortened to a file name."""
-    return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()[
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()[
         :_VERSION_ID_LENGTH
     ]
 
 
-def _copy_document(document: object) -> dict[str, Any]:
+def copy_document(document: object) -> dict[str, Any]:
     """A detached, JSON-only copy of a document.
 
     Deep-copied through JSON rather than `copy.deepcopy` because a policy
@@ -150,13 +158,13 @@ def _copy_document(document: object) -> dict[str, Any]:
             f"a policy document must be a JSON object, got {type(document).__name__}"
         )
     try:
-        copied: dict[str, Any] = json.loads(_canonical(document))
+        copied: dict[str, Any] = json.loads(canonical_json(document))
     except (TypeError, ValueError) as exc:
         raise RuleStoreError(f"a policy document must be JSON data: {exc}") from exc
     return copied
 
 
-def _content_payload(
+def content_payload(
     kind: PolicyKind,
     parent: str | None,
     document: Mapping[str, Any],
@@ -181,7 +189,7 @@ def _content_payload(
     }
 
 
-def _normalise_document(kind: PolicyKind, document: object) -> dict[str, Any]:
+def canonical_document(kind: PolicyKind, document: object) -> dict[str, Any]:
     """Validates a document with its own loader and returns its canonical form.
 
     The ruleset's `version` key is a live counter on an in-memory manager.
@@ -203,6 +211,42 @@ def _normalise_document(kind: PolicyKind, document: object) -> dict[str, Any]:
         raise RuleStoreError(
             f"the {kind.value} document is not valid: {exc}"
         ) from exc
+
+
+def version_id_for(
+    kind: PolicyKind | str,
+    *,
+    document: object,
+    provenance: Provenance | None = None,
+    note: str = "",
+    parent: str | None = None,
+) -> str:
+    """The version id `commit` mints for these bytes, without writing anything.
+
+    `T6-02`'s proposal stores this id so `apply` can prove that the policy it
+    reviewed is the policy the store would file. One formula, used by both
+    paths, is the only way that proof is worth anything: a second computation
+    that drifted would mint a different version under the same approval.
+
+    The document is canonicalised here, so a partial ruleset and its completed
+    form address the same version.
+    """
+    policy_kind = policy_kind_of(kind)
+    if provenance is not None and not isinstance(provenance, Provenance):
+        raise RuleStoreError(
+            "provenance must be a Provenance record or None, got "
+            f"{type(provenance).__name__}"
+        )
+    if not isinstance(note, str):
+        raise RuleStoreError(f"note must be a string, got {type(note).__name__}")
+    if parent is not None and not is_version_id(parent):
+        raise RuleStoreError(
+            f"{parent!r} is not a version id. A parent names a stored version."
+        )
+    normalised = canonical_document(policy_kind, document)
+    return digest_of(
+        content_payload(policy_kind, parent, normalised, provenance, note)
+    )
 
 
 def _write_atomic(path: Path, payload: Mapping[str, Any]) -> None:
@@ -250,14 +294,14 @@ class PolicyVersion:
     created_at: str
 
     def __post_init__(self) -> None:
-        if not _is_version_id(self.version_id):
+        if not is_version_id(self.version_id):
             raise RuleStoreError(
                 f"{self.version_id!r} is not a version id. Expected 16 lowercase hex "
                 "characters."
             )
         if not isinstance(self.kind, PolicyKind):
             raise RuleStoreError(f"unknown policy kind {self.kind!r}")
-        if self.parent is not None and not _is_version_id(self.parent):
+        if self.parent is not None and not is_version_id(self.parent):
             raise RuleStoreError(
                 f"{self.parent!r} is not a version id. A parent names a stored version."
             )
@@ -267,18 +311,18 @@ class PolicyVersion:
             )
         if not isinstance(self.created_at, str) or not self.created_at:
             raise RuleStoreError("created_at must be a non-empty timestamp string")
-        object.__setattr__(self, "document", _copy_document(self.document))
+        object.__setattr__(self, "document", copy_document(self.document))
 
     def content(self) -> dict[str, Any]:
         """The digest's input: everything that makes this version itself."""
-        return _content_payload(
+        return content_payload(
             self.kind, self.parent, self.document, self.provenance, self.note
         )
 
     @property
     def computed_id(self) -> str:
         """The id this version's content hashes to, regardless of what it claims."""
-        return _digest(self.content())
+        return digest_of(self.content())
 
     def to_json(self) -> dict[str, Any]:
         """The whole on-disk record, as JSON-ready data."""
@@ -287,7 +331,7 @@ class PolicyVersion:
             "version_id": self.version_id,
             "kind": self.kind.value,
             "parent": self.parent,
-            "document": _copy_document(self.document),
+            "document": copy_document(self.document),
             "provenance": None if self.provenance is None else self.provenance.to_dict(),
             "note": self.note,
             "created_at": self.created_at,
@@ -322,19 +366,19 @@ class PolicyVersion:
             )
 
         version_id = raw["version_id"]
-        if not isinstance(version_id, str) or not _is_version_id(version_id):
+        if not isinstance(version_id, str) or not is_version_id(version_id):
             raise RuleStoreError(
                 f"{version_id!r} is not a version id. Expected 16 lowercase hex "
                 "characters."
             )
 
-        kind = _kind(raw["kind"]) if isinstance(raw["kind"], str) else raw["kind"]
+        kind = policy_kind_of(raw["kind"]) if isinstance(raw["kind"], str) else raw["kind"]
         if not isinstance(kind, PolicyKind):
             raise RuleStoreError(f"unknown policy kind {kind!r}")
 
         parent = raw["parent"]
         if parent is not None and (
-            not isinstance(parent, str) or not _is_version_id(parent)
+            not isinstance(parent, str) or not is_version_id(parent)
         ):
             raise RuleStoreError(
                 f"{parent!r} is not a version id. A parent names a stored version."
@@ -367,7 +411,7 @@ class PolicyVersion:
             version_id=version_id,
             kind=kind,
             parent=parent,
-            document=_copy_document(raw["document"]),
+            document=copy_document(raw["document"]),
             provenance=provenance,
             note=note,
             created_at=created_at,
@@ -406,7 +450,7 @@ class RuleStore:
         The id reaches this store from an agent's proposal in a later task, so
         it is data, not a trusted path component.
         """
-        if not _is_version_id(version_id):
+        if not is_version_id(version_id):
             raise RuleStoreError(
                 f"{version_id!r} is not a version id. Expected 16 lowercase hex "
                 "characters, as returned by `commit` or `history`."
@@ -432,7 +476,7 @@ class RuleStore:
         apply safe; a *different* provenance timestamp is content, and mints a
         distinct version, because it records a different proposal.
         """
-        policy_kind = _kind(kind)
+        policy_kind = policy_kind_of(kind)
         if provenance is not None and not isinstance(provenance, Provenance):
             raise RuleStoreError(
                 "provenance must be a Provenance record or None, got "
@@ -441,7 +485,7 @@ class RuleStore:
         if not isinstance(note, str):
             raise RuleStoreError(f"note must be a string, got {type(note).__name__}")
 
-        normalised = _normalise_document(policy_kind, document)
+        normalised = canonical_document(policy_kind, document)
 
         if parent is not None:
             parent_version = self.load(parent)
@@ -453,8 +497,12 @@ class RuleStore:
                 )
 
         version = PolicyVersion(
-            version_id=_digest(
-                _content_payload(policy_kind, parent, normalised, provenance, note)
+            version_id=version_id_for(
+                policy_kind,
+                document=normalised,
+                provenance=provenance,
+                note=note,
+                parent=parent,
             ),
             kind=policy_kind,
             parent=parent,
@@ -494,7 +542,7 @@ class RuleStore:
         The caller supplies the revert's provenance, because the record of who
         reverted is not the record of who originally proposed.
         """
-        policy_kind = _kind(kind)
+        policy_kind = policy_kind_of(kind)
         target = self.load(version_id)
         if target.kind is not policy_kind:
             raise RuleStoreError(
@@ -571,8 +619,8 @@ class RuleStore:
         # A record can be internally consistent and still hold a document the
         # loader would refuse. Normalising again costs one small parse and keeps
         # the store from handing a consumer policy it cannot use.
-        normalised = _normalise_document(version.kind, version.document)
-        if _canonical(normalised) != _canonical(version.document):
+        normalised = canonical_document(version.kind, version.document)
+        if canonical_json(normalised) != canonical_json(version.document):
             raise RuleStoreError(
                 f"{path} does not hold a canonical {version.kind.value} document. "
                 "A stored document is written in canonical form, so a different "
@@ -590,7 +638,7 @@ class RuleStore:
         store look tidier than it is, and "what changed before this?" would
         silently get an answer that omits the change in question.
         """
-        policy_kind = None if kind is None else _kind(kind)
+        policy_kind = None if kind is None else policy_kind_of(kind)
         versions_dir = self._root / "versions"
         if not versions_dir.exists():
             return ()
@@ -607,7 +655,7 @@ class RuleStore:
 
     def active(self, kind: PolicyKind | str) -> PolicyVersion | None:
         """The version this kind is currently on, or `None` if it never moved."""
-        policy_kind = _kind(kind)
+        policy_kind = policy_kind_of(kind)
         return self._version_at(self._read_active().get(policy_kind))
 
     # -- the active pointer ----------------------------------------------
@@ -644,11 +692,11 @@ class RuleStore:
 
         pointers: dict[PolicyKind, str | None] = {}
         for name, value in active.items():
-            pointer_kind = _kind(name)
+            pointer_kind = policy_kind_of(name)
             if value is None:
                 pointers[pointer_kind] = None
                 continue
-            if not isinstance(value, str) or not _is_version_id(value):
+            if not isinstance(value, str) or not is_version_id(value):
                 raise RuleStoreError(
                     f"{path} names {value!r} for {pointer_kind.value}, which is not a "
                     "version id."
