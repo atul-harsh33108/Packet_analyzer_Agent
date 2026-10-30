@@ -26,6 +26,7 @@ from typing import Any
 
 from dpi_engine.maintenance import Critique, Verdict
 from dpi_engine.proposals import common_predicates
+from dpi_engine.rule_store import PolicyKind, policy_kind_of
 from dpi_engine.signatures import (
     Predicate,
     Signature,
@@ -40,10 +41,12 @@ __all__ = [
     "IncidentNarrative",
     "NarrativeClaim",
     "NewAppCandidate",
+    "PolicyDraft",
     "TriageVerdict",
     "parse_critic_verdict",
     "parse_incident_narrative",
     "parse_new_app_candidate",
+    "parse_policy_draft",
     "parse_triage_verdict",
 ]
 
@@ -613,3 +616,129 @@ def parse_critic_verdict(text: str, *, critique: Critique) -> Verdict:
             )
 
     return verdict
+
+
+# ---------------------------------------------------------------------------
+# The Policy agent's draft: a change the engine, not the model, turns into a
+# proposal (`T6-03`)
+# ---------------------------------------------------------------------------
+#
+# Four keys, and the omissions are deliberate. Provenance, the three versions
+# and the parent are the *agent's* to state: a model that can name its own
+# author can launder a change, and one that can name its parent can invent a
+# history for it. What the model does choose is the policy (a complete document
+# of one kind), the reason in prose, and the flows it used -- and the flows are
+# five-tuples rather than run-scoped citations, because the node knows which
+# run it is analysing and the model does not get to widen the evidence base.
+
+#: Every key a policy draft must carry. Missing one is refused, never defaulted:
+#: a defaulted document would be an empty policy change, and a defaulted
+#: citation list would be a change with no evidence.
+_POLICY_DRAFT_KEYS = frozenset({"kind", "document", "note", "citations"})
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class PolicyDraft:
+    """A proposed policy version, before the engine gives it an identity.
+
+    The invariants live here as well as in the parser, for the reason
+    `NewAppCandidate` records: the node builds a draft from a model's answer,
+    and an invariant that holds only when a value arrives through one door does
+    not hold.
+    """
+
+    kind: PolicyKind
+    document: dict[str, Any]
+    note: str
+    citations: tuple[FiveTuple, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, PolicyKind):
+            raise ValueError(
+                f"a policy draft's kind must be a PolicyKind, got "
+                f"{type(self.kind).__name__}"
+            )
+        if not isinstance(self.document, dict):
+            raise ValueError(
+                f"a policy draft's document must be an object, got "
+                f"{type(self.document).__name__}"
+            )
+        if not isinstance(self.note, str) or not self.note.strip():
+            raise ValueError(
+                "a policy draft's note must say why the change is proposed; a "
+                "change with no stated reason cannot be reviewed"
+            )
+        if not self.citations:
+            raise ValueError(
+                "a policy draft must cite at least one flow: a policy change "
+                "with no evidence cannot be reviewed"
+            )
+        if len(set(self.citations)) != len(self.citations):
+            raise ValueError("a policy draft cites the same flow twice")
+
+
+def _policy_note(raw: dict[str, Any]) -> str:
+    value = raw["note"]
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            "a policy draft's note must say why the change is proposed, in a "
+            f"non-empty string; got {value!r}"
+        )
+    return value
+
+
+def _policy_citations(raw: dict[str, Any]) -> tuple[FiveTuple, ...]:
+    value = raw["citations"]
+    if not isinstance(value, list):
+        raise ValueError(
+            "a policy draft's citations must be a list of five-tuples, got "
+            f"{type(value).__name__}"
+        )
+    if not value:
+        raise ValueError(
+            "a policy draft must cite at least one flow: a policy change with "
+            "no evidence cannot be reviewed"
+        )
+    return tuple(_parse_five_tuple(item) for item in value)
+
+
+def parse_policy_draft(text: str) -> PolicyDraft:
+    """The Policy agent's answer, checked for shape and nothing else.
+
+    The *shape* is this module's job; whether the document is a valid policy is
+    the loader's, and whether the citations exist is the run store's. Keeping
+    those checks out of here means there is one validator per question, and the
+    proposal the node builds is the one `Proposal.build` validates.
+    """
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"a policy draft must be JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"a policy draft must be a JSON object, got {type(raw).__name__}"
+        )
+    unknown = sorted(set(raw) - _POLICY_DRAFT_KEYS)
+    if unknown:
+        raise ValueError(
+            f"a policy draft has an unknown key {unknown[0]!r}. The provenance, "
+            "versions and parent of a proposal are the agent's, not the "
+            "model's."
+        )
+    missing = sorted(_POLICY_DRAFT_KEYS - set(raw))
+    if missing:
+        raise ValueError(f"a policy draft is missing the {missing[0]!r} key")
+
+    document = raw["document"]
+    if not isinstance(document, dict):
+        raise ValueError(
+            f"a policy draft's document must be an object, got "
+            f"{type(document).__name__}"
+        )
+
+    return PolicyDraft(
+        kind=policy_kind_of(raw["kind"]),
+        document=document,
+        note=_policy_note(raw),
+        citations=_policy_citations(raw),
+    )
