@@ -265,7 +265,16 @@ def test_docstrings_reference_only_symbols_that_exist() -> None:
                 for ref in dotted.findall(text):
                     head, _, rest = ref.partition(".")
                     if head == "dpi_engine":
-                        target, chain = "dpi_engine", rest.split(".")
+                        # `dpi_engine.run_store.capture_digest` names a submodule,
+                        # so the submodule is imported. Checking `hasattr` on the
+                        # package instead made this order-dependent: it passed only
+                        # when some earlier test had already imported the module.
+                        first, _, remainder = rest.partition(".")
+                        if first in module_stems:
+                            target = f"dpi_engine.{first}"
+                            chain = remainder.split(".") if remainder else []
+                        else:
+                            target, chain = "dpi_engine", rest.split(".")
                     elif head in module_stems:
                         target, chain = f"dpi_engine.{head}", rest.split(".")
                     else:
@@ -277,7 +286,7 @@ def test_docstrings_reference_only_symbols_that_exist() -> None:
                         if not hasattr(obj, attr):
                             where = getattr(node, "name", "<module>")
                             violations.append(
-                                f"{path.name}:{node.lineno} "
+                                f"{path.name}:{getattr(node, 'lineno', 0)} "
                                 f"({where}) cites `{ref}`, but {target} has no "
                                 f"attribute {attr!r}"
                             )

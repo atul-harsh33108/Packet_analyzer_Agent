@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 6
-current_task: T6-04
-next_action: Claim `T6-04`: write `tests/test_blast_radius.py` first, then the deterministic tier that reads a real `SimulationReport` and classifies the candidate as auto-apply, one-click, explicit-confirm or refused. Auto-apply is signature-table entries only, and only within both the configured flow and percent caps; above either cap, a protected app or a Critic objection escalates, and `total_loss` is refused rather than made approvable. Thresholds are configuration, the boundary is exact, and the classifier takes the counterfactual as input so a tier is never a guess.
-blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is at 3/7 with T6-04 next]
+current_task: T6-05
+next_action: Claim `T6-05`: write `tests/test_approval_queue.py` first, then `src/dpi_engine/approval_queue.py`. A request is a **file**: `pending` to `approved` or `rejected`, written atomically, idempotent by request id, and carrying the proposal digest it was reviewed at, the reviewer and the timestamp; `approve` re-derives and checks that digest so approving one proposal cannot apply another, a rejection is terminal, and a later process picks the queue up where the last one left it. The queue records the breaker's tier from `T6-04` rather than re-classifying the candidate.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is at 4/7 with T6-05 next]
 last_updated: 2026-10-30
 last_updated_by: big-pickle
-session: ses_t6_03
+session: ses_t6_04
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,15 +40,15 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | **6** — Write path |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 3/7** — DOC: 8/9 |
-| **Current task** | **`T6-04`** — the blast-radius circuit breaker, next |
-| **Next action** | Claim `T6-04`: write `tests/test_blast_radius.py` first, then the deterministic tier that reads a real `SimulationReport` and classifies the candidate as auto-apply, one-click, explicit-confirm or refused. Auto-apply is signature-table entries only, and only within both the configured flow and percent caps; above either cap, a protected app or a Critic objection escalates, and `total_loss` is refused rather than made approvable. Thresholds are configuration, the boundary is exact, and the classifier takes the counterfactual as input so a tier is never a guess. |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 4/7** — DOC: 8/9 |
+| **Current task** | **`T6-05`** — the durable approval queue, next |
+| **Next action** | Claim `T6-05`: write `tests/test_approval_queue.py` first, then `src/dpi_engine/approval_queue.py`. A request is a **file**: `pending` to `approved` or `rejected`, written atomically, idempotent by request id, and carrying the proposal digest it was reviewed at, the reviewer and the timestamp; `approve` re-derives and checks that digest so approving one proposal cannot apply another, a rejection is terminal, and a later process picks the queue up where the last one left it. The queue records the breaker's tier from `T6-04` rather than re-classifying the candidate. |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without an ID. **Two are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed). `D-29` is **closed** (`T3-11`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — was caught by **neither** scanner pass; the scanner now resolves the spelling as well as the name). `D-28` is **closed** (`T3-08`) |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (9 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_t6_03` — `T6-03` done; `T6-04` next |
+| **Session** | `ses_t6_04` — `T6-04` done; `T6-05` next |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -223,10 +223,10 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **3** | MCP server | 11 | **11** | 0 | 0 | 0 | 0 | **complete** (the three gaps it left are closed) |
 | **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
 | **5** | Fingerprinting + ClassifierGap | 7 | **7** | 0 | 0 | 0 | 0 | **complete** (the exit criterion is measured against the corpus) |
-| **6** | Write path | 7 | **3** | 0 | 0 | 4 | 0 | in progress |
+| **6** | Write path | 7 | **4** | 0 | 0 | 3 | 0 | in progress |
 | **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 68 tasks - **63** done - 0 in progress - 0 blocked - 4 pending - 1 partial.
+**Totals:** 68 tasks - **64** done - 0 in progress - 0 blocked - 3 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -328,7 +328,7 @@ the rows below are the findings that outlived their first disposition.
 | `T6-01` | The `RuleStore`: versioned rulesets, atomic publish, history and restore | - | done | a version is immutable and content-addressed, reloading it is byte-identical, editing it is refused, and restore creates a new version with a parent rather than rewriting history | 2 d |
 | `T6-02` | The signed proposal: validation, provenance and the digest that binds review to apply | - | done | any malformed rule, a missing provenance, an empty or duplicated citation and an unresolvable one are refused before review; the version id it carries is the id its own commit would mint, and an edited proposal is refused on decode | 1 d |
 | `T6-03` | The Policy agent: read-only, simulation-only, and no write tool at all | - | done | the agent proposes from a real capture, cites the flows it used, and its tool surface has `query_flows` and `simulate_ruleset` and nothing that writes; a proposal is a value, not an installed rule | 2 d |
-| `T6-04` | The blast-radius circuit breaker: a deterministic tier from a real counterfactual | - | pending | a real counterfactual classifies a candidate into auto-apply, one-click, explicit-confirm or refused; thresholds are configuration, the boundary is exact, and a total-loss candidate is refused rather than made approvable | 1 d |
+| `T6-04` | The blast-radius circuit breaker: a deterministic tier from a real counterfactual | - | done | a real counterfactual classifies a candidate into auto-apply, one-click, explicit-confirm or refused; thresholds are configuration, the boundary is exact, and a total-loss candidate is refused rather than made approvable | 1 d |
 | `T6-05` | The durable approval queue: pause, persist, approve or reject | - | pending | an approval request survives process death, applies exactly the digest that was reviewed, refuses a substituted proposal, and a rejection is terminal | 2 d |
 | `T6-06` | Tiered auto-apply and the immutable audit log | - | pending | one door verifies the digest and tier, writes one new version and one append-only audit entry (who, when, agent, run, evidence, prompt version, model version), refuses a replay and detects an edited or deleted entry | 2 d |
 | `T6-07` | The write path end to end: propose, approve, apply, revert — and the refusals | - | pending | end to end on a real capture: propose → classify → approve → apply → the run changes → audit verifies → revert restores the prior version as a new one; every refusal path is asserted | 2 d |
@@ -1486,15 +1486,66 @@ or `dropped` and say why.
 
 ### `T6-04` - The blast-radius circuit breaker: a deterministic tier from a real counterfactual
 
-- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Status:** done — **Claimed by:** big-pickle — **Session:** ses_t6_04 — **Blocked by:** —
 - **Files:** `src/dpi_engine/blast_radius.py` (new), `tests/test_blast_radius.py` (new); it reads
   `SimulationReport` from `rules/simulator.py` and does not re-derive any decision.
-- **Test added:** —
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** —
-- **Closed findings:** —
-- **Follow-ups:** —
+- **Test added:** `tests/test_blast_radius.py` — **79 tests** in nine groups: configuration
+  validation (a bool, a float or a negative as the flow cap; a `NaN`, an infinity, a bool or a
+  negative percentage; a critical line below the one-click line; a mutable or non-`AppType`
+  protected set; frozenness), **refusal** (a total loss is refused, and stays refused against a
+  signature table, a Critic objection and a maximally permissive configuration, while still
+  recording the blast radius), **auto-apply** (a signature table, and only while its blast radius
+  is near zero), **one-click with exact boundaries on both caps and on the critical line**,
+  **protected apps** (newly blocked counts as touched; already blocked and newly allowed do not;
+  deduplicated and ordered by engine name; named even in a refusal), **the Critic objection**,
+  **the decision's own consistency**, and **five real counterfactuals** over the fixture capture.
+  A **34-mutation harness** accompanies it; every mutation is a semantic defect the suite claims
+  to catch.
+- **How it was tackled:** The classifier **reads** the report instead of recomputing it:
+  `flows_newly_blocked` is the length of `newly_blocked` and the percentage is the report's own
+  `drop_rate_change_percent`, because a second derivation is a second source of truth free to
+  drift from the simulator production already trusts. The precedence is the safety property:
+  `total_loss` is checked **before any threshold**, so no configuration and no objection can turn
+  a candidate that forwards nothing into something approvable; then every escalator is collected
+  (flow cap, one-click percentage, critical percentage, protected app, Critic objection) and only
+  a clean record can be auto-applied or queued for one click. Auto-apply is gated on the
+  **kind plus a zero-escalation record**, not the kind alone, so a signature table that would drop
+  traffic is escalated like any other change. A protected app is "touched" only when it is
+  **newly blocked**: a flow already blocked is not a change, and unblocking one is a loosening.
+  `BreakerDecision` re-checks its own tier/reasons invariants at construction — a refusal cannot
+  carry an approval reason, an auto-apply cannot carry a cap breach, an explicit confirmation
+  cannot carry a marker — because the record is the audit trail's input and a record whose first
+  field contradicts its last is worse than no record. An AST test proves the module imports no
+  store and calls nothing that commits, activates or applies.
+- **Deviations:** Layer 8 says "more than X% of flows or N flows" but supplies neither `N` nor a
+  flow denominator, so `DEFAULT_MAX_FLOWS = 10` is an operator-replaceable **product default**
+  and says so in the module; the percentage cap uses the report's **packet-level**
+  `drop_rate_change_percent` rather than inventing a flow share, and the field name and docstring
+  say which it is. The Critic's objection is a `bool` input, not a `Critique`: `T6-03` records
+  that the node produces no critique, so re-deciding the objection here would be a second verdict.
+- **Verification:** 79 new tests; mutation harness **34/34 killed**, sources restored
+  byte-for-byte; full gate **2173 passed / 25 skipped / 94.50%**; `ruff check .` clean; `mypy`
+  clean on 62 files; `blast_radius.py` **100%** statements and branches; tracker integrity
+  **9 passed**. Two real counterfactuals were measured before the tests were written: blocking
+  `TIKTOK` on the fixture capture newly blocks **1** flow at **1.2987** packet points (above the
+  0.1% one-click line on a 77-packet capture), and `block_cidr("0.0.0.0/0")` newly blocks **27**
+  flows, forwards **0** and reports **100.0** with `total_loss=True`. The harness found one test
+  passing for the wrong reason: "a decision needs no reasons" used a one-click tier, whose exact
+  marker check already refuses an empty tuple; it now uses an explicit confirmation.
+- **Closed findings:** The full gate exposed a **latent defect in the `S-03` safety check**, not in
+  this task: `test_docstrings_reference_only_symbols_that_exist` resolved
+  `dpi_engine.<submodule>.<attr>` with `hasattr` on the **package**, so it passed only when an
+  earlier test had already imported the submodule, and any violation found on a *module* docstring
+  crashed with `AttributeError: 'Module' object has no attribute 'lineno'` instead of being
+  reported. The check now imports the submodule and reports the line, and a planted stale
+  reference was proved to be caught and printed rather than crashing. The ambiguity that surfaced
+  it was this module's own docstring writing a local variable as `report.newly_blocked`, which the
+  checker read as the `report` module; it is now an unambiguous reference.
+- **Follow-ups:** `T6-05` persists the decision and needs the tier, not just the proposal, so the
+  approval UI knows which gate to show; `T6-06` is the only door that applies, and must refuse what
+  the breaker refused. The flow cap counts flows while the percentage is packet-level, which is the
+  honest reading of the report, and a flow-denominated cap would need `SimulationReport` to expose
+  a flow denominator rather than this module inventing one.
 - **Notes:** A number on a diff is not a decision. The breaker turns `SimulationReport` into a
   tier: **auto-apply** only for signature-table entries, which do not drop traffic and are
   reversible; **one-click** for blocking rules at or below both the flow cap and the percentage
@@ -1712,6 +1763,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-10-30 | `ses_t6_04` | big-pickle | `T6-04` | **`T6-04` done — Phase 6 at 4/7** — the circuit breaker, and the first thing in the write path that can say **no**. It **reads** the counterfactual instead of recomputing it: the flow count is `len(newly_blocked)` and the percentage is the report's own `drop_rate_change_percent`, because a second derivation drifts from the simulator production trusts. **Precedence is the safety property:** `total_loss` is checked before any threshold, so no configuration, protected-app list or Critic objection can make a candidate that forwards nothing approvable; then every escalator is collected (flow cap, one-click percent, critical percent, newly blocked protected app, objection) and only a clean record can be auto-applied or queued. Auto-apply needs the **kind and a zero-escalation record**, so a signature table that would drop traffic escalates like anything else; a protected app counts only when it is **newly blocked**, since already-blocked is no change and unblocking is a loosening. `BreakerDecision` re-checks its own tier/reasons invariants (a refusal cannot carry an approval reason, an auto-apply cannot carry a cap breach) because a record that contradicts itself is worse than none. Layer 8 names `N` without a value and exposes no flow denominator, so the flow cap is an explicit operator-replaceable default and the percentage is the report's packet-level figure, named as such. Measured before the tests: TIKTOK on the fixture is 1 flow / 1.2987 points; `0.0.0.0/0` is 27 flows / 0 forwarded / 100.0 -> refused. **79 tests; 34/34 mutations killed; full gate 2173 passed / 25 skipped / 94.50%; ruff and mypy clean on 62 files; `blast_radius.py` 100%.** The full gate also exposed a **latent bug in the `S-03` safety check** — `dpi_engine.<submodule>` was resolved with `hasattr` on the package, so it was import-order dependent and crashed with `AttributeError` on a module-level violation; it now imports the submodule, reports the line, and was proved to still catch a planted stale reference. | `T6-05`: the durable approval queue — a request that survives process death, approves exactly the digest that was reviewed, and whose rejection is terminal. |
 | 2026-10-30 | `ses_t6_03` | big-pickle | `T6-03` | **`T6-03` done — Phase 6 at 3/7** — the Policy agent, and the first agent whose output is rule-shaped while it still has no way to write one. **The model proposes a policy, not a proposal:** the draft has exactly four keys (`kind`, `document`, `note`, `citations`), and provenance, the three versions and `parent` are the node's, so a change cannot be laundered by naming its own author or given an invented history. Citations are **five-tuples bound to the run by the node**, not run-scoped pointers the model could point elsewhere; every proposal is built through `Proposal.build`, so resolution, canonicalisation and both ids stay the engine's, and `StoreResolver` translates `RunStore.flow` into the `CitationResolver` port rather than teaching the store a second interface. The surface is exactly `query_flows` and `simulate_ruleset` — the dry run is a tool, not an action — and an AST test proves the module has no path to `RuleStore`. The prompt names the design's absent `propose_rule` and `diff_runs` so their silence cannot read as a clean result, treats capture text as data, and carries the operator's run id, capture path and scratch directory so none is guessed. **57 tests; 28/28 mutations killed; full gate 2094 passed / 25 skipped / 94.37%; ruff and mypy clean on 61 files; `policy.py` 100%.** The harness caught two things: the human-review test was word-level and survived deleting the sentence (now pinned as a sentence), and `schemas.py` is CRLF while `policy.py` is LF, so multi-line anchors matched nothing until it normalised newlines. | `T6-04`: the blast-radius circuit breaker — a deterministic tier from a real counterfactual, with a total-loss candidate refused rather than made approvable. |
 | 2026-10-27 | `ses_t6_02` | big-pickle | `T6-02` | **`T6-02` done — Phase 6 at 2/7** — the signed proposal, the value that crosses the human gate carrying **two ids**. Its `version_id` is computed by the store's own `version_id_for` (`rule_store`'s canonicalisation helpers went public, and `commit` now calls it, so there is one id formula), and its digest binds that id, the document, the provenance, the note, the parent, the citations and the agent/prompt/model versions — **content-bound, not keyed**, and `from_json` recomputes both ids and refuses any edit. Citations are pointers resolved **once at `build`** through a `CitationResolver` port, so the queue never needs a run store, and the digest binds the pointer rather than a flow snapshot because the run store refuses an edited record; a citation that resolves to nothing or to another flow is refused before review, and so is a document that is not canonical even after a recomputed digest. 113 tests, module coverage **100%** statements and branches for both `proposal.py` and `rule_store.py`, mutation harness **30/30 killed**, full gate **2037 passed / 25 skipped / 94.27%**, ruff and mypy clean on 60 files, tracker integrity **9 passed**. The harness caught two of these tests passing for the wrong reason (the version-id refusal matched the digest check's "edited" message; the provenance refusals were matched too loosely) — both now assert their specific refusal. | `T6-03`: the Policy agent — read-only, simulation-only, proposes through `Proposal.build`, and no tool that writes. |
 | 2026-10-26 | `ses_t6_01` | big-pickle | `T6-01` | **`T6-01` done — Phase 6 at 1/7** — the `RuleStore`, and its two invariants proved. A version is the canonical policy document plus its provenance, addressed by a digest over schema, kind, parent, document, provenance and note; `created_at` is outside it because publication time is not content, so an identical re-commit is idempotent and returns the stored version rather than minting a duplicate. **Editing is refused on load** (document, provenance, note or parent), a file under another id is refused, and a self-consistent but non-canonical record is refused even after its digest is recomputed. **`restore` commits old content as a new version with a parent**, so a revert is as audible as the change it undoes; `activate` moves one kind's pointer, atomically, and only after the target loads. 74 tests, module coverage **100%** statements and branches, mutation harness **12/12 killed**, full gate **1915 passed / 25 skipped / 94.08%**, ruff and mypy clean on 59 files. The unwritable-root test caught `_write_atomic` leaking a bare `FileExistsError`; fixed before commit. | `T6-02`: the signed proposal — validation and citations before the gate, and a digest that binds the bytes reviewed to the bytes applied. |
