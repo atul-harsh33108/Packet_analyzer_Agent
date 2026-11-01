@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 6
-current_task: T6-05
-next_action: Claim `T6-05`: write `tests/test_approval_queue.py` first, then `src/dpi_engine/approval_queue.py`. A request is a **file**: `pending` to `approved` or `rejected`, written atomically, idempotent by request id, and carrying the proposal digest it was reviewed at, the reviewer and the timestamp; `approve` re-derives and checks that digest so approving one proposal cannot apply another, a rejection is terminal, and a later process picks the queue up where the last one left it. The queue records the breaker's tier from `T6-04` rather than re-classifying the candidate.
-blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is at 4/7 with T6-05 next]
-last_updated: 2026-10-30
+current_task: T6-06
+next_action: Claim `T6-06`: write the tests first, then the apply path and the audit log. One door verifies the approved request's digest and tier, writes one new policy version and one append-only audit entry (who, when, agent, run, evidence, prompt version, model version), refuses a replay of an applied request, and detects an edited or deleted entry; a refused or auto-applied candidate never reaches it, and a revert is a new version that names the one it undid.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is at 5/7 with T6-06 next]
+last_updated: 2026-11-01
 last_updated_by: big-pickle
-session: ses_t6_04
+session: ses_t6_05
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,15 +40,15 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | **6** — Write path |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 4/7** — DOC: 8/9 |
-| **Current task** | **`T6-05`** — the durable approval queue, next |
-| **Next action** | Claim `T6-05`: write `tests/test_approval_queue.py` first, then `src/dpi_engine/approval_queue.py`. A request is a **file**: `pending` to `approved` or `rejected`, written atomically, idempotent by request id, and carrying the proposal digest it was reviewed at, the reviewer and the timestamp; `approve` re-derives and checks that digest so approving one proposal cannot apply another, a rejection is terminal, and a later process picks the queue up where the last one left it. The queue records the breaker's tier from `T6-04` rather than re-classifying the candidate. |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 5/7** — DOC: 8/9 |
+| **Current task** | **`T6-06`** — tiered auto-apply and the audit log, next |
+| **Next action** | Claim `T6-06`: write the tests first, then the apply path and the audit log. One door verifies the approved request's digest and tier, writes one new policy version and one append-only audit entry (who, when, agent, run, evidence, prompt version, model version), refuses a replay of an applied request, and detects an edited or deleted entry; a refused or auto-applied candidate never reaches it, and a revert is a new version that names the one it undid. |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without an ID. **Two are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed). `D-29` is **closed** (`T3-11`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — was caught by **neither** scanner pass; the scanner now resolves the spelling as well as the name). `D-28` is **closed** (`T3-08`) |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (9 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_t6_04` — `T6-04` done; `T6-05` next |
+| **Session** | `ses_t6_05` — `T6-05` done; `T6-06` next |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -223,10 +223,10 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **3** | MCP server | 11 | **11** | 0 | 0 | 0 | 0 | **complete** (the three gaps it left are closed) |
 | **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
 | **5** | Fingerprinting + ClassifierGap | 7 | **7** | 0 | 0 | 0 | 0 | **complete** (the exit criterion is measured against the corpus) |
-| **6** | Write path | 7 | **4** | 0 | 0 | 3 | 0 | in progress |
+| **6** | Write path | 7 | **5** | 0 | 0 | 2 | 0 | in progress |
 | **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
 
-**Totals:** 68 tasks - **64** done - 0 in progress - 0 blocked - 3 pending - 1 partial.
+**Totals:** 68 tasks - **65** done - 0 in progress - 0 blocked - 2 pending - 1 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -329,7 +329,7 @@ the rows below are the findings that outlived their first disposition.
 | `T6-02` | The signed proposal: validation, provenance and the digest that binds review to apply | - | done | any malformed rule, a missing provenance, an empty or duplicated citation and an unresolvable one are refused before review; the version id it carries is the id its own commit would mint, and an edited proposal is refused on decode | 1 d |
 | `T6-03` | The Policy agent: read-only, simulation-only, and no write tool at all | - | done | the agent proposes from a real capture, cites the flows it used, and its tool surface has `query_flows` and `simulate_ruleset` and nothing that writes; a proposal is a value, not an installed rule | 2 d |
 | `T6-04` | The blast-radius circuit breaker: a deterministic tier from a real counterfactual | - | done | a real counterfactual classifies a candidate into auto-apply, one-click, explicit-confirm or refused; thresholds are configuration, the boundary is exact, and a total-loss candidate is refused rather than made approvable | 1 d |
-| `T6-05` | The durable approval queue: pause, persist, approve or reject | - | pending | an approval request survives process death, applies exactly the digest that was reviewed, refuses a substituted proposal, and a rejection is terminal | 2 d |
+| `T6-05` | The durable approval queue: pause, persist, approve or reject | - | done | an approval request survives process death, applies exactly the digest that was reviewed, refuses a substituted proposal, and a rejection is terminal | 2 d |
 | `T6-06` | Tiered auto-apply and the immutable audit log | - | pending | one door verifies the digest and tier, writes one new version and one append-only audit entry (who, when, agent, run, evidence, prompt version, model version), refuses a replay and detects an edited or deleted entry | 2 d |
 | `T6-07` | The write path end to end: propose, approve, apply, revert — and the refusals | - | pending | end to end on a real capture: propose → classify → approve → apply → the run changes → audit verifies → revert restores the prior version as a new one; every refusal path is asserted | 2 d |
 
@@ -1558,14 +1558,80 @@ or `dropped` and say why.
 
 ### `T6-05` - The durable approval queue: pause, persist, approve or reject
 
-- **Status:** pending — **Claimed by:** — **Session:** — **Blocked by:** —
+- **Status:** done — **Claimed by:** big-pickle — **Session:** ses_t6_05 — **Blocked by:** —
 - **Files:** `src/dpi_engine/approval_queue.py` (new), `tests/test_approval_queue.py` (new).
-- **Test added:** —
-- **How it was tackled:** —
-- **Deviations:** —
-- **Verification:** —
-- **Closed findings:** —
-- **Follow-ups:** —
+  `BreakerDecision` gained `to_json` and `from_json` in `blast_radius.py`, and `rule_store.py`
+  published its atomic writer as `write_json_atomic` so the queue reuses the same `fsync`-then-
+  `os.replace` ordering rather than growing a second copy.
+- **Test added:** `tests/test_approval_queue.py` — **68 tests** in seven groups: the **request
+  value** (persisted spellings, round trips, a pending record refusing a decision time or a
+  reviewer, a decided one requiring both, bad scalar fields, frozenness), **submitting** (the file
+  on disk carries the proposal's digest and the breaker's reasons, `pending` is oldest-first, a
+  refused or auto-applied candidate never enters, a hand-written refused record cannot enter, the
+  same submit is idempotent while a different one is refused, a request id is validated before it
+  names a file), **loading** (missing, an edited document or provenance, an edited decision, an id
+  that disagrees with the file name, an unknown key, a missing key, another schema, truncated
+  JSON), **approving** (reviewer and time recorded, survivable across a new queue over the same
+  root, wrong digest refused, reviewer required, retry idempotent, a second reviewer cannot
+  rewrite it, an approved request cannot be re-approved under another digest), **rejecting**
+  (reviewer and note recorded, a rejection cannot be revived, retry idempotent, a different
+  rejection cannot overwrite, an approval cannot become a rejection), **the recorded decision**
+  (round trip, protected apps by engine name, every hand-edited field refused, unknown and
+  missing keys), and **no path to application** (two AST tests: no store import and no call that
+  commits, activates, applies, publishes or installs), plus a real propose-simulate-classify-
+  submit-then-approve-from-a-fresh-queue over the fixture capture. A **32-mutation harness**
+  accompanies it.
+- **How it was tackled:** The design's "durable checkpointer" is realized as **one file per
+  request**, because the agent run has already ended and there is no process to resume. State is
+  a transition on that file (`pending` to `approved` or `rejected`), written by the same atomic
+  writer the policy store uses, so a reader never sees half a record and a crash leaves either the
+  old state or the new one. `approve` takes the **digest the reviewer saw** and refuses any other;
+  the proposal is re-decoded by `Proposal.from_json` on every load, so an edited document,
+  provenance or citation is refused before the digest check even runs. A rejection is terminal:
+  `approve` on a rejected request raises rather than reviving it, and a second decision cannot
+  rewrite the first. Retrying the *same* decision is idempotent, because a reviewer who
+  double-clicks must not get a failure that teaches them to bypass the queue. The queue **records**
+  the breaker's tier and figures instead of re-classifying the candidate: a second classification
+  is a second verdict free to disagree with the one the human saw. `REFUSED` is unqueueable
+  because the breaker already answered, and `AUTO_APPLY` is unqueueable because no human is
+  needed; both are checked at `submit` **and** in the request's own constructor, so a hand-written
+  file is refused on load by a later process too. `pending()` is the reviewer's worklist, sorted by
+  creation time. The module imports no store and calls nothing that applies.
+- **Deviations:** The plan did not say where the atomic write lives, and the choice was to publish
+  the policy store's writer (`write_json_atomic`) rather than duplicate twelve lines of
+  `fsync`-then-`rename`; its `RuleStoreError` is translated to `ApprovalQueueError` at the one call
+  site. Persisting a decision required a wire form, so `BreakerDecision` gained `to_json` and
+  `from_json`, and a new constructor invariant: `protected_apps` may only be named without the
+  protected-app reason in a refusal, since a refusal records what it touched while every other tier
+  uses them as a cause. The queue refuses `AUTO_APPLY` as well as `REFUSED`, which the plan implies
+  but does not spell out: a signature-table change needs no human, and queueing it would turn a
+  safe automatic change into a stall.
+- **Verification:** 68 new tests; mutation harness **32/32 killed**, both sources restored
+  byte-for-byte; full gate **2241 passed / 25 skipped / 94.43%**; `ruff check .` clean; `mypy` clean
+  on 63 files; `approval_queue.py` **92%** and `blast_radius.py` **98%**; tracker integrity
+  **9 passed**. The real-counterfactual test runs the fixture capture through the simulator,
+  classifies TIKTOK as `explicit-confirm`, submits it, loads the request from a **new**
+  `ApprovalQueue` over the same root, and approves it there -- the property the task exists for.
+- **Closed findings:** The first harness run had **three survivors**, and every one was a test
+  defect rather than a code one. (1) The "a pending request cannot carry a decision" test set both
+  a decision time *and* a reviewer, so the reviewer check masked the decision-time check; it now
+  sets only the decision time. (2) No test loaded an **auto-applied** decision record from disk;
+  `submit` refused it but the file boundary did not, so a hand-written request carrying an
+  auto-applied tier loaded silently. The record constructor now refuses both unqueueable tiers and
+  a test writes one into a queued file. (3) The rejection-note type check was **dead code**: the
+  request constructor already validates the note, so removing the redundant check (and the twin in
+  `submit`) made the code smaller rather than adding a test for an unreachable branch. Three more
+  pre-commit defects were found while proving: two tests wrote a queue into a relative `unused/`
+  directory in the working tree (now `tmp_path`); two tests contradicted each other about
+  re-approval, one asserting idempotence and the other a refusal for the *same* call -- the real
+  property is that a retry may **repeat** a decision but never **replace** it, and that is now what
+  is tested; and the edited-proposal test asserted "digest" when the version-id check fires first,
+  so it now asserts "edited", the guarantee rather than which of the proposal's two ids noticed.
+- **Follow-ups:** `T6-06` is the only door that applies: it must re-derive the digest from the
+  request file, refuse a replay, and write the audit entry; the queue deliberately offers no
+  delete or expire, because a rejected request is evidence. `pending()` scans the directory, which
+  is right at operator scale; an index would be a cache to invalidate, so it is not built until a
+  measurement asks for it.
 - **Notes:** The design's durable checkpointer becomes a **durable request**. The agent run is not
   suspended in memory across a human's lunch break: the proposal is written to the queue and the
   process ends; a later `approve` loads it and the apply path runs. That is the property the
@@ -1763,6 +1829,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-11-01 | `ses_t6_05` | big-pickle | `T6-05` | **`T6-05` done — Phase 6 at 5/7** — the human gate, and the first part of the write path that survives its own process. A request is **one file**: `pending` to `approved` or `rejected`, published by the policy store's own `fsync`-then-`os.replace` writer (now public as `write_json_atomic`), so a crash leaves the old state or the new one and never half of either. `approve` names the **digest the reviewer saw** and refuses any other, while `Proposal.from_json` re-checks the proposal on every load, so an edited document, provenance or citation is refused before the digest check runs. A rejection is **terminal** and a decision cannot be rewritten; retrying the *same* decision is idempotent, because a reviewer who double-clicks must not get a failure that teaches them to bypass the gate. The queue **records** the breaker's tier rather than re-classifying the candidate, refuses `REFUSED` (already answered) and `AUTO_APPLY` (no human needed) both at `submit` and in the record constructor, and imports no store and calls nothing that applies. `BreakerDecision` gained `to_json`/`from_json` plus the invariant that protected apps are a cause, not a note, outside a refusal. **68 tests; the first harness run left 3 survivors and all 3 were test defects** — a masked check, an unexercised auto-apply file boundary (now a real hole closed), and a dead type check — so **32/32 mutations killed** after the fixes; **full gate 2241 passed / 25 skipped / 94.43%; ruff and mypy clean on 63 files; `approval_queue.py` 92%.** | `T6-06`: one door that verifies the digest and tier, writes one version and one append-only audit entry, refuses a replay, and detects an edited or deleted entry. |
 | 2026-10-30 | `ses_t6_04` | big-pickle | `T6-04` | **`T6-04` done — Phase 6 at 4/7** — the circuit breaker, and the first thing in the write path that can say **no**. It **reads** the counterfactual instead of recomputing it: the flow count is `len(newly_blocked)` and the percentage is the report's own `drop_rate_change_percent`, because a second derivation drifts from the simulator production trusts. **Precedence is the safety property:** `total_loss` is checked before any threshold, so no configuration, protected-app list or Critic objection can make a candidate that forwards nothing approvable; then every escalator is collected (flow cap, one-click percent, critical percent, newly blocked protected app, objection) and only a clean record can be auto-applied or queued. Auto-apply needs the **kind and a zero-escalation record**, so a signature table that would drop traffic escalates like anything else; a protected app counts only when it is **newly blocked**, since already-blocked is no change and unblocking is a loosening. `BreakerDecision` re-checks its own tier/reasons invariants (a refusal cannot carry an approval reason, an auto-apply cannot carry a cap breach) because a record that contradicts itself is worse than none. Layer 8 names `N` without a value and exposes no flow denominator, so the flow cap is an explicit operator-replaceable default and the percentage is the report's packet-level figure, named as such. Measured before the tests: TIKTOK on the fixture is 1 flow / 1.2987 points; `0.0.0.0/0` is 27 flows / 0 forwarded / 100.0 -> refused. **79 tests; 34/34 mutations killed; full gate 2173 passed / 25 skipped / 94.50%; ruff and mypy clean on 62 files; `blast_radius.py` 100%.** The full gate also exposed a **latent bug in the `S-03` safety check** — `dpi_engine.<submodule>` was resolved with `hasattr` on the package, so it was import-order dependent and crashed with `AttributeError` on a module-level violation; it now imports the submodule, reports the line, and was proved to still catch a planted stale reference. | `T6-05`: the durable approval queue — a request that survives process death, approves exactly the digest that was reviewed, and whose rejection is terminal. |
 | 2026-10-30 | `ses_t6_03` | big-pickle | `T6-03` | **`T6-03` done — Phase 6 at 3/7** — the Policy agent, and the first agent whose output is rule-shaped while it still has no way to write one. **The model proposes a policy, not a proposal:** the draft has exactly four keys (`kind`, `document`, `note`, `citations`), and provenance, the three versions and `parent` are the node's, so a change cannot be laundered by naming its own author or given an invented history. Citations are **five-tuples bound to the run by the node**, not run-scoped pointers the model could point elsewhere; every proposal is built through `Proposal.build`, so resolution, canonicalisation and both ids stay the engine's, and `StoreResolver` translates `RunStore.flow` into the `CitationResolver` port rather than teaching the store a second interface. The surface is exactly `query_flows` and `simulate_ruleset` — the dry run is a tool, not an action — and an AST test proves the module has no path to `RuleStore`. The prompt names the design's absent `propose_rule` and `diff_runs` so their silence cannot read as a clean result, treats capture text as data, and carries the operator's run id, capture path and scratch directory so none is guessed. **57 tests; 28/28 mutations killed; full gate 2094 passed / 25 skipped / 94.37%; ruff and mypy clean on 61 files; `policy.py` 100%.** The harness caught two things: the human-review test was word-level and survived deleting the sentence (now pinned as a sentence), and `schemas.py` is CRLF while `policy.py` is LF, so multi-line anchors matched nothing until it normalised newlines. | `T6-04`: the blast-radius circuit breaker — a deterministic tier from a real counterfactual, with a total-loss candidate refused rather than made approvable. |
 | 2026-10-27 | `ses_t6_02` | big-pickle | `T6-02` | **`T6-02` done — Phase 6 at 2/7** — the signed proposal, the value that crosses the human gate carrying **two ids**. Its `version_id` is computed by the store's own `version_id_for` (`rule_store`'s canonicalisation helpers went public, and `commit` now calls it, so there is one id formula), and its digest binds that id, the document, the provenance, the note, the parent, the citations and the agent/prompt/model versions — **content-bound, not keyed**, and `from_json` recomputes both ids and refuses any edit. Citations are pointers resolved **once at `build`** through a `CitationResolver` port, so the queue never needs a run store, and the digest binds the pointer rather than a flow snapshot because the run store refuses an edited record; a citation that resolves to nothing or to another flow is refused before review, and so is a document that is not canonical even after a recomputed digest. 113 tests, module coverage **100%** statements and branches for both `proposal.py` and `rule_store.py`, mutation harness **30/30 killed**, full gate **2037 passed / 25 skipped / 94.27%**, ruff and mypy clean on 60 files, tracker integrity **9 passed**. The harness caught two of these tests passing for the wrong reason (the version-id refusal matched the digest check's "edited" message; the provenance refusals were matched too loosely) — both now assert their specific refusal. | `T6-03`: the Policy agent — read-only, simulation-only, proposes through `Proposal.build`, and no tool that writes. |

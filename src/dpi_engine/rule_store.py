@@ -68,6 +68,7 @@ __all__ = [
     "is_version_id",
     "policy_kind_of",
     "version_id_for",
+    "write_json_atomic",
 ]
 
 #: The on-disk schema of a version record and of the active pointer. Both move
@@ -249,13 +250,17 @@ def version_id_for(
     )
 
 
-def _write_atomic(path: Path, payload: Mapping[str, Any]) -> None:
+def write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
     """Publishes `payload` at `path` under `os.replace`.
 
     The temporary file is in the same directory, so the replace is a rename
     rather than a copy, and a reader never sees a half-written record. `fsync`
     before the replace is the same ordering the run store uses: without it a
     crash can leave the rename durable and the contents not.
+
+    Public because the approval queue (`T6-05`) persists one record per request
+    and needs the identical guarantee; a second copy of this function would be a
+    second place for the fsync to go missing.
     """
     temporary = path.with_name(f"{path.name}.tmp")
     try:
@@ -524,7 +529,7 @@ class RuleStore:
                 )
             return existing
 
-        _write_atomic(path, version.to_json())
+        write_json_atomic(path, version.to_json())
         return version
 
     def restore(
@@ -568,7 +573,7 @@ class RuleStore:
             version = self.load(version_id)
             pointers = self._read_active()
             pointers[version.kind] = version.version_id
-            _write_atomic(
+            write_json_atomic(
                 self._root / "active.json",
                 {
                     "schema": SCHEMA,

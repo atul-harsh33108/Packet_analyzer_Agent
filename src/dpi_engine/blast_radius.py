@@ -42,6 +42,8 @@ from __future__ import annotations
 import dataclasses
 import enum
 import math
+from collections.abc import Mapping
+from typing import Any
 
 from dpi_engine.proposal import Proposal
 from dpi_engine.rule_store import PolicyKind
@@ -69,6 +71,18 @@ DEFAULT_CRITICAL_PERCENT = 5.0
 #: Layer 8 says "more than N flows" without choosing N. Ten is a product
 #: default, not a number from the document, and is configuration for that reason.
 DEFAULT_MAX_FLOWS = 10
+
+#: The on-disk shape of a persisted decision (`T6-05`). A queue stores the tier
+#: it was given, so the record has to be readable by a later process.
+_DECISION_KEYS = frozenset(
+    {
+        "tier",
+        "reasons",
+        "flows_newly_blocked",
+        "drop_rate_change_percent",
+        "protected_apps",
+    }
+)
 
 
 class Tier(enum.StrEnum):
@@ -243,6 +257,98 @@ class BreakerDecision:
             raise ValueError(
                 "an explicit-confirm decision must not carry an approval reason"
             )
+
+        if (
+            self.protected_apps
+            and self.tier is not Tier.REFUSED
+            and Reason.PROTECTED_APP not in self.reasons
+        ):
+            raise ValueError(
+                "protected_apps names an app the change newly blocked, so the "
+                "decision must also carry the protected-app reason. Only a refusal "
+                "may name the apps it touched without listing them as a cause."
+            )
+
+    def to_json(self) -> dict[str, Any]:
+        """The record a queue persists. Every value is JSON data, not an enum."""
+        return {
+            "tier": self.tier.value,
+            "reasons": [reason.value for reason in self.reasons],
+            "flows_newly_blocked": self.flows_newly_blocked,
+            "drop_rate_change_percent": self.drop_rate_change_percent,
+            "protected_apps": [app.name for app in self.protected_apps],
+        }
+
+    @classmethod
+    def from_json(cls, raw: object) -> BreakerDecision:
+        """Decodes and re-checks a stored decision. An edited record is refused.
+
+        The constructor's invariants do most of the work; this method only turns
+        the persisted spellings back into enums. `protected_apps` is stored by
+        engine name because `AppType` values are not part of the file format.
+        """
+        if not isinstance(raw, Mapping):
+            raise ValueError(
+                "a breaker decision must be a JSON object, got "
+                f"{type(raw).__name__}"
+            )
+        unknown = sorted(set(raw) - _DECISION_KEYS)
+        if unknown:
+            raise ValueError(f"a breaker decision has an unknown key {unknown[0]!r}")
+        missing = sorted(_DECISION_KEYS - set(raw))
+        if missing:
+            raise ValueError(f"a breaker decision is missing the {missing[0]!r} key")
+
+        tier_raw = raw["tier"]
+        try:
+            tier = Tier(tier_raw)
+        except (TypeError, ValueError) as exc:
+            known = ", ".join(member.value for member in Tier)
+            raise ValueError(
+                f"a breaker decision has an unknown tier {tier_raw!r}. Expected one "
+                f"of: {known}"
+            ) from exc
+
+        reasons_raw = raw["reasons"]
+        if not isinstance(reasons_raw, list):
+            raise ValueError(
+                "a breaker decision's reasons must be a list of reason values, got "
+                f"{type(reasons_raw).__name__}"
+            )
+        reasons: list[Reason] = []
+        for value in reasons_raw:
+            try:
+                reasons.append(Reason(value))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"a breaker decision's reasons contain the unknown value {value!r}"
+                ) from exc
+
+        apps_raw = raw["protected_apps"]
+        if not isinstance(apps_raw, list) or any(
+            not isinstance(name, str) for name in apps_raw
+        ):
+            raise ValueError(
+                "a breaker decision's protected_apps must be a list of AppType "
+                f"names, got {apps_raw!r}"
+            )
+        apps: list[AppType] = []
+        for name in apps_raw:
+            app = AppType.__members__.get(name)
+            if app is None:
+                raise ValueError(
+                    f"a breaker decision's protected_apps names {name!r}, which is "
+                    "not an AppType"
+                )
+            apps.append(app)
+
+        return cls(
+            tier=tier,
+            reasons=tuple(reasons),
+            flows_newly_blocked=raw["flows_newly_blocked"],
+            drop_rate_change_percent=raw["drop_rate_change_percent"],
+            protected_apps=tuple(apps),
+        )
 
 
 def classify(
