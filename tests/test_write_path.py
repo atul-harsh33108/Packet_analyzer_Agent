@@ -22,28 +22,49 @@ logged, and an activation that raises leaves nothing logged. The last write is
 the audit entry so a record never claims a change that is not in force; the
 honest cost is that a crash between activation and the append leaves the change
 active and unlogged, which is named in the module rather than hidden.
+
+The second half (`T6-07`) drives that door **end to end** over the real capture
+and the real Policy agent: a scripted model proposes, the breaker classifies the
+counterfactual that was actually run, a reviewer approves, the door applies, a
+real pipeline run changes what it blocks, the log verifies, and a revert is a
+new version that names the version it undid. The refusals are asserted on the
+same road: a total loss is stopped before the store, the human gate cannot be
+skipped by a missing, pending or rejected request, an approval for one change
+cannot apply another, and the same change cannot be applied twice.
 """
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from agent_harness import connected, store_a_run, tool_schemas
+from conftest import TEST_DPI_PCAP
+from dpi_agents.model import ModelReply, ScriptedModel, ToolCall
+from dpi_agents.nodes.policy import POLICY_TOOL_NAMES, StoreResolver, policy_node
+from dpi_agents.runtime import Agent
+from dpi_agents.tools import McpToolPort
+from dpi_agents.trace import Trace
 from dpi_engine.approval_queue import (
     ApprovalQueue,
+    ApprovalQueueError,
     ApprovalRequest,
     ApprovalState,
 )
 from dpi_engine.audit_log import AUTO_ACTOR, AuditLog, AuditLogError
 from dpi_engine.blast_radius import BreakerDecision, Reason, Tier, classify
+from dpi_engine.pipeline import run_pipeline
 from dpi_engine.proposal import Citation, Proposal
-from dpi_engine.rule_manager import Provenance
+from dpi_engine.rule_manager import Provenance, RuleManager
 from dpi_engine.rule_store import PolicyKind, PolicyVersion, RuleStore, RuleStoreError
-from dpi_engine.rules.simulator import SimulationReport
-from dpi_engine.types import FiveTuple, FlowRecord
+from dpi_engine.rules.simulator import SimulationReport, simulate_ruleset
+from dpi_engine.run_store import RunStore
+from dpi_engine.types import AppType, FiveTuple, FlowRecord
 from dpi_engine.write_path import AppliedChange, WritePath, WritePathError
 
 RUN_ID = "0123456789abcdef"
@@ -722,3 +743,547 @@ class TestTheDoorItself:
 
         assert audit.verify_chain() == ()
         assert store.active(proposal.kind) is None
+
+
+# ---------------------------------------------------------------------------
+# End to end: propose, classify, approve, apply, run, revert (`T6-07`)
+# ---------------------------------------------------------------------------
+
+_MODEL_VERSION = "scripted/1"
+_REVERT_REQUEST_ID = "aabbccddeeff0011"
+
+
+@dataclasses.dataclass(slots=True)
+class _EndToEnd:
+    """The state one full pass through the write path leaves behind."""
+
+    capture: Path
+    runs: Path
+    run_id: str
+    store: RuleStore
+    audit: AuditLog
+    queue: ApprovalQueue
+    baseline: Proposal
+    baseline_change: AppliedChange
+    change: Proposal
+    change_decision: BreakerDecision
+    applied: AppliedChange
+
+
+@dataclasses.dataclass(slots=True)
+class _Candidate:
+    """One real proposal, classified, and not yet applied."""
+
+    capture: Path
+    runs: Path
+    run_id: str
+    store: RuleStore
+    audit: AuditLog
+    queue: ApprovalQueue
+    proposal: Proposal
+    decision: BreakerDecision
+
+
+def _captured_run(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A real capture, the run store it is recorded in, and its run id."""
+    capture = Path(TEST_DPI_PCAP)
+    runs = tmp_path / "runs"
+    return capture, runs, store_a_run(capture, runs)
+
+
+def _tiktok_flow(run_id: str, runs: Path) -> FlowRecord:
+    return next(
+        flow
+        for flow in RunStore(runs).query(run_id)
+        if flow.app == AppType.TIKTOK.name and flow.hostname == "www.tiktok.com"
+    )
+
+
+def _propose(
+    tmp_path: Path,
+    *,
+    capture: Path,
+    runs: Path,
+    run_id: str,
+    document: dict[str, Any],
+    note: str,
+    parent: str | None = None,
+    simulate: bool = True,
+) -> Proposal:
+    """Drives the real Policy agent over the real capture and MCP server.
+
+    The model is scripted, so the test still needs no provider key; the tools,
+    the dry run and the citation resolution are the production ones. The
+    proposal's parent and versions are the node's, never the model's.
+    """
+    flow = _tiktok_flow(run_id, runs)
+    answer = json.dumps(
+        {
+            "kind": "ruleset",
+            "document": document,
+            "note": note,
+            "citations": [dict(flow.five_tuple._asdict())],
+        }
+    )
+    simulation_dir = tmp_path / "simulation"
+
+    async def scenario() -> Proposal:
+        async with connected(runs) as session:
+            schemas = await tool_schemas(session, POLICY_TOOL_NAMES)
+            replies = [
+                ModelReply(
+                    text="reading the run",
+                    tool_calls=(
+                        ToolCall(
+                            name="query_flows",
+                            arguments={"run_id": run_id, "app": "TIKTOK"},
+                        ),
+                    ),
+                )
+            ]
+            if simulate:
+                replies.append(
+                    ModelReply(
+                        text="simulating the change",
+                        tool_calls=(
+                            ToolCall(
+                                name="simulate_ruleset",
+                                arguments={
+                                    "capture": str(capture),
+                                    "candidate": document,
+                                    "output_dir": str(simulation_dir),
+                                },
+                            ),
+                        ),
+                    )
+                )
+            replies.append(ModelReply(text=answer))
+            node = policy_node(
+                schemas,
+                run_id=run_id,
+                capture=capture,
+                simulation_dir=simulation_dir,
+                resolver=StoreResolver(RunStore(runs)),
+                model_version=_MODEL_VERSION,
+                parent=parent,
+            )
+            with Trace(tmp_path / "trace.jsonl") as trace:
+                outcome = await Agent(
+                    model=ScriptedModel(replies), trace=trace
+                ).run(node, tools=McpToolPort(session))
+        assert outcome.reason == "verdict", outcome.error
+        proposal = outcome.verdict
+        assert isinstance(proposal, Proposal)
+        return proposal
+
+    return asyncio.run(scenario())
+
+
+def _active_rules(store: RuleStore) -> RuleManager:
+    version = store.active(PolicyKind.RULESET)
+    assert version is not None, "the change did not leave an active version"
+    return RuleManager.from_dict(version.document)
+
+
+def _blocked_apps(capture: Path, rules: RuleManager, output: Path) -> list[str]:
+    """The apps a real pipeline run blocks under `rules`."""
+    result = run_pipeline(str(capture), output, rules, with_flow_table=True)
+    return [app.name for _five_tuple, app, _sni in result.blocked_flows]
+
+
+def _simulate(
+    capture: Path,
+    baseline: RuleManager,
+    candidate: RuleManager,
+    output_dir: Path,
+) -> SimulationReport:
+    return simulate_ruleset(baseline, candidate, capture, output_dir=output_dir)
+
+
+def _ground_truth(capture: Path, proposal: Proposal, output_dir: Path) -> SimulationReport:
+    """The counterfactual the breaker reads: the policy in force versus this one."""
+    return _simulate(
+        capture,
+        RuleManager(),
+        RuleManager.from_dict(proposal.document),
+        output_dir,
+    )
+
+
+def _end_to_end(tmp_path: Path) -> _EndToEnd:
+    """Baseline version, then a real TikTok block, each reviewed and applied."""
+    capture, runs, run_id = _captured_run(tmp_path)
+    store, audit = _store_audit(tmp_path)
+    queue = _queue(tmp_path)
+    path = WritePath(store, audit)
+
+    baseline = _propose(
+        tmp_path,
+        capture=capture,
+        runs=runs,
+        run_id=run_id,
+        document={},
+        note="Establish the empty ruleset as the version this change is measured against.",
+        simulate=False,
+    )
+    baseline_decision = classify(baseline, _ground_truth(capture, baseline, tmp_path / "sim-baseline"))
+    assert baseline_decision.tier is Tier.ONE_CLICK
+    queue.submit(REQUEST_ID, baseline, baseline_decision)
+    baseline_change = path.apply(
+        baseline,
+        baseline_decision,
+        approval=queue.approve(
+            REQUEST_ID, digest=baseline.digest, reviewer=REVIEWER
+        ),
+    )
+
+    change = _propose(
+        tmp_path,
+        capture=capture,
+        runs=runs,
+        run_id=run_id,
+        document={"blocked_apps": [AppType.TIKTOK.name]},
+        note="The run shows a TikTok flow the policy in force allows.",
+        parent=baseline_change.version_id,
+        simulate=False,
+    )
+    decision = classify(
+        change,
+        _simulate(
+            capture,
+            _active_rules(store),
+            RuleManager.from_dict(change.document),
+            tmp_path / "sim-change",
+        ),
+    )
+    queue.submit(OTHER_REQUEST_ID, change, decision)
+    applied = path.apply(
+        change,
+        decision,
+        approval=queue.approve(
+            OTHER_REQUEST_ID, digest=change.digest, reviewer=REVIEWER
+        ),
+    )
+    return _EndToEnd(
+        capture=capture,
+        runs=runs,
+        run_id=run_id,
+        store=store,
+        audit=audit,
+        queue=queue,
+        baseline=baseline,
+        baseline_change=baseline_change,
+        change=change,
+        change_decision=decision,
+        applied=applied,
+    )
+
+
+def _candidate(tmp_path: Path) -> _Candidate:
+    """One real proposal classified against the policy in force, not applied."""
+    capture, runs, run_id = _captured_run(tmp_path)
+    store, audit = _store_audit(tmp_path)
+    proposal = _propose(
+        tmp_path,
+        capture=capture,
+        runs=runs,
+        run_id=run_id,
+        document={"blocked_apps": [AppType.TIKTOK.name]},
+        note="The run shows a TikTok flow the policy in force allows.",
+        simulate=False,
+    )
+    decision = classify(
+        proposal, _ground_truth(capture, proposal, tmp_path / "sim-candidate")
+    )
+    return _Candidate(
+        capture=capture,
+        runs=runs,
+        run_id=run_id,
+        store=store,
+        audit=audit,
+        queue=_queue(tmp_path),
+        proposal=proposal,
+        decision=decision,
+    )
+
+
+class TestTheWritePathEndToEnd:
+    def test_a_reviewed_change_is_applied_and_the_run_changes(
+        self, tmp_path: Path
+    ) -> None:
+        world = _end_to_end(tmp_path)
+
+        # The change is a real one: the policy in force before it blocked
+        # nothing, and the fixture has a TikTok flow for the new policy to block.
+        baseline_rules = RuleManager.from_dict(
+            world.store.load(world.baseline_change.version_id).document
+        )
+        assert _blocked_apps(
+            world.capture, baseline_rules, tmp_path / "before.pcap"
+        ) == []
+        assert world.change_decision.tier is Tier.EXPLICIT_CONFIRM
+        assert world.change_decision.flows_newly_blocked == 1
+
+        blocked = _blocked_apps(
+            world.capture, _active_rules(world.store), tmp_path / "after.pcap"
+        )
+        assert blocked == [AppType.TIKTOK.name]
+
+        # One change, one active version, one chained audit entry -- all naming
+        # the same proposal, run and reviewer.
+        active = world.store.active(PolicyKind.RULESET)
+        assert active is not None
+        assert active.version_id == world.applied.version_id == world.change.version_id
+        assert active.parent == world.baseline_change.version_id
+        assert {version.version_id for version in world.store.history()} == {
+            world.baseline_change.version_id,
+            world.applied.version_id,
+        }
+        records = world.audit.verify_chain()
+        assert [record.version_id for record in records] == [
+            world.baseline_change.version_id,
+            world.applied.version_id,
+        ]
+        record = records[-1]
+        assert record == world.applied.record
+        assert record.actor == REVIEWER
+        assert record.request_id == OTHER_REQUEST_ID
+        assert record.tier is Tier.EXPLICIT_CONFIRM
+        assert record.runs == (world.run_id,)
+        assert record.citations == world.change.citations
+        assert record.agent_version == world.change.agent_version
+        assert record.prompt_version == world.change.prompt_version
+        assert record.model_version == world.change.model_version
+        assert world.audit.applied_digests() == {
+            world.baseline.digest,
+            world.change.digest,
+        }
+
+    def test_a_revert_is_a_new_version_that_names_and_undoes_the_change(
+        self, tmp_path: Path
+    ) -> None:
+        world = _end_to_end(tmp_path)
+        prior = world.store.load(world.baseline_change.version_id)
+        applied = world.store.load(world.applied.version_id)
+        assert _blocked_apps(
+            world.capture, _active_rules(world.store), tmp_path / "applied.pcap"
+        ) == [AppType.TIKTOK.name]
+
+        revert = _propose(
+            tmp_path,
+            capture=world.capture,
+            runs=world.runs,
+            run_id=world.run_id,
+            document=prior.document,
+            note=f"Revert {applied.version_id}: restore the policy in force before it.",
+            parent=applied.version_id,
+            simulate=False,
+        )
+        report = _simulate(
+            world.capture,
+            _active_rules(world.store),
+            RuleManager.from_dict(revert.document),
+            tmp_path / "sim-revert",
+        )
+        decision = classify(revert, report)
+        assert decision.tier is Tier.ONE_CLICK
+        assert decision.flows_newly_blocked == 0
+        assert len(report.newly_allowed) == 1
+
+        world.queue.submit(_REVERT_REQUEST_ID, revert, decision)
+        revert_change = WritePath(world.store, world.audit).apply(
+            revert,
+            decision,
+            approval=world.queue.approve(
+                _REVERT_REQUEST_ID, digest=revert.digest, reviewer=REVIEWER
+            ),
+        )
+
+        # A revert is a new version, not a rollback of the pointer: it names
+        # the version it undid, and that version stays in history.
+        assert revert_change.version_id != prior.version_id
+        assert revert_change.version.parent == applied.version_id
+        assert revert_change.version.document == prior.document
+        active = world.store.active(PolicyKind.RULESET)
+        assert active is not None
+        assert active.version_id == revert_change.version_id
+        assert {version.version_id for version in world.store.history()} == {
+            prior.version_id,
+            applied.version_id,
+            revert_change.version_id,
+        }
+
+        # The run is restored, and every change is still in the chain.
+        assert _blocked_apps(
+            world.capture, _active_rules(world.store), tmp_path / "reverted.pcap"
+        ) == []
+        records = world.audit.verify_chain()
+        assert [record.version_id for record in records] == [
+            world.baseline_change.version_id,
+            applied.version_id,
+            revert_change.version_id,
+        ]
+        assert records[-1] == revert_change.record
+        assert records[-1].request_id == _REVERT_REQUEST_ID
+        assert world.audit.applied_digests() == {
+            world.baseline.digest,
+            world.change.digest,
+            revert.digest,
+        }
+
+
+class TestTheEndToEndRefusals:
+    def test_a_total_loss_is_refused_before_the_store_is_touched(
+        self, tmp_path: Path
+    ) -> None:
+        capture, runs, run_id = _captured_run(tmp_path)
+        store, audit = _store_audit(tmp_path)
+        queue = _queue(tmp_path)
+        loss = RuleManager()
+        loss.block_cidr("0.0.0.0/0")
+        proposal = _propose(
+            tmp_path,
+            capture=capture,
+            runs=runs,
+            run_id=run_id,
+            document=loss.to_dict(),
+            note="Block every address, which is the change that must never apply.",
+            simulate=False,
+        )
+        report = _simulate(capture, RuleManager(), loss, tmp_path / "sim-loss")
+        decision = classify(proposal, report)
+
+        assert report.total_loss
+        assert decision.tier is Tier.REFUSED
+        with pytest.raises(ApprovalQueueError, match="forwards nothing"):
+            queue.submit(REQUEST_ID, proposal, decision)
+        with pytest.raises(WritePathError, match="breaker refused this proposal"):
+            WritePath(store, audit).apply(proposal, decision)
+
+        assert store.history() == ()
+        assert audit.verify_chain() == ()
+        assert audit.applied_digests() == frozenset()
+
+    @pytest.mark.parametrize(
+        ("state", "message"),
+        [
+            ("missing", "requires an approved request"),
+            ("pending", "is pending, not approved"),
+            ("rejected", "is rejected, not approved"),
+        ],
+    )
+    def test_the_human_gate_cannot_be_skipped(
+        self, tmp_path: Path, state: str, message: str
+    ) -> None:
+        candidate = _candidate(tmp_path)
+        approval: ApprovalRequest | None = None
+        if state == "pending":
+            candidate.queue.submit(
+                REQUEST_ID, candidate.proposal, candidate.decision
+            )
+            approval = candidate.queue.load(REQUEST_ID)
+        elif state == "rejected":
+            candidate.queue.submit(
+                REQUEST_ID, candidate.proposal, candidate.decision
+            )
+            approval = candidate.queue.reject(
+                REQUEST_ID, reviewer=REVIEWER, note="not today"
+            )
+
+        with pytest.raises(WritePathError, match=message):
+            WritePath(candidate.store, candidate.audit).apply(
+                candidate.proposal, candidate.decision, approval=approval
+            )
+
+        assert candidate.store.active(PolicyKind.RULESET) is None
+        assert candidate.store.history() == ()
+        assert candidate.audit.verify_chain() == ()
+
+    def test_an_approval_for_another_change_cannot_apply_this_one(
+        self, tmp_path: Path
+    ) -> None:
+        candidate = _candidate(tmp_path)
+        other = _propose(
+            tmp_path,
+            capture=candidate.capture,
+            runs=candidate.runs,
+            run_id=candidate.run_id,
+            document={"blocked_apps": [AppType.YOUTUBE.name]},
+            note="A different change, reviewed under a different request.",
+            simulate=False,
+        )
+        other_decision = classify(
+            other, _ground_truth(candidate.capture, other, tmp_path / "sim-other")
+        )
+        candidate.queue.submit(REQUEST_ID, candidate.proposal, candidate.decision)
+        approval = candidate.queue.approve(
+            REQUEST_ID, digest=candidate.proposal.digest, reviewer=REVIEWER
+        )
+
+        with pytest.raises(
+            WritePathError, match="Approving one change cannot apply another"
+        ):
+            WritePath(candidate.store, candidate.audit).apply(
+                other, other_decision, approval=approval
+            )
+
+        assert candidate.store.active(PolicyKind.RULESET) is None
+        assert candidate.store.history() == ()
+        assert candidate.audit.verify_chain() == ()
+
+    def test_a_change_cannot_be_applied_twice(self, tmp_path: Path) -> None:
+        world = _end_to_end(tmp_path)
+        approval = world.queue.load(OTHER_REQUEST_ID)
+
+        with pytest.raises(WritePathError, match="already applied"):
+            WritePath(world.store, world.audit).apply(
+                world.change, world.change_decision, approval=approval
+            )
+
+        assert len(world.store.history()) == 2
+        assert len(world.audit.verify_chain()) == 2
+        active = world.store.active(PolicyKind.RULESET)
+        assert active is not None
+        assert active.version_id == world.applied.version_id
+
+    def test_an_edited_proposal_is_refused_before_the_store_is_touched(
+        self, tmp_path: Path
+    ) -> None:
+        candidate = _candidate(tmp_path)
+        candidate.queue.submit(REQUEST_ID, candidate.proposal, candidate.decision)
+        approval = candidate.queue.approve(
+            REQUEST_ID, digest=candidate.proposal.digest, reviewer=REVIEWER
+        )
+        candidate.proposal.document["blocked_apps"] = [AppType.YOUTUBE.name]
+
+        with pytest.raises(WritePathError, match="does not match its contents"):
+            WritePath(candidate.store, candidate.audit).apply(
+                candidate.proposal, candidate.decision, approval=approval
+            )
+
+        assert candidate.store.active(PolicyKind.RULESET) is None
+        assert candidate.store.history() == ()
+        assert candidate.audit.verify_chain() == ()
+
+    def test_a_ruleset_cannot_be_smuggled_through_auto_apply(
+        self, tmp_path: Path
+    ) -> None:
+        candidate = _candidate(tmp_path)
+        forged = BreakerDecision(
+            tier=Tier.AUTO_APPLY,
+            reasons=(Reason.SIGNATURE_TABLE,),
+            flows_newly_blocked=0,
+            drop_rate_change_percent=0.0,
+            protected_apps=(),
+        )
+
+        with pytest.raises(
+            WritePathError, match="only for a signatures proposal"
+        ):
+            WritePath(candidate.store, candidate.audit).apply(
+                candidate.proposal, forged
+            )
+
+        assert candidate.store.active(PolicyKind.RULESET) is None
+        assert candidate.store.history() == ()
+        assert candidate.audit.verify_chain() == ()
