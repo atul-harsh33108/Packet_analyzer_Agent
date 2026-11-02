@@ -6,7 +6,7 @@ blocking rules, and writes a filtered capture plus a report.
 
 A Python port of the C++ engine preserved under [`OSC/`](OSC/). Every
 intentional behavioural difference from that original is listed in
-[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) and cross-checked by a differential
+[DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) and cross-checked by a differential
 test suite that builds and runs the actual C++ binary.
 
 ## Quick start
@@ -98,7 +98,7 @@ categories always shows the most specific reason.
 Two things about IP rules are worth knowing, since both differ from the
 original:
 
-- **An IP rule matches either endpoint** ([`DEC-06`](DESIGN_DECISIONS.md)), not
+- **An IP rule matches either endpoint** ([`DEC-06`](docs/DESIGN_DECISIONS.md)), not
   just the source. "Block 192.168.1.50" names an address, not the direction it
   was reached from; the original matched only the source, so the same rule was
   inert whenever that address was the destination. The destination is checked
@@ -187,7 +187,7 @@ QUIC". Verified against the RFC 9001 Appendix A.1 key-derivation vectors.
 
 - **IPv4 only.** IPv6 is not parsed. Non-Ethernet link types are rejected with a
   clear error rather than silently misparsed. (Same as the original.)
-- **pcapng input is not supported** ([`DEC-02`](DESIGN_DECISIONS.md)). The
+- **pcapng input is not supported** ([`DEC-02`](docs/DESIGN_DECISIONS.md)). The
   reader detects the pcapng Section Header magic and raises
   `PcapngUnsupportedError` naming the fix, rather than reporting the file as
   corrupt — roughly a third of real-world captures are pcapng, and "this is the
@@ -205,7 +205,7 @@ QUIC". Verified against the RFC 9001 Appendix A.1 key-derivation vectors.
   non-IP. Deliberate parity break, differential allowlist entry 7.
 - **No encapsulation beyond a single Ethernet header** — no tunnelling, and no
   link-layer types other than plain Ethernet.
-- **Flows are bidirectionally folded by default** ([`DEC-05`](DESIGN_DECISIONS.md)).
+- **Flows are bidirectionally folded by default** ([`DEC-05`](docs/DESIGN_DECISIONS.md)).
   A flow and its reverse share one entry, so a block applies to both directions
   and a SYN can be correlated with the SYN-ACK answering it. The C++ original
   keyed flows by exact five-tuple, which meant the server→client direction was a
@@ -290,10 +290,11 @@ Full project documentation lives in [`docs/`](docs/README.md) — start with the
 | [`docs/TASK_TRACKER.md`](docs/TASK_TRACKER.md) | Current state — task statuses, decisions, what to do next |
 | [`docs/TASK_TRACKER_UPDATE_PROTOCOL.md`](docs/TASK_TRACKER_UPDATE_PROTOCOL.md) | How to keep that tracker consistent across sessions and agents |
 | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | How the known defects get fixed: 30 tasks, dependency graph, risk register |
-| [`docs/AUDIT.md`](docs/AUDIT.md) | The findings — port-vs-C++ verdict, 26 defects, 10 missing engineering rails |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | The findings — port-vs-C++ verdict, defects, missing rails, documentation and session findings |
 | [`docs/AGENTIC_ARCHITECTURE.md`](docs/AGENTIC_ARCHITECTURE.md) | The agentic product vision and roadmap |
 | [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md) | *Why* the port is built this way: every bug fixed relative to the original, safety constraints, trade-offs left open |
 | [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Architecture diagrams — ⚠️ stale, scheduled for rewrite |
+| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Measured throughput by pipeline variant and per-operation costs, guarded against drift by its own test |
 
 `DESIGN_DECISIONS.md` records *why*, not just *what*: every bug fixed relative to
 the original, every intentional behavioural difference, the concurrency

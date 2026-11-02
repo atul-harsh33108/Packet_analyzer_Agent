@@ -13,13 +13,14 @@ the repository root because it is the project's front door; everything else is h
 | Order | Document | What it tells you | Mutable? |
 |---|---|---|---|
 | 1 | [`OPERATING_INSTRUCTIONS.md`](OPERATING_INSTRUCTIONS.md) | **How to work in this repo.** Read order, the five non-negotiable rules, boundaries you must not cross, verification baseline, deliberate quirks not to "fix" | rarely |
-| 2 | [`TASK_TRACKER.md`](TASK_TRACKER.md) | **What is done, decided, and next.** Status of all 30 tasks, decision log, per-task records, session history | **frequently** |
+| 2 | [`TASK_TRACKER.md`](TASK_TRACKER.md) | **What is done, decided, and next.** Status of every task, decision log, per-task records, session history | **frequently** |
 | 3 | [`TASK_TRACKER_UPDATE_PROTOCOL.md`](TASK_TRACKER_UPDATE_PROTOCOL.md) | **How to edit the tracker.** 8 invariants, claim/complete/session-end procedures, status vocabulary, anti-patterns | rarely |
-| 4 | [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | **How to build the fixes.** 30 task specs, dependency graph, 5 human decisions, risk register, verification gates | rarely |
-| 5 | [`AUDIT.md`](AUDIT.md) | **What the problems are.** 66 findings — the port-vs-C++ verdict, 22 defects, 10 missing rails, doc defects | rarely — append new IDs only |
+| 4 | [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | **How to build the fixes.** the task specs, dependency graph, the human decisions, risk register, verification gates | rarely |
+| 5 | [`AUDIT.md`](AUDIT.md) | **What the problems are.** the findings — port-vs-C++ verdict, defects, missing rails, documentation | rarely — append new IDs only |
 | 6 | [`AGENTIC_ARCHITECTURE.md`](AGENTIC_ARCHITECTURE.md) | **Where the project is going.** The 10-layer agentic product vision and roadmap | rarely |
 | — | [`DESIGN_DECISIONS.md`](DESIGN_DECISIONS.md) | **Why the port was built this way.** Every bug fixed vs. the C++ original, safety constraints, testing strategy | rarely |
 | — | [`WORKFLOW.md`](WORKFLOW.md) | **Architecture diagrams.** ⚠️ badly stale — scheduled for rewrite | rarely |
+| — | [`BENCHMARKS.md`](BENCHMARKS.md) | **Measured figures.** Throughput by pipeline variant and per-operation costs, with the workload caveats stated | rarely — when a measurement is retaken |
 
 ---
 
@@ -62,6 +63,12 @@ the repository root because it is the project's front door; everything else is h
   ⚠️ **Badly stale.** Documents a deleted module, re-draws a bug that was already fixed,
   cites five wrong line numbers, and is missing 3 of 13 modules and 7 CLI flags. Being
   rewritten (`DOC-03`, deferred until after Phase 1). Do not use it as a reference.
+
+- **[`BENCHMARKS.md`](BENCHMARKS.md)** — The measured performance baseline: throughput
+  for the three pipeline variants and per-operation costs, with the workload caveats
+  stated rather than averaged away. Every figure is recomputable from
+  `tests/benchmarks/baseline.json`, and `tests/test_benchmark_baseline.py` fails on
+  drift rather than trusting the prose.
 
 ---
 

@@ -1,7 +1,7 @@
 # Benchmark baseline
 
 **Published baseline for `T1-08`.** Every number here comes from
-[`tests/benchmarks/baseline.json`](tests/benchmarks/baseline.json), which is
+[`tests/benchmarks/baseline.json`](../tests/benchmarks/baseline.json), which is
 committed alongside this file. Nothing below is transcribed by hand — if you
 change a benchmark, regenerate the JSON and this document together, or they will
 disagree.

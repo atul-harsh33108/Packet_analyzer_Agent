@@ -2,12 +2,12 @@
 schema: dpi-engine-tracker/v1
 status: active
 phase: 6
-current_task: DOC-07
-next_action: Finish `DOC-07`: add a Documentation section to the root `README.md` that links `docs/README.md` (plus `AUDIT.md` and `IMPLEMENTATION_PLAN.md`), then open every link in `docs/README.md` and confirm it resolves to a file that exists, and set `DOC-07` to `done` with the check recorded.
-blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is complete at 7/7; DOC-07 is the only remaining task (partial)]
+current_task: none
+next_action: No task remains on the board: all 68 are done. Before any new work, read §1 and decompose the next milestone in `docs/IMPLEMENTATION_PLAN.md` — the open engine findings `D-11`, `D-15`, `D-19`, `D-23` and `D-27` are the recorded candidates — rather than starting untracked changes.
+blockers: [zero blocked tasks; no task waits on another. Zero open decisions: `DEC-01`..`DEC-12` are all decided. OPEN FINDINGS: D-11, D-15, D-19, D-23 (engine; D-23 re-measurable via T1-08), D-27 accepted as DEC-07 2026-10-18; D-29 closed by T3-11 and D-28 by T3-08; Phase 0, 0.5, 1 and 2 complete with Phase 1 verified; Phase 3 at 11/11, Phase 4 at 8/8 and Phase 5 complete at 7/7; Phase 6 is complete at 7/7; the DOC track is complete at 9/9 and no task remains]
 last_updated: 2026-11-02
 last_updated_by: big-pickle
-session: ses_t6_07
+session: ses_doc_07
 ---
 
 # Task Tracker — `dpi-engine`
@@ -40,15 +40,15 @@ session workflow — what to read, in what order, when to stop — read
 | Field | Value |
 |---|---|
 | **Phase** | **6** — Write path |
-| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 7/7** — DOC: 8/9 |
-| **Current task** | **`DOC-07`** — documentation index: link `docs/README.md` from the root `README.md` and verify every link resolves (partial) |
-| **Next action** | Finish `DOC-07`: add a Documentation section to the root `README.md` that links `docs/README.md` (plus `AUDIT.md` and `IMPLEMENTATION_PLAN.md`), then open every link in `docs/README.md` and confirm it resolves to a file that exists, and set `DOC-07` to `done` with the check recorded. |
+| **Phase progress** | Phase 0: 11/11 — Phase 0.5: 2/2 — Phase 1: 9/9 (**verified**) — Phase 2: 4/4 — Phase 3: 11/11 (the three gaps it left are closed) — **Phase 4: 8/8** — **Phase 5: 7/7** — **Phase 6: 7/7** — DOC: 9/9 |
+| **Current task** | **none** — all 68 tasks are done; the board is empty |
+| **Next action** | No task remains on the board: all 68 are done. Before any new work, read §1 and decompose the next milestone in `docs/IMPLEMENTATION_PLAN.md` — the open engine findings `D-11`, `D-15`, `D-19`, `D-23` and `D-27` are the recorded candidates — rather than starting untracked changes. |
 | **Blocked by** | **nothing.** Zero open decisions and zero blocked tasks — `DEC-06` was the last, 2026-10-13 |
 | **Open decisions** | **none.** `DEC-01`–`DEC-03` and `DEC-05` by the user, `DEC-02` ratified in `T05-02`, `DEC-04` in `T1-05`, `DEC-06` in `T1-05` |
 | **Critical path** | `T0-01` → `T0-02` → `T0-11` → `T1-01`/`T1-03` → `T1-06` → Phase 2 exit |
 | **Untracked findings** | none without an ID. **Two are open and unowned**: `D-23` (throughput; re-measurable via `T1-08`), `D-27` (accepted as `DEC-07`, deliberately not fixed). `D-29` is **closed** (`T3-11`: a forbidden call reached through a value — `getattr(os, "system")(...)`, `from os import *` + `system(...)` — was caught by **neither** scanner pass; the scanner now resolves the spelling as well as the name). `D-28` is **closed** (`T3-08`) |
 | **Documentation** | **all `M-01`–`M-08` closed.** `AUDIT.md` and this file were reconciled on 2026-10-15 (`D-##` counts) and again on 2026-10-20, when `D-27`/`D-28` were found counted in no column of §6 and the `§2` heading/intro were drifting from the file. `M-08` was the worst of them: **six task records (`T3-01`–`T3-06`) were trapped inside Appendix A's template code fence**, rendering as literal code, so §5 held no `T3-*` record at all. The tracker is now guarded by `tests/test_tracker_integrity.py` (9 tests) rather than by review — it was the only document in the repo with no test, and a clobbered heading, a stale rollup and a fence swallowing six records all stayed invisible under a fully green gate |
-| **Session** | `ses_t6_07` — `T6-07` closed; Phase 6 complete |
+| **Session** | `ses_doc_07` — `DOC-07` closed; all tasks done |
 
 **Phase 1 is complete — 9/9 — and exited unconditionally (`T1-04`, then
 `ses_t1_04b` once Docker was available).** Four of Appendix B's five criteria are met and tested. The fifth,
@@ -224,9 +224,9 @@ It is a **parity break** and must be recorded in the differential allowlist, exa
 | **4** | Read-only agents | 8 | **8** | 0 | 0 | 0 | 0 | **complete** (2 of 3 exit criteria need a provider key) |
 | **5** | Fingerprinting + ClassifierGap | 7 | **7** | 0 | 0 | 0 | 0 | **complete** (the exit criterion is measured against the corpus) |
 | **6** | Write path | 7 | **7** | 0 | 0 | 0 | 0 | **complete** (the exit criterion is executed end to end) |
-| **DOC** | Documentation track | 9 | **8** | 0 | 0 | 0 | 1 (`DOC-07` partial) | not met |
+| **DOC** | Documentation track | 9 | **9** | 0 | 0 | 0 | 0 | **complete** (the index covers every document and every link resolves) |
 
-**Totals:** 68 tasks - **67** done - 0 in progress - 0 blocked - 0 pending - 1 partial.
+**Totals:** 68 tasks - **68** done - 0 in progress - 0 blocked - 0 pending - 0 partial.
 The "6 blocked / six tasks cannot start until a human decides" text that stood here
 was correct only on 2026-10-03. All six decisions (`DEC-01`…`DEC-06`) were made
 between 2026-10-12 and 2026-10-13 and each unblocked its task; **there are now zero
@@ -278,7 +278,7 @@ Status vocabulary is closed (7 values) — see
 | `DOC-04` | `AGENTIC_ARCHITECTURE.md` §1-§3, §8, §10 | `M-04` | done | - | 3 h | Now |
 | `DOC-05` | `OSC/` superseded banners + CMake correction | `M-05` `M-06` | done | — | 30 min |
 | `DOC-06` | Fix `conftest.py` reference | `M-07` | done | `T0-02` | 10 min |
-| `DOC-07` | Documentation index (`docs/README.md`) | - | partial | - | 15 min |
+| `DOC-07` | Documentation index (`docs/README.md`) | - | done | - | 15 min |
 | `DOC-08` | Gitignore / delete session transcripts | `S-01` | done | - | 5 min |
 | `DOC-09` | The tracker's integrity test covers every phase (`M-09`) | `M-09` | done | Phase 4's counts are checked by the gate that checks the other phases, so they cannot drift again under a green run | 0.25 d |
 | `T2-01` | **Golden-capture corpus + scorer** | - | done | - | 3 d |
@@ -773,14 +773,13 @@ or `dropped` and say why.
 
 ### `DOC-07` — Documentation index
 
-- **Status:** partial — `docs/README.md` created 2026-10-03; root `README.md` still needs a link to it
-- **Claimed by:** ses_init · **Session:** ses_init · **Blocked by:** —
-- **Files:** `docs/README.md` (done), `../README.md` (remaining)
-- **Test added:** `n/a` — verify by opening `../README.md` and finding a link to `docs/README.md`, and that every link in `docs/README.md` resolves
-- **How it was tackled:** Created `docs/README.md` as a navigation index with a read-order table, a one-line purpose per document, a table of the docs that stay beside their own directory (`../README.md`, `../OSC/*.md`, `../tests/differential/README.md`), and the four documentation conventions. All 8 project docs were moved here with `git mv`.
-- **Deviations:** Planned as "link new docs from root README.md". Actual scope is larger — all 8 `.md` files moved into `docs/`, root `README.md` kept, and `docs/README.md` added as an index.
-- **Verification:** every relative link in `docs/` resolves; `git status` records all 8 files as renames with 0 insertions/deletions
-- **Closed findings:** — · **Follow-ups:** add a Documentation section to `../README.md`
+- **Status:** done — **Claimed by:** big-pickle — **Session:** ses_doc_07 — **Blocked by:** —
+- **Files:** `docs/README.md` and `../README.md` (both complete); `docs/BENCHMARKS.md` (one broken self-link corrected).
+- **Test added:** `n/a` — verified with a link checker over every relative link in both index files: **18 in the root `README.md`, 26 in `docs/README.md`, 0 broken**; the single relative link in `docs/BENCHMARKS.md` resolves too.
+- **How it was tackled:** Created `docs/README.md` as a navigation index with a read-order table, a one-line purpose per document, a table of the docs that stay beside their own directory (`../README.md`, `../OSC/*.md`, `../tests/differential/README.md`), and the four documentation conventions. All 8 project docs were moved here with `git mv`. **Finished 2026-11-02 by reading the index rather than the record:** the root `README.md` link had already landed in `b4cfc84` and was only missing from this record, so checking the files found the real gaps — `docs/BENCHMARKS.md` (created by `T1-08`) was in no index, the read-order table still said "30 tasks / 5 decisions / 66 findings / 22 defects", and the root README's four `DESIGN_DECISIONS.md` links pointed at a file that had moved into `docs/`. The benchmark now has its own row in both indexes, the counts became descriptions that cannot go stale, and the four links point at `docs/DESIGN_DECISIONS.md`.
+- **Deviations:** Planned as "link new docs from root README.md". Actual scope is larger — all 8 `.md` files moved into `docs/`, root `README.md` kept, and `docs/README.md` added as an index. The record's stated remainder (a link from the root README) had been delivered in `b4cfc84`; the work that remained was the missing `BENCHMARKS.md` entry and the stale counts and links, which only a check of the files could find.
+- **Verification:** every relative link in `docs/` resolves; `git status` records all 8 files as renames with 0 insertions/deletions. **2026-11-02:** link check **0 broken** (18 root, 26 index, 1 in `BENCHMARKS.md`); `uv run ruff check .` clean; `uv run mypy` clean on 65 source files; `uv run pytest -q --cov` → **2365 passed / 25 skipped / 94.68%**; `tests/test_tracker_integrity.py` → **9 passed**.
+- **Closed findings:** — · **Follow-ups:** none — this closes the documentation track (`DOC` 9/9) and the last task on the board.
 - **Notes:** the two `session-ses_*.md` transcripts were removed from the working tree during this work, which also closes the hygiene half of `S-01`
 
 ### `DOC-08` — Gitignore / delete session transcripts
@@ -1829,6 +1828,7 @@ sessions and agents — a new session reads this before planning anything.
 
 | Date | Session | Agent | Tasks touched | Outcome | Next action |
 |---|---|---|---|---|---|
+| 2026-11-02 | `ses_doc_07` | big-pickle | `DOC-07` | **`DOC-07` done — the board is empty (68/68)** — the documentation index finished by checking the files instead of the record. The root `README.md` link to `docs/README.md` had already landed in `b4cfc84`; the record had simply never been updated, so the real gaps were elsewhere: `docs/BENCHMARKS.md` (created by `T1-08` after the index was written) appeared in no index, the read-order table still quoted 30 tasks / 5 decisions / 66 findings / 22 defects, and **all four** `DESIGN_DECISIONS.md` links in the root README pointed at a file that had moved into `docs/`. The benchmark now has a row in both indexes, the counts became descriptions that cannot go stale, the four links point at `docs/DESIGN_DECISIONS.md`, and the one relative link inside `BENCHMARKS.md` was corrected. A link checker over every relative link finds **18 root / 26 index / 0 broken** (and 1/0 in `BENCHMARKS.md`); docs-only, so the gate is unchanged at **2365 passed / 25 skipped / 94.68%**, ruff and mypy clean on 65 files, tracker integrity **9 passed**. | No tracked task remains: decompose the next milestone in `docs/IMPLEMENTATION_PLAN.md`; `D-11`, `D-15`, `D-19`, `D-23` and `D-27` are the open findings. |
 | 2026-11-02 | `ses_t6_07` | big-pickle | `T6-07` | **`T6-07` done — Phase 6 complete at 7/7** — the phase's exit criterion executed rather than described, and it added **no production code**. A real capture goes through the real Policy node (a scripted `Model`, the real MCP server and tool calls), a real `simulate_ruleset` counterfactual is classified by `blast_radius.classify`, the reviewer approves the exact digest, `WritePath.apply` commits and activates, and a real `run_pipeline` under the active version now blocks the TikTok flow the proposal named — the proof is the pipeline's own `blocked_flows`, not a field the test composed. The revert is a **new** version whose `parent` is the version it undid (never `RuleStore.restore`, which commits without activating or auditing), the prior document, the prior version still in history, the run restored to blocking nothing, and a 3-entry chain that still verifies. The refusals are on the same road: a total-loss ruleset refused by the queue **and** the door with no version and no entry; the human gate cannot be skipped by a missing, pending or rejected request; an approval for one change cannot apply another; no change applies twice; an edited proposal is refused before the store; and a ruleset cannot ride `AUTO_APPLY`. **10 new tests (25 → 35); the bite harness runs only the new `EndToEnd` tests and killed 10/10 mutants** (9 in `write_path.py`, 1 in `audit_log.py`); targeted 181 passed; **full gate 2365 passed / 25 skipped / 94.65%; ruff and mypy clean on 65 files; `write_path.py` 100%.** | `DOC-07`: the documentation index — link `docs/README.md` from the root `README.md` and verify every link resolves. |
 | 2026-11-02 | `ses_t6_06` | big-pickle | `T6-06` | **`T6-06` done — Phase 6 at 6/7** — the one door and the immutable log. `WritePath.apply` re-derives the digest, refuses `REFUSED`, checks the tier against the approval, refuses a replay, then **commits → activates → appends**, so a record never claims a change that is not in force; the record and the version it names are one event because there is one function. The log is append-only JSONL plus a `head.json` anchor: the hash covers the previous hash, so an edited or deleted entry breaks `verify_chain`, and the anchor catches the deleted *last* entry the chain cannot see; `append` refuses to extend a log that does not verify, and `rebuild_head` repairs only a torn anchor. Auto-apply is signature-table only, carries no request, and is recorded as `engine:auto-apply`; every human tier needs an approved request whose proposal and decision are the ones being applied. **114 tests; the first harness run left 5 survivors and all 5 were test defects** — four `match=` patterns satisfied by the temp path and one by a tier name in a neighbouring message — so **65/65 mutations killed** after the fixes; **full gate 2355 passed / 25 skipped / 94.68%; ruff and mypy clean on 65 files; `audit_log.py` and `write_path.py` 100%.** | `T6-07`: the write path end to end — propose, approve, apply, revert, and every refusal. |
 | 2026-11-01 | `ses_t6_05` | big-pickle | `T6-05` | **`T6-05` done — Phase 6 at 5/7** — the human gate, and the first part of the write path that survives its own process. A request is **one file**: `pending` to `approved` or `rejected`, published by the policy store's own `fsync`-then-`os.replace` writer (now public as `write_json_atomic`), so a crash leaves the old state or the new one and never half of either. `approve` names the **digest the reviewer saw** and refuses any other, while `Proposal.from_json` re-checks the proposal on every load, so an edited document, provenance or citation is refused before the digest check runs. A rejection is **terminal** and a decision cannot be rewritten; retrying the *same* decision is idempotent, because a reviewer who double-clicks must not get a failure that teaches them to bypass the gate. The queue **records** the breaker's tier rather than re-classifying the candidate, refuses `REFUSED` (already answered) and `AUTO_APPLY` (no human needed) both at `submit` and in the record constructor, and imports no store and calls nothing that applies. `BreakerDecision` gained `to_json`/`from_json` plus the invariant that protected apps are a cause, not a note, outside a refusal. **68 tests; the first harness run left 3 survivors and all 3 were test defects** — a masked check, an unexercised auto-apply file boundary (now a real hole closed), and a dead type check — so **32/32 mutations killed** after the fixes; **full gate 2241 passed / 25 skipped / 94.43%; ruff and mypy clean on 63 files; `approval_queue.py` 92%.** | `T6-06`: one door that verifies the digest and tier, writes one version and one append-only audit entry, refuses a replay, and detects an edited or deleted entry. |
